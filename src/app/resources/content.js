@@ -1,24 +1,25 @@
 import { InlineCode } from "@/once-ui/components";
 
 const person = {
-  firstName: "Selene",
-  lastName: "Yu",
+  firstName: "Ricardo",
+  lastName: "Gómez",
   get name() {
     return `${this.firstName} ${this.lastName}`;
   },
-  role: "Design Engineer",
+  role: "Diseñador Gráfico",
   avatar: "/images/avatar.jpg",
-  location: "Asia/Jakarta", // Expecting the IANA time zone identifier, e.g., 'Europe/Vienna'
-  languages: ["English", "Bahasa"], // optional: Leave the array empty if you don't want to display languages
+  location: "America/Mexico_City", // Expecting the IANA time zone identifier, e.g., 'Europe/Vienna'
+  languages: ["Español", "Inglés"], // optional: Leave the array empty if you don't want to display languages
 };
 
 const newsletter = {
   display: true,
-  title: <>Subscribe to {person.firstName}'s Newsletter</>,
+  title: <>Suscríbete a mi Blog</>, //{person.firstName} <-- esto es por si quiero llamar por el nombre "Default"
   description: (
     <>
-      I occasionally write about design, technology, and share thoughts on the intersection of
-      creativity and engineering.
+      Ilustrador ocasional y Animador Motion a tiempo completo. Aquí relato mi experiencia
+      en el mundo del diseño y les hago un registro de las herramientas 
+      de diseño que me han funcionado.
     </>
   ),
 };
@@ -29,22 +30,22 @@ const social = [
   {
     name: "GitHub",
     icon: "github",
-    link: "https://github.com/once-ui-system/nextjs-starter",
+    link: "https://github.com/Ricolinos",
   },
   {
     name: "LinkedIn",
     icon: "linkedin",
-    link: "https://www.linkedin.com/company/once-ui/",
+    link: "https://www.linkedin.com/in/ricardo-g%C3%B3mez-ruiz-velasco-448b50aa/",
   },
   {
-    name: "X",
-    icon: "x",
-    link: "",
+    name: "Instagram",
+    icon: "instagram",
+    link: "https://www.instagram.com/rick.olinos/",
   },
   {
     name: "Email",
     icon: "email",
-    link: "mailto:example@gmail.com",
+    link: "mailto:ricardo.grve@outlook.com",
   },
 ];
 
@@ -52,18 +53,18 @@ const home = {
   label: "Home",
   title: `${person.name}'s Portfolio`,
   description: `Portfolio website showcasing my work as a ${person.role}`,
-  headline: <>Design engineer and builder</>,
+  headline: <>Diseñador Gráfico</>,
   subline: (
     <>
-      I'm Selene, a design engineer at <InlineCode>FLY</InlineCode>, where I craft intuitive
-      <br /> user experiences. After hours, I build my own projects.
+      Soy <InlineCode>Diseñador Gráfico</InlineCode>, Animador Motion, ilustrador ocasional.
+      <br />Y un explorador constante de nuevas herramientas de diseño.
     </>
   ),
 };
 
 const about = {
-  label: "About",
-  title: "About me",
+  label: "Sobre mí",
+  title: "Sobre mí",
   description: `Meet ${person.name}, ${person.role} from ${person.location}`,
   tableOfContent: {
     display: true,
@@ -74,41 +75,49 @@ const about = {
   },
   calendar: {
     display: true,
-    link: "https://cal.com",
+    link: "https://calendar.app.google/2L6qw5uzQEjj1TXB8/",
   },
   intro: {
     display: true,
-    title: "Introduction",
+    title: "Introducción",
     description: (
       <>
-        Selene is a Jakarta-based design engineer with a passion for transforming complex challenges
-        into simple, elegant design solutions. Her work spans digital interfaces, interactive
-        experiences, and the convergence of design and technology.
+        Ricardo Gómez, Diseñador gráfico apasionado de la ilustración, la animación y la tecnología.
+        Originario de la vibrante CDMX. Con estudios en Diseño Gráfico 
+        y un diplomado en Creatividad Digital, ha explorado el fascinante mundo del motion graphics,
+         la tecnología y un poco de programación web. Para Ricardo, cada desafío es una oportunidad para crear 
+         algo único y significativo. 
       </>
     ),
   },
   work: {
     display: true, // set to false to hide this section
-    title: "Work Experience",
+    title: "Experiencia Laboral",
     experiences: [
       {
-        company: "FLY",
-        timeframe: "2022 - Present",
-        role: "Senior Design Engineer",
+        company: "NBA Mexico (independiente)",
+        timeframe: "2021 - A la actualidad",
+        role: "Animador Motion",
         achievements: [
           <>
-            Redesigned the UI/UX for the FLY platform, resulting in a 20% increase in user
-            engagement and 30% faster load times.
+            Diseño y creación de paquetes gráficos, desarrollando contenidos visuales 
+            innovadores y atractivos para captar la atención de la audiencia.
           </>,
           <>
-            Spearheaded the integration of AI tools into design workflows, enabling designers to
-            iterate 50% faster.
+            Optimización de proyectos en After Effects, implementando técnicas y flujos de 
+            trabajo que redujeron tiempos de entrega y mejoraron la eficiencia del equipo.
+          </>,
+          <>
+            Desarrollo de presentaciones visuales impactantes para la NBA, contribuyendo a 
+            fortalecer relaciones con partners comerciales y destacando la marca con un enfoque creativo y profesional.
           </>,
         ],
+
+        
         images: [
           // optional: leave the array empty if you don't want to display images
           {
-            src: "/images/projects/project-01/cover-01.jpg",
+            src: "/images/projects/project-NBA/cover-01.png",
             alt: "Once UI Project",
             width: 16,
             height: 9,
@@ -116,40 +125,56 @@ const about = {
         ],
       },
       {
-        company: "Creativ3",
-        timeframe: "2018 - 2022",
-        role: "Lead Designer",
+        company: "Helvex",
+        timeframe: "2020 - 2021",
+        role: "Diseñador Senior",
         achievements: [
           <>
-            Developed a design system that unified the brand across multiple platforms, improving
-            design consistency by 40%.
+            Desarrollo de la línea gráfica para los contenidos en redes sociales de la "Proyecta", 
+            creando una identidad visual coherente y moderna que reforzó la imagen corporativa.
           </>,
           <>
-            Led a cross-functional team to launch a new product line, contributing to a 15% increase
-            in overall company revenue.
+            Seguimiento editorial de catálogos de productos, asegurando la consistencia en el diseño, 
+            la calidad visual y el cumplimiento de los plazos de entrega.
           </>,
+          <>
+          Colaboración con equipos multidisciplinarios para alinear los diseños con las estrategias 
+          de marketing y las necesidades del negocio.
+        </>,
+        <>
+          Creación de materiales gráficos para campañas publicitarias, eventos y promociones, 
+          logrando una comunicación visual efectiva y atractiva.
+        </>,
         ],
-        images: [],
+        images: [
+          // optional: leave the array empty if you don't want to display images
+          {
+            src: "/images/projects/project-Helvex/img-01.jpg",
+            alt: "Once UI Project",
+            width: 9,
+            height: 9,
+          },
+        ],
       },
     ],
   },
   studies: {
     display: true, // set to false to hide this section
-    title: "Studies",
+    title: "Estudios",
     institutions: [
       {
-        name: "University of Jakarta",
-        description: <>Studied software engineering.</>,
+        name: "Universidad Autónoma Metropolitana",
+        description: <>Diseño de la comunicación Gráfica</>,
       },
       {
-        name: "Build the Future",
-        description: <>Studied online marketing and personal branding.</>,
+        name: "Invaders Institute",
+        description: <>Diplomado en creatividad Digital</>,
       },
     ],
   },
   technical: {
-    display: true, // set to false to hide this section
-    title: "Technical skills",
+    display: false, // set to false to hide this section
+    title: "Habilidades",
     skills: [
       {
         title: "Figma",
@@ -189,24 +214,24 @@ const about = {
 
 const blog = {
   label: "Blog",
-  title: "Writing about design and tech...",
-  description: `Read what ${person.name} has been up to recently`,
+  title: "Escribiendo sobre ilustración, tecnología y diseño...",
+  description: `Lee las últimas entradas y actualizaciones de ${person.name}`,
   // Create new blog posts by adding a new .mdx file to app/blog/posts
   // All posts will be listed on the /blog route
 };
 
 const work = {
-  label: "Work",
-  title: "My projects",
-  description: `Design and dev projects by ${person.name}`,
+  label: "Trabajo",
+  title: "Mis proyectos",
+  description: `Diseño y desarrollo de proyectos realizados por ${person.name}`,
   // Create new project pages by adding a new .mdx file to app/blog/posts
   // All projects will be listed on the /home and /work routes
 };
 
 const gallery = {
-  label: "Gallery",
-  title: "My photo gallery",
-  description: `A photo collection by ${person.name}`,
+  label: "Galería",
+  title: "Mi galería de imagenes",
+  description: `Una muestra visual de los proyectos ejecutados por ${person.name}`,
   // Images from https://pexels.com
   images: [
     {
@@ -237,7 +262,7 @@ const gallery = {
     {
       src: "/images/gallery/img-06.jpg",
       alt: "image",
-      orientation: "vertical",
+      orientation: "horizontal",
     },
     {
       src: "/images/gallery/img-07.jpg",
@@ -257,12 +282,12 @@ const gallery = {
     {
       src: "/images/gallery/img-10.jpg",
       alt: "image",
-      orientation: "horizontal",
+      orientation: "vertical",
     },
     {
       src: "/images/gallery/img-11.jpg",
       alt: "image",
-      orientation: "vertical",
+      orientation: "horizontal",
     },
     {
       src: "/images/gallery/img-12.jpg",
@@ -277,7 +302,12 @@ const gallery = {
     {
       src: "/images/gallery/img-14.jpg",
       alt: "image",
-      orientation: "horizontal",
+      orientation: "vertical",
+    },
+    {
+      src: "/images/gallery/img-15.jpg",
+      alt: "image",
+      orientation: "vertical",
     },
   ],
 };
