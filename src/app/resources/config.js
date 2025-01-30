@@ -1,4 +1,4 @@
-const baseURL = "demo.magic-portfolio.com";
+const baseURL = "Suscríbete a mi blog";
 
 const routes = {
   "/": true,
