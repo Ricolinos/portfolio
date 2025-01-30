@@ -1,4 +1,4 @@
-const baseURL = "Suscríbete a mi blog";
+const baseURL = "ricolinos.com";
 
 const routes = {
   "/": true,
