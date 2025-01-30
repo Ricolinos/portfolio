@@ -12,6 +12,26 @@ import { Source_Code_Pro } from "next/font/google";
 import { person, home } from "@/app/resources/content";
 import { Background, Column, Flex, ToastProvider } from "@/once-ui/components";
 
+import { Analytics } from '@vercel/analytics/next';
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="es">
+      <head>
+        <title>Next.js</title>
+      </head>
+      <body>
+        {children}
+        <Analytics />
+      </body>
+    </html>
+  );
+}
+
 export async function generateMetadata() {
   return {
     metadataBase: new URL(`https://${baseURL}`),
@@ -72,7 +92,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
   return (
     <Flex
       as="html"
-      lang="en"
+      lang="es"
       background="page"
       data-neutral={style.neutral}
       data-brand={style.brand}
