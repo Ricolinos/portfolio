@@ -14,24 +14,6 @@ import { Background, Column, Flex, ToastProvider } from "@/once-ui/components";
 
 import { Analytics } from '@vercel/analytics/next';
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="es">
-      <head>
-        <title>Next.js</title>
-      </head>
-      <body>
-        {children}
-        <Analytics />
-      </body>
-    </html>
-  );
-}
-
 export async function generateMetadata() {
   return {
     metadataBase: new URL(`https://${baseURL}`),
@@ -175,6 +157,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             </Flex>
           </Flex>
           <Footer />
+          <Analytics /> 
         </Column>
       </ToastProvider>
     </Flex>
