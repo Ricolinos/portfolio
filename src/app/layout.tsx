@@ -8,7 +8,6 @@ import { baseURL, effects, style } from "@/app/resources";
 
 import { Inter } from "next/font/google";
 import { Source_Code_Pro } from "next/font/google";
-import { Source_Serif_Pro } from "next/font/google";
 
 import { person, home } from "@/app/resources/content";
 import { Background, Column, Flex, ToastProvider } from "@/once-ui/components";
@@ -56,11 +55,7 @@ type FontConfig = {
 	Replace with code for secondary and tertiary fonts
 	from https://once-ui.com/customize
 */
-const secondary = Source_Serif_Pro({
-  variable: "--font-secondary",
-  subsets: ["latin"],
-  display: "swap",
-});
+const secondary: FontConfig | undefined = undefined;
 const tertiary: FontConfig | undefined = undefined;
 /*
  */
