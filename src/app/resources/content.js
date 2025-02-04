@@ -75,7 +75,7 @@ const about = {
   },
   calendar: {
     display: true,
-    link: "https://calendar.app.google/2L6qw5uzQEjj1TXB8/",
+    link: "https://calendar.app.google/uzjKpMvDLW51CwDV8",
   },
   intro: {
     display: true,

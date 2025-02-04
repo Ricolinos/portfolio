@@ -22,10 +22,15 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
   const [email, setEmail] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [touched, setTouched] = useState<boolean>(false);
+  const [responseMessage, setResponseMessage] = useState<string>("");
+  const [responseType, setResponseType] = useState<"success" | "error" | "">("");
+
 
   const validateEmail = (email: string): boolean => {
     if (email === "") {
       return true;
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return emailPattern.test(email);
     }
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -37,20 +42,57 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
     setEmail(value);
 
     if (!validateEmail(value)) {
-      setError("Please enter a valid email address.");
+      setError("Por favor, ingresa un email válido.");
     } else {
       setError("");
     }
   };
 
-  const debouncedHandleChange = debounce(handleChange, 2000);
-
   const handleBlur = () => {
     setTouched(true);
     if (!validateEmail(email)) {
-      setError("Please enter a valid email address.");
+      setError("Por favor, ingresa un email válido.");
     }
   };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setResponseMessage("");
+    setResponseType("");
+
+    if (!validateEmail(email)) {
+      setError("Por favor, ingresa un email válido.");
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("EMAIL", email);
+
+      const response = await fetch(mailchimp.action, {
+        method: "POST",
+        body: formData,
+        headers: {
+          "Accept": "application/json",
+        },
+      });
+
+      const textResponse = await response.text();
+
+      if (response.ok && textResponse.includes("Thank you")) {
+        setResponseType("success");
+        setResponseMessage("¡Gracias por suscribirte!");
+      } else {
+        setResponseType("error");
+        setResponseMessage("Hubo un error al suscribirte. Intenta de nuevo.");
+      }
+    } catch (err) {
+      setResponseType("error");
+      setResponseMessage("No se pudo conectar con el servidor.");
+    }
+  };
+
+  const debouncedHandleChange = debounce(handleChange, 2000);
 
   return (
     <Column
