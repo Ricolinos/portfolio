@@ -235,6 +235,36 @@ const gallery = {
   // Images from https://pexels.com
   images: [
     {
+      src: "/images/gallery/img-21.jpg",
+      alt: "image",
+      orientation: "horizontal",
+    },
+    {
+      src: "/images/gallery/img-20.jpg",
+      alt: "image",
+      orientation: "vertical",
+    },
+    {
+      src: "/images/gallery/img-19.jpg",
+      alt: "image",
+      orientation: "square",
+    },
+    {
+      src: "/images/gallery/img-18.jpg",
+      alt: "image",
+      orientation: "vertical",
+    },
+    {
+      src: "/images/gallery/img-17.jpg",
+      alt: "image",
+      orientation: "vertical",
+    },
+    {
+      src: "/images/gallery/img-16.jpg",
+      alt: "image",
+      orientation: "square",
+    },
+    {
       src: "/images/gallery/img-01.jpg",
       alt: "image",
       orientation: "vertical",
@@ -302,12 +332,12 @@ const gallery = {
     {
       src: "/images/gallery/img-14.jpg",
       alt: "image",
-      orientation: "vertical",
+      orientation: "square",
     },
     {
       src: "/images/gallery/img-15.jpg",
       alt: "image",
-      orientation: "vertical",
+      orientation: "square",
     },
   ],
 };
