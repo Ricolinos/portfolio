@@ -43,6 +43,8 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  overflow: auto; /* ← clave: permite scroll si la imagen se hace grande */
+  -webkit-overflow-scrolling: touch; /* suaviza scroll en iOS */
 }
 
 .lightboxImage {
@@ -50,6 +52,9 @@
   max-height: 90vh;
   object-fit: contain;
   border-radius: 2%;
+  /* Permitir interacción táctil */
+  touch-action: pan-x pan-y; /* permite desplazarse si la imagen es grande */
+  cursor: zoom-in;
 }
 
 /* Botones de navegación del lightbox */
@@ -57,7 +62,9 @@
   position: fixed;
   top: 50%;
   transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(4px); /* ← lo recuperamos */
+  -webkit-backdrop-filter: blur(4px); /* compatibilidad Safari */
   color: white;
   border: none;
   width: 50px;
@@ -65,13 +72,13 @@
   border-radius: 50%;
   font-size: 24px;
   cursor: pointer;
-  backdrop-filter: blur(4px);
   transition: background 0.2s ease;
   z-index: 1001;
-  left: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Asegurar que el blur siempre vea negro */
+  isolation: isolate; /* ← clave: evita que el blur muestre contenido cambiante */
 }
 
 .navButton:hover {
@@ -84,9 +91,14 @@
 }
 
 /* Flecha derecha: sobrescribe la posición izquierda por 'right' */
-.navButton:last-child {
-  left: auto;
+.navButtonLeft {
+  left: 24px;
+  right: auto;
+}
+
+.navButtonRight {
   right: 24px;
+  left: auto;
 }
 
 /* Contador de imágenes (ej: "3 de 21") */
