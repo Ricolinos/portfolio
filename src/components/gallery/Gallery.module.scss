@@ -1,14 +1,110 @@
 .masonryGrid {
-    display: flex;
-    margin-left: calc(-1 * var(--static-space-16));
-    width: 100%;
+  display: flex;
+  margin-left: calc(-1 * var(--static-space-16));
+  width: 100%;
 }
 
 .masonryGridColumn {
-    padding-left: var(--static-space-16);
-    background-clip: padding-box;
+  padding-left: var(--static-space-16);
+  background-clip: padding-box;
 }
 
-.gridItem {
-    margin-bottom: var(--static-space-16);
+.gridItemWrapper {
+  cursor: pointer;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  transition: transform 0.3s ease;
+  will-change: transform;
+  margin-bottom: var(--static-space-16);
+}
+
+.gridItemWrapper:hover {
+  transform: scale(1.02);
+}
+
+/* Lightbox */
+.lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.9);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.lightboxContent {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.lightboxImage {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 2%;
+}
+
+/* Botones de navegación del lightbox */
+.navButton {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  font-size: 24px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s ease;
+  z-index: 1001;
+  left: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.navButton:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.navButton:focus {
+  outline: 2px solid white;
+  outline-offset: 2px;
+}
+
+/* Flecha derecha: sobrescribe la posición izquierda por 'right' */
+.navButton:last-child {
+  left: auto;
+  right: 24px;
+}
+
+/* Contador de imágenes (ej: "3 de 21") */
+.imageCounter {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  backdrop-filter: blur(2px);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
