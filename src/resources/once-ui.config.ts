@@ -34,7 +34,7 @@ const display: DisplayConfig = {
 // Set password in the .env file, refer to .env.example
 const protectedRoutes: ProtectedRoutesConfig = {
   "/blog/05-enter-the-void": true,
-  "/blog/204-burnout-sin-limites": true,
+  "/blog/04-burnout-sin-limites": true,
 };
 
 // Import and set font for each variant
