@@ -1,7 +1,8 @@
 "use client";
 
-import { mailchimp } from "@/app/resources";
-import { Button, Flex, Heading, Input, Text, Background, Column } from "@/once-ui/components";
+import { mailchimp, newsletter } from "@/resources";
+import { Button, Heading, Input, Text, Background, Column, Row } from "@once-ui-system/core";
+import { opacity, SpacingToken } from "@once-ui-system/core";
 import { useState } from "react";
 
 function debounce<T extends (...args: any[]) => void>(func: T, delay: number): T {
@@ -12,25 +13,14 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): T
   }) as T;
 }
 
-type NewsletterProps = {
-  display: boolean;
-  title: string | JSX.Element;
-  description: string | JSX.Element;
-};
-
-export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
+export const Mailchimp: React.FC<React.ComponentProps<typeof Column>> = ({ ...flex }) => {
   const [email, setEmail] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [touched, setTouched] = useState<boolean>(false);
-  const [responseMessage, setResponseMessage] = useState<string>("");
-  const [responseType, setResponseType] = useState<"success" | "error" | "">("");
-
 
   const validateEmail = (email: string): boolean => {
     if (email === "") {
       return true;
-      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      return emailPattern.test(email);
     }
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -42,62 +32,26 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
     setEmail(value);
 
     if (!validateEmail(value)) {
-      setError("Por favor, ingresa un email válido.");
+      setError("Please enter a valid email address.");
     } else {
       setError("");
     }
   };
 
+  const debouncedHandleChange = debounce(handleChange, 2000);
+
   const handleBlur = () => {
     setTouched(true);
     if (!validateEmail(email)) {
-      setError("Por favor, ingresa un email válido.");
+      setError("Please enter a valid email address.");
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResponseMessage("");
-    setResponseType("");
-
-    if (!validateEmail(email)) {
-      setError("Por favor, ingresa un email válido.");
-      return;
-    }
-
-    try {
-      const formData = new FormData();
-      formData.append("EMAIL", email);
-
-      const response = await fetch(mailchimp.action, {
-        method: "POST",
-        body: formData,
-        headers: {
-          "Accept": "application/json",
-        },
-      });
-
-      const textResponse = await response.text();
-
-      if (response.ok && textResponse.includes("Thank you")) {
-        setResponseType("success");
-        setResponseMessage("¡Gracias por suscribirte!");
-      } else {
-        setResponseType("error");
-        setResponseMessage("Hubo un error al suscribirte. Intenta de nuevo.");
-      }
-    } catch (err) {
-      setResponseType("error");
-      setResponseMessage("No se pudo conectar con el servidor.");
-    }
-  };
-
-  const debouncedHandleChange = debounce(handleChange, 2000);
+  if (newsletter.display === false) return null;
 
   return (
     <Column
       overflow="hidden"
-      position="relative"
       fillWidth
       padding="xl"
       radius="l"
@@ -105,17 +59,21 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
       horizontal="center"
       align="center"
       background="surface"
-      border="neutral-medium"
+      border="neutral-alpha-weak"
+      {...flex}
     >
       <Background
+        top="0"
+        position="absolute"
         mask={{
-          cursor: mailchimp.effects.mask.cursor,
           x: mailchimp.effects.mask.x,
           y: mailchimp.effects.mask.y,
           radius: mailchimp.effects.mask.radius,
+          cursor: mailchimp.effects.mask.cursor,
         }}
         gradient={{
           display: mailchimp.effects.gradient.display,
+          opacity: mailchimp.effects.gradient.opacity as opacity,
           x: mailchimp.effects.gradient.x,
           y: mailchimp.effects.gradient.y,
           width: mailchimp.effects.gradient.width,
@@ -123,51 +81,37 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
           tilt: mailchimp.effects.gradient.tilt,
           colorStart: mailchimp.effects.gradient.colorStart,
           colorEnd: mailchimp.effects.gradient.colorEnd,
-          opacity: mailchimp.effects.gradient.opacity as
-            | 0
-            | 10
-            | 20
-            | 30
-            | 40
-            | 50
-            | 60
-            | 70
-            | 80
-            | 90
-            | 100,
         }}
         dots={{
           display: mailchimp.effects.dots.display,
+          opacity: mailchimp.effects.dots.opacity as opacity,
+          size: mailchimp.effects.dots.size as SpacingToken,
           color: mailchimp.effects.dots.color,
-          size: mailchimp.effects.dots.size as any,
-          opacity: mailchimp.effects.dots.opacity as any,
         }}
         grid={{
           display: mailchimp.effects.grid.display,
+          opacity: mailchimp.effects.grid.opacity as opacity,
           color: mailchimp.effects.grid.color,
-          width: mailchimp.effects.grid.width as any,
-          height: mailchimp.effects.grid.height as any,
-          opacity: mailchimp.effects.grid.opacity as any,
+          width: mailchimp.effects.grid.width,
+          height: mailchimp.effects.grid.height,
         }}
         lines={{
           display: mailchimp.effects.lines.display,
-          opacity: mailchimp.effects.lines.opacity as any,
+          opacity: mailchimp.effects.lines.opacity as opacity,
+          size: mailchimp.effects.lines.size as SpacingToken,
+          thickness: mailchimp.effects.lines.thickness,
+          angle: mailchimp.effects.lines.angle,
+          color: mailchimp.effects.lines.color,
         }}
       />
-      <Heading style={{ position: "relative" }} marginBottom="s" variant="display-strong-xs">
-        {newsletter.title}
-      </Heading>
-      <Text
-        style={{
-          position: "relative",
-          maxWidth: "var(--responsive-width-xs)",
-        }}
-        wrap="balance"
-        marginBottom="l"
-        onBackground="neutral-medium"
-      >
-        {newsletter.description}
-      </Text>
+      <Column maxWidth="xs" horizontal="center">
+        <Heading marginBottom="s" variant="display-strong-xs">
+          {newsletter.title}
+        </Heading>
+        <Text wrap="balance" marginBottom="l" variant="body-default-l" onBackground="neutral-weak">
+          {newsletter.description}
+        </Text>
+      </Column>
       <form
         style={{
           width: "100%",
@@ -179,14 +123,19 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
         id="mc-embedded-subscribe-form"
         name="mc-embedded-subscribe-form"
       >
-        <Flex id="mc_embed_signup_scroll" fillWidth maxWidth={24} gap="8">
+        <Row
+          id="mc_embed_signup_scroll"
+          fillWidth
+          maxWidth={24}
+          s={{ direction: "column" }}
+          gap="8"
+        >
           <Input
             formNoValidate
-            labelAsPlaceholder
             id="mce-EMAIL"
             name="EMAIL"
             type="email"
-            label="Email"
+            placeholder="Email"
             required
             onChange={(e) => {
               if (error) {
@@ -222,13 +171,13 @@ export const Mailchimp = ({ newsletter }: { newsletter: NewsletterProps }) => {
             />
           </div>
           <div className="clear">
-            <Flex height="48" vertical="center">
+            <Row height="48" vertical="center">
               <Button id="mc-embedded-subscribe" value="Subscribe" size="m" fillWidth>
-                Suscríbete
+                Subscribe
               </Button>
-            </Flex>
+            </Row>
           </div>
-        </Flex>
+        </Row>
       </form>
     </Column>
   );
