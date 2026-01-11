@@ -1,4 +1,4 @@
-import { About, Blog, Gallery, Home, Newsletter, Person, Social, Work } from "@/types";
+import { About, Blog, Gallery, Home, Newsletter, Person, Social, Work, Cv } from "@/types";
 import { Line, Row, Text } from "@once-ui-system/core";
 
 const person: Person = {
@@ -275,6 +275,13 @@ const blog: Blog = {
   // All posts will be listed on the /blog route
 };
 
+const cv: Cv = {
+  path: "/cv",
+  label: "CV",
+  title: `CV de ${person.name}`,
+  description: `Curriculum vitae de ${person.name}`,
+};
+
 const work: Work = {
   path: "/work",
   label: "Trabajo",
@@ -400,4 +407,4 @@ const gallery: Gallery = {
   ],
 };
 
-export { person, social, newsletter, home, about, blog, work, gallery };
+export { person, social, newsletter, home, about, blog, work, gallery, cv };

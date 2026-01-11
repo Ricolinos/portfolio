@@ -238,3 +238,9 @@ export interface Gallery extends BasePageConfig {
     orientation: string;
   }>;
 }
+
+/**
+ * Cv page configuration.
+ * @description Configuration for the Cv page, including metadata and navigation label.
+ */
+export interface Cv extends BasePageConfig {}
