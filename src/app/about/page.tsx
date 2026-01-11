@@ -11,8 +11,9 @@ import {
   Meta,
   Schema,
   Row,
+  Line,
 } from "@once-ui-system/core";
-import { baseURL, about, person, social } from "@/resources";
+import { baseURL, about, person, social, cv } from "@/resources";
 import TableOfContents from "@/components/about/TableOfContents";
 import styles from "@/components/about/about.module.scss";
 import React from "react";
@@ -94,6 +95,34 @@ export default function About() {
             horizontal="center"
           >
             <Avatar src={person.avatar} size="xl" />
+            <Row
+              fitWidth
+              border="brand-alpha-medium"
+              background="brand-alpha-weak"
+              radius="full"
+              padding="4"
+              gap="8"
+              vertical="center"
+              className={styles.blockAlign}
+              style={{ backdropFilter: "blur(var(--static-space-1))" }}
+            >
+              <Row gap="12" vertical="center">
+                <Text paddingLeft="12" variant="body-default-s">
+                  CV
+                </Text>
+                <Line background="brand-alpha-strong" vert height="20" />
+                <Text onBackground="brand-medium" variant="body-default-s">
+                  Descargar
+                </Text>
+              </Row>
+
+              <IconButton
+                href="/files/Ricardo Gómez CV 2025 (ES).pdf"
+                data-border="rounded"
+                variant="secondary"
+                icon="chevronRight"
+              />
+            </Row>
             <Row gap="8" vertical="center">
               <Icon onBackground="accent-weak" name="globe" />
               {person.location}
