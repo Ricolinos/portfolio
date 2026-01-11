@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { routes, protectedRoutes } from "@/resources";
-import { Flex, Spinner, Button, Heading, Column, PasswordInput } from "@once-ui-system/core";
+import { Flex, Spinner, Button, Heading, Column, PasswordInput, Text } from "@once-ui-system/core";
 import NotFound from "@/app/not-found";
 
 interface RouteGuardProps {
@@ -105,7 +105,12 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
           />
           <Button onClick={handlePasswordSubmit}>Entrar</Button>
         </Column>
-        <>puedes solicitar acceso mediante el correo: ricardo@ricolinos.com</>
+        <Text align="center">
+          Puedes solicitar acceso mediante el correo{" "}
+          <Text as="span" weight="strong">
+            ricardo@ricolinos.com
+          </Text>
+        </Text>
       </Column>
     );
   }
