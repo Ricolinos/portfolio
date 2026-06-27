@@ -19,6 +19,7 @@ type Metadata = {
   tag?: string;
   team: Team[];
   link?: string;
+  draft?: boolean;
 };
 
 import { notFound } from "next/navigation";
@@ -49,6 +50,7 @@ function readMDXFile(filePath: string) {
     tag: data.tag || [],
     team: data.team || [],
     link: data.link || "",
+    draft: data.draft || false,
   };
 
   return { metadata, content };
@@ -70,5 +72,5 @@ function getMDXData(dir: string) {
 
 export function getPosts(customPath = ["", "", "", ""]) {
   const postsDir = path.join(process.cwd(), ...customPath);
-  return getMDXData(postsDir);
+  return getMDXData(postsDir).filter((post) => !post.metadata.draft);
 }
