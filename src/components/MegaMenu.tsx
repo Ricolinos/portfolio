@@ -99,8 +99,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
 
                 setDropdownPosition({
                   left: rect.left - parentRect.left,
-                  width: contentWidth + 26,
-                  height: contentHeight + 34,
+                  width: contentWidth + 26,  // inner card padding (24) + border (2)
+                  height: contentHeight + 34, // outer paddingTop (8) + inner padding (24) + border (2)
                 });
               }
             }
@@ -192,17 +192,18 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
       {activeDropdown && (
         <Row
           paddingTop="8"
+          paddingX="12"
+          paddingBottom="20"
           ref={dropdownRef}
           position="absolute"
           pointerEvents="auto"
           opacity={100}
-          overflow="hidden"
           top="32"
           className={isFirstAppearance ? styles.dropdown : ""}
           style={{
-            left: `${dropdownPosition.left}px`,
-            width: `${dropdownPosition.width}px`,
-            height: `${dropdownPosition.height}px`,
+            left: `${dropdownPosition.left - 12}px`,
+            width: `${dropdownPosition.width + 24}px`,
+            height: `${dropdownPosition.height + 20}px`,
             transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
             visibility: "visible",
           }}
@@ -220,11 +221,12 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
           <Row
             background="surface"
             radius="l"
-            border="neutral-alpha-weak"
+            border="neutral-alpha-medium"
             shadow="xl"
             padding="12"
             gap="32"
             data-dropdown-wrapper
+            className={styles.dropdownCard}
             style={{
               transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
             }}

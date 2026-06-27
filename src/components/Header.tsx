@@ -19,7 +19,6 @@ import {
   SmartLink,
   Text,
   UserMenu,
-  useTheme,
 } from "@once-ui-system/core";
 
 import { display } from "@/resources";
@@ -69,6 +68,38 @@ const menuGroups: MenuGroup[] = [
           { label: "Cotiza tu proyecto de Diseño", href: "/servicios/cotiza",      icon: "rocket" },
           { label: "Información",                  href: "/servicios/informacion",  icon: "infoCircle" },
           { label: "Facturación",                  href: "/servicios/facturacion",  icon: "creditCard" },
+        ],
+      },
+    ],
+  },
+];
+
+// ─── Menús exclusivos para usuarios autenticados ─────────────────────────────
+const signedInMenuGroups: MenuGroup[] = [
+  {
+    id: "mis-proyectos",
+    label: "Mis proyectos",
+    suffixIcon: "chevronDown",
+    sections: [
+      {
+        links: [
+          { label: "Nuevo",                   href: "/dashboard/client/projects/new",     icon: "plus"          },
+          { label: "Últimas actualizaciones",  href: "/dashboard/client/projects/updates", icon: "refreshCw"     },
+          { label: "Contactar a soporte",      href: "/dashboard/client/support",          icon: "helpCircle"    },
+        ],
+      },
+    ],
+  },
+  {
+    id: "panel-clientes",
+    label: "Panel de clientes",
+    suffixIcon: "chevronDown",
+    sections: [
+      {
+        links: [
+          { label: "Facturación y Contratos", href: "/dashboard/client/billing",   icon: "creditCard"    },
+          { label: "Biblioteca de Recursos",  href: "/dashboard/client/assets",    icon: "folder"        },
+          { label: "Agendar Reunión",         href: "/dashboard/client/schedule",  icon: "calendar"      },
         ],
       },
     ],
@@ -256,14 +287,13 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
 // ─── Header ──────────────────────────────────────────────────────────────────
 export const Header = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { resolvedTheme } = useTheme();
   const pathname = usePathname() ?? "/";
   const isHome = pathname === "/";
+  const { isSignedIn } = useUser();
 
-  const logoSrc =
-    resolvedTheme === "dark"
-      ? "/trademarks/wordmark-dark.svg"
-      : "/trademarks/wordmark-light.svg";
+  const allMenuGroups = isSignedIn
+    ? [...menuGroups, ...signedInMenuGroups]
+    : menuGroups;
 
   return (
     <>
@@ -298,11 +328,19 @@ export const Header = () => {
           <Row vertical="center" paddingLeft="4" paddingRight="8">
             <SmartLink href="/">
               <Image
-                src={logoSrc}
+                src="/trademark/type-dark.svg"
                 alt="Logo"
                 height={24}
                 width={120}
-                style={{ display: "block" }}
+                className={styles.logoDark}
+                priority
+              />
+              <Image
+                src="/trademark/type-light.svg"
+                alt="Logo"
+                height={24}
+                width={120}
+                className={styles.logoLight}
                 priority
               />
             </SmartLink>
@@ -333,7 +371,7 @@ export const Header = () => {
                 transition={spring}
                 style={{ flexShrink: 0, position: "relative" }}
               >
-                <MegaMenu menuGroups={menuGroups} position="relative" />
+                <MegaMenu menuGroups={allMenuGroups} position="relative" />
               </motion.div>
             </LayoutGroup>
           </Row>
@@ -356,7 +394,7 @@ export const Header = () => {
               >
                 <SearchBar fillWidth />
                 <MobileMegaMenu
-                  menuGroups={menuGroups}
+                  menuGroups={allMenuGroups}
                   onClose={() => setMobileOpen(false)}
                 />
                 <Line background="neutral-alpha-medium" />
