@@ -24,6 +24,7 @@ import { display } from "@/resources";
 import { ThemeToggle } from "./ThemeToggle";
 import { MegaMenu, type MenuGroup } from "./MegaMenu";
 import { MobileMegaMenu } from "./MobileMegaMenu";
+import { AuthModal, type AuthMode } from "./auth/AuthModal";
 import styles from "./Header.module.scss";
 
 // ─── Navegación ───────────────────────────────────────────────────────────────
@@ -39,6 +40,7 @@ const menuGroups: MenuGroup[] = [
           { label: "Animación",   href: "/explorar/animacion",   icon: "film" },
           { label: "Branding",    href: "/explorar/branding",    icon: "sparkles" },
           { label: "Ilustración", href: "/explorar/ilustracion", icon: "paintBrush" },
+          { divider: true },
           { label: "Designerds",  href: "/explorar/designerds",  icon: "userGroup" },
         ],
       },
@@ -52,9 +54,11 @@ const menuGroups: MenuGroup[] = [
     sections: [
       {
         links: [
-          { label: "Introducción",          href: "/recursos/introduccion",          icon: "book" },
-          { label: "Para Designerds",       href: "/recursos/para-designerds",       icon: "codeBracket" },
-          { label: "Proyectos por encargo", href: "/recursos/proyectos-por-encargo", icon: "briefcase" },
+          { label: "Mockups",  href: "/recursos/mockups",  icon: "mockup" },
+          { label: "Plug-ins", href: "/recursos/plugins",  icon: "plugin" },
+          { label: "Imágenes", href: "/recursos/imagenes", icon: "images" },
+          { label: "Fotos",    href: "/recursos/fotos",    icon: "camera" },
+          { label: "Iconos",   href: "/recursos/iconos",   icon: "shapes" },
         ],
       },
     ],
@@ -141,7 +145,7 @@ const SearchBar = ({ fillWidth }: { fillWidth?: boolean }) => (
 );
 
 // ─── AuthZone ─────────────────────────────────────────────────────────────────
-const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
+const AuthZone = ({ mobile = false, onOpenAuth }: { mobile?: boolean; onOpenAuth: (mode: AuthMode) => void }) => {
   const { isLoaded, isSignedIn, user } = useUser();
   const { signOut } = useClerk();
 
@@ -237,8 +241,8 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
   if (mobile) {
     return (
       <Column gap="8">
-        <Button variant="secondary" size="m" href="/sign-in" fillWidth>Iniciar sesión</Button>
-        <Button variant="primary"   size="m" href="/sign-up" fillWidth>Registrarse</Button>
+        <Button variant="secondary" size="m" onClick={() => onOpenAuth("sign-in")} fillWidth>Iniciar sesión</Button>
+        <Button variant="primary"   size="m" onClick={() => onOpenAuth("sign-up")} fillWidth>Registrarse</Button>
         {display.themeSwitcher && (
           <Row horizontal="center" paddingTop="4"><ThemeToggle /></Row>
         )}
@@ -248,8 +252,8 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
 
   return (
     <>
-      <Button variant="secondary" size="s" href="/sign-in">Iniciar sesión</Button>
-      <Button variant="primary"   size="s" href="/sign-up">Registrarse</Button>
+      <Button variant="secondary" size="s" onClick={() => onOpenAuth("sign-in")}>Iniciar sesión</Button>
+      <Button variant="primary"   size="s" onClick={() => onOpenAuth("sign-up")}>Registrarse</Button>
       {display.themeSwitcher && (
         <>
           <Line background="neutral-alpha-medium" vert maxHeight="24" />
@@ -272,8 +276,11 @@ const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
 export const Header = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile]     = useState(false);
-  const pathname  = usePathname() ?? "/";
-  const isHome    = pathname === "/";
+  const [authMode, setAuthMode]     = useState<AuthMode | null>(null);
+  const pathname   = usePathname() ?? "/";
+  const isHome     = pathname === "/";
+  const isRecursos = pathname.startsWith("/recursos");
+  const isExplorar = pathname.startsWith("/explorar");
   const { isLoaded, isSignedIn } = useUser();
 
   const allMenuGroups = useMemo(
@@ -336,7 +343,7 @@ export const Header = () => {
                 <Row vertical="center" gap="4">
                   <LayoutGroup id="header-left">
                     <AnimatePresence initial={false}>
-                      {!isHome && (
+                      {!isHome && !isRecursos && !isExplorar && (
                         <motion.div
                           key="searchbar"
                           initial={{ opacity: 0, x: -16 }}
@@ -356,7 +363,7 @@ export const Header = () => {
                 </Row>
               </Row>
               <Row vertical="center" gap="8" paddingRight="4">
-                <AuthZone />
+                <AuthZone onOpenAuth={setAuthMode} />
               </Row>
             </Row>
           </motion.div>
@@ -420,18 +427,24 @@ export const Header = () => {
               overflowY="auto"
               style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 64px)" }}
             >
-              <SearchBar fillWidth />
-              <Line background="neutral-alpha-weak" />
+              {!isRecursos && !isExplorar && (
+                <>
+                  <SearchBar fillWidth />
+                  <Line background="neutral-alpha-weak" />
+                </>
+              )}
               <MobileMegaMenu
                 menuGroups={allMenuGroups}
                 onClose={() => setMobileOpen(false)}
               />
               <Line background="neutral-alpha-weak" />
-              <AuthZone mobile={true} />
+              <AuthZone mobile={true} onOpenAuth={setAuthMode} />
             </Column>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />
     </>
   );
 };

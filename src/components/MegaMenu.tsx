@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, ReactNode, useMemo, useCallback } from "react";
 import { usePathname } from "next/navigation";
-import { Flex, Row, Column, Text, Icon, ToggleButton } from "@once-ui-system/core";
+import { Flex, Row, Column, Text, Icon, Line, ToggleButton } from "@once-ui-system/core";
 import styles from "./MegaMenu.module.scss";
 
 export interface MenuLink {
@@ -13,9 +13,19 @@ export interface MenuLink {
   selected?: boolean;
 }
 
+export interface MenuDivider {
+  divider: true;
+}
+
+export type MenuSectionItem = MenuLink | MenuDivider;
+
+export function isMenuDivider(item: MenuSectionItem): item is MenuDivider {
+  return "divider" in item && item.divider === true;
+}
+
 export interface MenuSection {
   title?: ReactNode;
-  links: MenuLink[];
+  links: MenuSectionItem[];
 }
 
 export interface MenuGroup {
@@ -287,47 +297,55 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
                             {section.title}
                           </Text>
                         )}
-                        {section.links.map((link, linkIndex) => (
-                          <ToggleButton
-                            key={`link-${linkIndex}`}
-                            style={{
-                              height: "auto",
-                              minHeight: "fit-content",
-                              paddingLeft: "var(--static-space-0)",
-                              paddingTop: "var(--static-space-4)",
-                              paddingBottom: "var(--static-space-4)",
-                              paddingRight: "var(--static-space-12)",
-                            }}
-                            fillWidth
-                            horizontal="start"
-                            href={link.href}
-                            onClick={handleLinkClick}
-                          >
-                            <Row gap="12" vertical="center">
-                              {link.icon && (
-                                <Icon
-                                  name={link.icon}
-                                  size="s"
-                                  padding="8"
-                                  radius="s"
-                                  border="neutral-alpha-weak"
-                                />
-                              )}
-                              <Column gap="4">
-                                {link.label && (
-                                  <Text onBackground="neutral-strong" variant="label-strong-s">
-                                    {link.label}
-                                  </Text>
+                        {section.links.map((item, linkIndex) =>
+                          isMenuDivider(item) ? (
+                            <Line
+                              key={`divider-${linkIndex}`}
+                              background="neutral-alpha-medium"
+                              marginY="8"
+                            />
+                          ) : (
+                            <ToggleButton
+                              key={`link-${linkIndex}`}
+                              style={{
+                                height: "auto",
+                                minHeight: "fit-content",
+                                paddingLeft: "var(--static-space-0)",
+                                paddingTop: "var(--static-space-4)",
+                                paddingBottom: "var(--static-space-4)",
+                                paddingRight: "var(--static-space-12)",
+                              }}
+                              fillWidth
+                              horizontal="start"
+                              href={item.href}
+                              onClick={handleLinkClick}
+                            >
+                              <Row gap="12" vertical="center">
+                                {item.icon && (
+                                  <Icon
+                                    name={item.icon}
+                                    size="s"
+                                    padding="8"
+                                    radius="s"
+                                    border="neutral-alpha-weak"
+                                  />
                                 )}
-                                {link.description && (
-                                  <Text onBackground="neutral-weak" truncate>
-                                    {link.description}
-                                  </Text>
-                                )}
-                              </Column>
-                            </Row>
-                          </ToggleButton>
-                        ))}
+                                <Column gap="4">
+                                  {item.label && (
+                                    <Text onBackground="neutral-strong" variant="label-strong-s">
+                                      {item.label}
+                                    </Text>
+                                  )}
+                                  {item.description && (
+                                    <Text onBackground="neutral-weak" truncate>
+                                      {item.description}
+                                    </Text>
+                                  )}
+                                </Column>
+                              </Row>
+                            </ToggleButton>
+                          )
+                        )}
                       </Column>
                     ))
                   )}

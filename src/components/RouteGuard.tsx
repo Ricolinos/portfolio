@@ -13,7 +13,7 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
   const isRouteEnabled = () => {
     if (!pathname) return false;
 
-    const alwaysAllowed = ["/sign-in", "/sign-up", "/dashboard"];
+    const alwaysAllowed = ["/sign-in", "/sign-up", "/sso-callback", "/dashboard"];
     if (alwaysAllowed.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
 
     if (pathname in routes) {

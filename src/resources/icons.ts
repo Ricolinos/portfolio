@@ -23,6 +23,10 @@ import {
   HiOutlineMagnifyingGlass,
   HiOutlineCog8Tooth,
   HiArrowRightOnRectangle,
+  HiOutlineHeart,
+  HiOutlineWindow,
+  HiOutlinePuzzlePiece,
+  HiOutlineArrowDownTray,
 } from "react-icons/hi2";
 
 import {
@@ -31,6 +35,9 @@ import {
   PiGridFourDuotone,
   PiBookBookmarkDuotone,
   PiImageDuotone,
+  PiImagesDuotone,
+  PiCameraDuotone,
+  PiShapes,
 } from "react-icons/pi";
 
 import {
@@ -40,7 +47,7 @@ import {
   SiSupabase,
 } from "react-icons/si";
 
-import { FaDiscord, FaGithub, FaLinkedin, FaX, FaThreads, FaInstagram, FaXTwitter, FaFacebook, FaPinterest, FaWhatsapp, FaReddit, FaTelegram, } from "react-icons/fa6";
+import { FaDiscord, FaGithub, FaLinkedin, FaX, FaThreads, FaInstagram, FaXTwitter, FaFacebook, FaPinterest, FaWhatsapp, FaReddit, FaTelegram, FaGoogle, FaApple, } from "react-icons/fa6";
 
 export const iconLibrary: Record<string, IconType> = {
   arrowUpRight: HiArrowUpRight,
@@ -76,11 +83,20 @@ export const iconLibrary: Record<string, IconType> = {
   search: HiOutlineMagnifyingGlass,
   settings: HiOutlineCog8Tooth,
   logOut: HiArrowRightOnRectangle,
+  heart: HiOutlineHeart,
+  mockup: HiOutlineWindow,
+  plugin: HiOutlinePuzzlePiece,
+  download: HiOutlineArrowDownTray,
+  images: PiImagesDuotone,
+  camera: PiCameraDuotone,
+  shapes: PiShapes,
   javascript: SiJavascript,
   nextjs: SiNextdotjs,
   supabase: SiSupabase,
   figma: SiFigma,
   facebook: FaFacebook,
+  google: FaGoogle,
+  apple: FaApple,
   pinterest: FaPinterest,
   whatsapp: FaWhatsapp,
   reddit: FaReddit,

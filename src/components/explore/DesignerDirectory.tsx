@@ -1,0 +1,222 @@
+"use client";
+
+import type { MouseEvent } from "react";
+import { useMemo } from "react";
+import {
+  Avatar,
+  BlobFx,
+  Button,
+  Column,
+  FlipFx,
+  Grid,
+  Heading,
+  Line,
+  RevealFx,
+  Tag,
+  Text,
+  TiltFx,
+} from "@once-ui-system/core";
+import { ALL_SPECIALTIES, useExploreSearch } from "./SearchContext";
+
+// Datos de colaboradores tomados de los créditos "team" en src/app/work/projects/*.mdx.
+const CREDITED_DESIGNERS = [
+  {
+    name: "Julián Trejo",
+    specialty: "Animador",
+    role: "Diseño de gráficos y contenidos especiales",
+    avatar: "/images/projects/project-nba-cup-2025/Julian-01.jpg",
+    projectHref: "/work/Animated-NBA-Cup-2025",
+    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
+  },
+  {
+    name: "Rodrigo Castañeda",
+    specialty: "Diseñador de Marca",
+    role: "Diseño de la paquetería gráfica",
+    avatar: "/images/projects/project-nba-style/Rodrigo-01.jpg",
+    projectHref: "/work/refresh-nba-style-2024",
+    projectTitle: "Refresh NBA Style 2024",
+  },
+  {
+    name: "Armando",
+    specialty: "Producción técnica",
+    role: "Gestión técnica de gráficos para transmisión (VMix)",
+    avatar: "/images/projects/project-nba-cup-2025/Armando-01.png",
+    projectHref: "/work/Animated-NBA-Cup-2025",
+    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
+  },
+  {
+    name: "Andrés González",
+    specialty: "Ilustrador",
+    role: "Adaptación de la paquetería gráfica en colaboración con NBA Styles",
+    avatar: "/images/projects/project-nba-cup-2025/Andres-01.jpg",
+    projectHref: "/work/Animated-NBA-Cup-2025",
+    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
+  },
+];
+
+// Datos ilustrativos: perfiles adicionales para probar la vista con más densidad de contenido.
+const MOCK_DESIGNERS = [
+  {
+    name: "Camila Reyes",
+    specialty: "Diseñador de Marca",
+    role: "Desarrollo de sistemas de identidad visual y guías de marca",
+    avatar: "/images/projects/project-01/avatar-01.png",
+    projectHref: "/work/refresh-nba-style-2024",
+    projectTitle: "Refresh NBA Style 2024",
+  },
+  {
+    name: "Diego Salazar",
+    specialty: "Ilustrador",
+    role: "Ilustración editorial y desarrollo de personajes",
+    avatar: "/images/projects/project-01/avatar-02.png",
+    projectHref: "/work/nba-dunkmania-2024",
+    projectTitle: "Refresh NBA Dunkmanía 2024",
+  },
+  {
+    name: "Fernanda López",
+    specialty: "Animador",
+    role: "Animación de personajes y efectos visuales",
+    avatar: "/images/projects/project-01/avatar-03.png",
+    projectHref: "/work/Animated-NBA-Cup-2025",
+    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
+  },
+  {
+    name: "Emiliano Cruz",
+    specialty: "Producción técnica",
+    role: "Optimización de renders y pipeline de producción",
+    avatar: "/images/projects/project-01/avatar-04.png",
+    projectHref: "/work/Animated-NBA-Cup-2025",
+    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
+  },
+  {
+    name: "Valentina Ortiz",
+    specialty: "Diseñador de Marca",
+    role: "Diseño de paquetería gráfica para redes sociales",
+    avatar: "/images/projects/project-01/avatar-05.png",
+    projectHref: "/work/refresh-nba-style-2024",
+    projectTitle: "Refresh NBA Style 2024",
+  },
+];
+
+const DESIGNERS = [...CREDITED_DESIGNERS, ...MOCK_DESIGNERS];
+
+type Designer = (typeof DESIGNERS)[number];
+
+const CARD_MIN_HEIGHT = 18;
+
+function DesignerFront({ designer, seed }: { designer: Designer; seed: number }) {
+  return (
+    <Column
+      fillWidth
+      minHeight={CARD_MIN_HEIGHT}
+      radius="l"
+      overflow="hidden"
+      background="neutral-alpha-weak"
+      style={{ position: "relative" }}
+    >
+      <BlobFx seed={seed} position="absolute" top="0" left="0" opacity={40} />
+      <Column
+        fillWidth
+        fillHeight
+        gap="12"
+        padding="24"
+        horizontal="center"
+        align="center"
+        vertical="center"
+        style={{ position: "relative", zIndex: 1 }}
+      >
+        <Avatar src={designer.avatar} size="xl" />
+        <Column gap="4" horizontal="center" align="center">
+          <Text variant="heading-strong-m" onBackground="neutral-strong">
+            {designer.name}
+          </Text>
+          <Tag size="s" variant="brand" label={designer.specialty} />
+        </Column>
+      </Column>
+    </Column>
+  );
+}
+
+function DesignerBack({ designer }: { designer: Designer }) {
+  return (
+    <Column
+      fillWidth
+      minHeight={CARD_MIN_HEIGHT}
+      radius="l"
+      border="neutral-alpha-weak"
+      background="neutral-alpha-weak"
+      padding="24"
+      gap="12"
+      horizontal="center"
+      align="center"
+      vertical="center"
+      overflow="auto"
+    >
+      <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+        {designer.role}
+      </Text>
+      <Line background="neutral-alpha-medium" />
+      <Text variant="label-default-s" onBackground="neutral-medium" align="center">
+        {designer.projectTitle}
+      </Text>
+      <Button
+        href={designer.projectHref}
+        variant="secondary"
+        size="s"
+        suffixIcon="arrowUpRight"
+        onClick={(event: MouseEvent) => event.stopPropagation()}
+      >
+        Ver proyecto
+      </Button>
+    </Column>
+  );
+}
+
+function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) {
+  return (
+    <TiltFx fillWidth radius="l">
+      <FlipFx
+        fillWidth
+        radius="l"
+        front={<DesignerFront designer={designer} seed={seed} />}
+        back={<DesignerBack designer={designer} />}
+      />
+    </TiltFx>
+  );
+}
+
+export function DesignerDirectory() {
+  const { query, specialty } = useExploreSearch();
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return DESIGNERS.filter((designer) => {
+      if (specialty !== ALL_SPECIALTIES && designer.specialty !== specialty) return false;
+      if (q && !designer.name.toLowerCase().includes(q) && !designer.role.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [query, specialty]);
+
+  return (
+    <RevealFx fillWidth direction="column" gap="24" translateY="8" speed="fast">
+      <Column fillWidth gap="8">
+        <Heading variant="display-strong-l">Designerds</Heading>
+        <Text onBackground="neutral-weak" variant="body-default-l">
+          Conoce a los diseñadores colaboradores de la plataforma.
+        </Text>
+      </Column>
+
+      {filtered.length === 0 ? (
+        <Text onBackground="neutral-weak" variant="body-default-m">
+          No encontramos diseñadores que coincidan con tu búsqueda.
+        </Text>
+      ) : (
+        <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
+          {filtered.map((designer) => (
+            <DesignerCard key={designer.name} designer={designer} seed={DESIGNERS.indexOf(designer)} />
+          ))}
+        </Grid>
+      )}
+    </RevealFx>
+  );
+}
