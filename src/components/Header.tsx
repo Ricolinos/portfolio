@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
@@ -9,7 +9,6 @@ import {
   Avatar,
   Button,
   Column,
-  DropdownWrapper,
   Fade,
   Icon,
   Line,
@@ -32,6 +31,7 @@ const menuGroups: MenuGroup[] = [
   {
     id: "explorar",
     label: "Explorar",
+    href: "/explorar",
     suffixIcon: "chevronDown",
     sections: [
       {
@@ -47,6 +47,7 @@ const menuGroups: MenuGroup[] = [
   {
     id: "recursos",
     label: "Recursos",
+    href: "/recursos",
     suffixIcon: "chevronDown",
     sections: [
       {
@@ -61,6 +62,7 @@ const menuGroups: MenuGroup[] = [
   {
     id: "servicios",
     label: "Servicios",
+    href: "/servicios",
     suffixIcon: "chevronDown",
     sections: [
       {
@@ -74,7 +76,6 @@ const menuGroups: MenuGroup[] = [
   },
 ];
 
-// ─── Menús exclusivos para usuarios autenticados ─────────────────────────────
 const signedInMenuGroups: MenuGroup[] = [
   {
     id: "mis-proyectos",
@@ -83,9 +84,9 @@ const signedInMenuGroups: MenuGroup[] = [
     sections: [
       {
         links: [
-          { label: "Nuevo",                   href: "/dashboard/client/projects/new",     icon: "plus"          },
-          { label: "Últimas actualizaciones",  href: "/dashboard/client/projects/updates", icon: "refreshCw"     },
-          { label: "Contactar a soporte",      href: "/dashboard/client/support",          icon: "helpCircle"    },
+          { label: "Nuevo",                   href: "/dashboard/client/projects/new",     icon: "plus"       },
+          { label: "Últimas actualizaciones",  href: "/dashboard/client/projects/updates", icon: "refreshCw"  },
+          { label: "Contactar a soporte",      href: "/dashboard/client/support",          icon: "helpCircle" },
         ],
       },
     ],
@@ -97,16 +98,15 @@ const signedInMenuGroups: MenuGroup[] = [
     sections: [
       {
         links: [
-          { label: "Facturación y Contratos", href: "/dashboard/client/billing",   icon: "creditCard"    },
-          { label: "Biblioteca de Recursos",  href: "/dashboard/client/assets",    icon: "folder"        },
-          { label: "Agendar Reunión",         href: "/dashboard/client/schedule",  icon: "calendar"      },
+          { label: "Facturación y Contratos", href: "/dashboard/client/billing",  icon: "creditCard" },
+          { label: "Biblioteca de Recursos",  href: "/dashboard/client/assets",   icon: "folder"     },
+          { label: "Agendar Reunión",         href: "/dashboard/client/schedule", icon: "calendar"   },
         ],
       },
     ],
   },
 ];
 
-// ─── Spring para layout animations ───────────────────────────────────────────
 const spring = { type: "spring", stiffness: 320, damping: 32 } as const;
 
 // ─── SearchBar ────────────────────────────────────────────────────────────────
@@ -141,13 +141,25 @@ const SearchBar = ({ fillWidth }: { fillWidth?: boolean }) => (
 );
 
 // ─── AuthZone ─────────────────────────────────────────────────────────────────
-// Renders auth buttons (signed out) or UserMenu (signed in).
-// `mobile` switches to full-width buttons and top-end dropdown placement.
 const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
   const { isLoaded, isSignedIn, user } = useUser();
   const { signOut } = useClerk();
 
-  if (!isLoaded) return null;
+  if (!isLoaded) {
+    if (mobile) return null;
+    return (
+      <Row gap="8" vertical="center" style={{ opacity: 0, pointerEvents: "none" }} aria-hidden="true">
+        <Button variant="secondary" size="s" tabIndex={-1}>Iniciar sesión</Button>
+        <Button variant="primary"   size="s" tabIndex={-1}>Registrarse</Button>
+        {display.themeSwitcher && (
+          <>
+            <Line background="neutral-alpha-medium" vert maxHeight="24" />
+            <ThemeToggle />
+          </>
+        )}
+      </Row>
+    );
+  }
 
   if (isSignedIn && user) {
     const displayName =
@@ -155,11 +167,8 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
       user.emailAddresses[0]?.emailAddress ||
       "Usuario";
     const initials = (user.firstName?.[0] ?? user.emailAddresses[0]?.emailAddress?.[0] ?? "U").toUpperCase();
-    const avatarProps = {
-      ...(user.imageUrl ? { src: user.imageUrl } : { value: initials }),
-    };
+    const avatarProps = { ...(user.imageUrl ? { src: user.imageUrl } : { value: initials }) };
 
-    // Mobile: opciones directamente visibles (sin dropdown anidado)
     if (mobile) {
       return (
         <Column gap="4" fillWidth>
@@ -173,18 +182,10 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
             </Column>
           </Row>
           <Line background="neutral-alpha-medium" />
-          <Option
-            href="/dashboard/client/perfil"
-            label="Perfil"
-            value="perfil"
-            hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />}
-          />
-          <Option
-            href="/dashboard/client/settings"
-            label="Configuración"
-            value="settings"
-            hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />}
-          />
+          <Option href="/dashboard/client/perfil" label="Perfil" value="perfil"
+            hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
+          <Option href="/dashboard/client/settings" label="Configuración" value="settings"
+            hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
           {display.themeSwitcher && (
             <>
               <Line background="neutral-alpha-weak" />
@@ -195,17 +196,13 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
             </>
           )}
           <Line background="neutral-alpha-weak" />
-          <Option
-            label="Salir"
-            value="signout"
+          <Option label="Salir" value="signout"
             onClick={() => signOut({ redirectUrl: "/" })}
-            hasPrefix={<Icon name="logOut" size="s" onBackground="neutral-weak" />}
-          />
+            hasPrefix={<Icon name="logOut" size="s" onBackground="neutral-weak" />} />
         </Column>
       );
     }
 
-    // Desktop: UserMenu con dropdown flotante
     return (
       <UserMenu
         name={displayName}
@@ -214,18 +211,10 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
         placement="bottom-end"
         dropdown={
           <Column minWidth={12} padding="4" gap="2">
-            <Option
-              href="/dashboard/client/perfil"
-              label="Perfil"
-              value="perfil"
-              hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />}
-            />
-            <Option
-              href="/dashboard/client/settings"
-              label="Configuración"
-              value="settings"
-              hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />}
-            />
+            <Option href="/dashboard/client/perfil" label="Perfil" value="perfil"
+              hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
+            <Option href="/dashboard/client/settings" label="Configuración" value="settings"
+              hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
             {display.themeSwitcher && (
               <>
                 <Line background="neutral-alpha-weak" />
@@ -236,12 +225,9 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
               </>
             )}
             <Line background="neutral-alpha-weak" />
-            <Option
-              label="Salir"
-              value="signout"
+            <Option label="Salir" value="signout"
               onClick={() => signOut({ redirectUrl: "/" })}
-              hasPrefix={<Icon name="logOut" size="s" onBackground="neutral-weak" />}
-            />
+              hasPrefix={<Icon name="logOut" size="s" onBackground="neutral-weak" />} />
           </Column>
         }
       />
@@ -251,16 +237,10 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
   if (mobile) {
     return (
       <Column gap="8">
-        <Button variant="secondary" size="m" href="/sign-in" fillWidth>
-          Iniciar sesión
-        </Button>
-        <Button variant="primary" size="m" href="/sign-up" fillWidth>
-          Registrarse
-        </Button>
+        <Button variant="secondary" size="m" href="/sign-in" fillWidth>Iniciar sesión</Button>
+        <Button variant="primary"   size="m" href="/sign-up" fillWidth>Registrarse</Button>
         {display.themeSwitcher && (
-          <Row horizontal="center" paddingTop="4">
-            <ThemeToggle />
-          </Row>
+          <Row horizontal="center" paddingTop="4"><ThemeToggle /></Row>
         )}
       </Column>
     );
@@ -268,12 +248,8 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
 
   return (
     <>
-      <Button variant="secondary" size="s" href="/sign-in">
-        Iniciar sesión
-      </Button>
-      <Button variant="primary" size="s" href="/sign-up">
-        Registrarse
-      </Button>
+      <Button variant="secondary" size="s" href="/sign-in">Iniciar sesión</Button>
+      <Button variant="primary"   size="s" href="/sign-up">Registrarse</Button>
       {display.themeSwitcher && (
         <>
           <Line background="neutral-alpha-medium" vert maxHeight="24" />
@@ -284,129 +260,178 @@ const AuthZone = ({ mobile = false }: { mobile?: boolean }) => {
   );
 };
 
-// ─── Header ──────────────────────────────────────────────────────────────────
+// ─── Logo compartido (layoutId anima la posición entre móvil y escritorio) ────
+const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
+  <SmartLink href="/" onClick={onClick}>
+    <Image src="/trademark/type-dark.svg"  alt="Logo" height={24} width={120} className={styles.logoDark}  priority />
+    <Image src="/trademark/type-light.svg" alt="Logo" height={24} width={120} className={styles.logoLight} priority />
+  </SmartLink>
+);
+
+// ─── Header ───────────────────────────────────────────────────────────────────
 export const Header = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const pathname = usePathname() ?? "/";
-  const isHome = pathname === "/";
-  const { isSignedIn } = useUser();
+  const [isMobile, setIsMobile]     = useState(false);
+  const pathname  = usePathname() ?? "/";
+  const isHome    = pathname === "/";
+  const { isLoaded, isSignedIn } = useUser();
 
-  const allMenuGroups = isSignedIn
-    ? [...menuGroups, ...signedInMenuGroups]
-    : menuGroups;
+  const allMenuGroups = useMemo(
+    () => isLoaded && isSignedIn ? [...menuGroups, ...signedInMenuGroups] : menuGroups,
+    [isLoaded, isSignedIn],
+  );
+
+  // Detectar breakpoint móvil via matchMedia (905px = breakpoint "s" de Once UI)
+  // Reemplaza s={{ hide }} CSS para que AnimatePresence + layoutId puedan animar
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 904px)");
+    setIsMobile(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Cerrar panel al navegar o al pasar a escritorio
+  useEffect(() => { setMobileOpen(false); }, [pathname]);
+  useEffect(() => { if (!isMobile) setMobileOpen(false); }, [isMobile]);
+
+  // Scroll lock cuando el panel está abierto
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileOpen]);
 
   return (
     <>
-      <Fade s={{ hide: true }} fillWidth position="fixed" height="80" zIndex={9} />
-      <Fade
-        hide
-        s={{ hide: false }}
-        fillWidth
-        position="fixed"
-        bottom="0"
-        to="top"
-        height="80"
-        zIndex={9}
-      />
+      <Fade fillWidth position="fixed" height="80" zIndex={9} style={{ pointerEvents: "none" }} />
 
-      <Row
-        fitHeight
-        className={styles.position}
-        position="sticky"
-        as="header"
-        zIndex={9}
-        fillWidth
-        padding="8"
-        horizontal="between"
-        vertical="center"
-        data-border="rounded"
-        s={{ position: "fixed" }}
-      >
-        {/* ══ GRUPO IZQUIERDO: Logo + (desktop) SearchBar + MegaMenu ══════════ */}
-        <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
-          {/* Logo — siempre visible */}
-          <Row vertical="center" paddingLeft="4" paddingRight="8">
-            <SmartLink href="/">
-              <Image
-                src="/trademark/type-dark.svg"
-                alt="Logo"
-                height={24}
-                width={120}
-                className={styles.logoDark}
-                priority
-              />
-              <Image
-                src="/trademark/type-light.svg"
-                alt="Logo"
-                height={24}
-                width={120}
-                className={styles.logoLight}
-                priority
-              />
-            </SmartLink>
-          </Row>
-
-          {/* SearchBar + MegaMenu — solo desktop.
-           *  Sin style={{ display }} para que s={{ hide: true }} no sea sobreescrito. */}
-          <Row s={{ hide: true }} vertical="center" gap="4">
-            <LayoutGroup id="header-left">
-              <AnimatePresence initial={false}>
-                {!isHome && (
-                  <motion.div
-                    key="searchbar"
-                    layout
-                    initial={{ opacity: 0, x: -16 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -16 }}
-                    transition={spring}
-                    style={{ flexShrink: 0 }}
-                  >
-                    <SearchBar />
+      {/* Header: fade entre escritorio ↔ móvil. layoutId="site-logo" anima
+          la posición del logo entre los dos headers sin salto. */}
+      <AnimatePresence initial={false}>
+        {!isMobile ? (
+          <motion.div
+            key="desktop-header"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{ width: "100%", display: "block" }}
+          >
+            <Row
+              as="header"
+              position="sticky"
+              zIndex={10}
+              fillWidth
+              padding="8"
+              horizontal="between"
+              vertical="center"
+              data-border="rounded"
+            >
+              <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
+                <Row vertical="center" paddingLeft="4" paddingRight="8">
+                  <motion.div layoutId="site-logo">
+                    <SiteLogo />
                   </motion.div>
-                )}
-              </AnimatePresence>
-
-              <motion.div
-                layout
-                transition={spring}
-                style={{ flexShrink: 0, position: "relative" }}
-              >
-                <MegaMenu menuGroups={allMenuGroups} position="relative" />
+                </Row>
+                <Row vertical="center" gap="4">
+                  <LayoutGroup id="header-left">
+                    <AnimatePresence initial={false}>
+                      {!isHome && (
+                        <motion.div
+                          key="searchbar"
+                          initial={{ opacity: 0, x: -16 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -16 }}
+                          transition={spring}
+                          style={{ flexShrink: 0 }}
+                        >
+                          <SearchBar />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    <div style={{ flexShrink: 0, position: "relative" }}>
+                      <MegaMenu menuGroups={allMenuGroups} position="relative" />
+                    </div>
+                  </LayoutGroup>
+                </Row>
+              </Row>
+              <Row vertical="center" gap="8" paddingRight="4">
+                <AuthZone />
+              </Row>
+            </Row>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="mobile-header"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            style={{ width: "100%", display: "block" }}
+          >
+            <Row
+              as="header"
+              position="fixed"
+              top="0"
+              left="0"
+              fillWidth
+              zIndex={10}
+              paddingX="24"
+              paddingY="12"
+              horizontal="between"
+              vertical="center"
+              background="page"
+              className={styles.mobileBar}
+            >
+              <motion.div layoutId="site-logo">
+                <SiteLogo onClick={() => setMobileOpen(false)} />
               </motion.div>
-            </LayoutGroup>
-          </Row>
-        </Row>
+              <NavIcon
+                isActive={mobileOpen}
+                onClick={() => setMobileOpen((v) => !v)}
+                aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
+              />
+            </Row>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-        {/* ══ GRUPO DERECHO: Auth + Theme — solo desktop ════════════════════════ */}
-        <Row s={{ hide: true }} vertical="center" gap="8" paddingRight="4">
-          <AuthZone />
-        </Row>
-
-        {/* ══ MOBILE: hamburger con panel completo ══════════════════════════════ */}
-        <Row hide s={{ hide: false }} paddingRight="4">
-          <DropdownWrapper
-            trigger={<NavIcon isActive={mobileOpen} />}
-            dropdown={
-              <Column
-                gap="12"
-                padding="16"
-                style={{ width: "min(320px, calc(100vw - 32px))" }}
-              >
-                <SearchBar fillWidth />
-                <MobileMegaMenu
-                  menuGroups={allMenuGroups}
-                  onClose={() => setMobileOpen(false)}
-                />
-                <Line background="neutral-alpha-medium" />
-                <AuthZone mobile />
-              </Column>
-            }
-            isOpen={mobileOpen}
-            onOpenChange={setMobileOpen}
-            placement="bottom-end"
-          />
-        </Row>
-      </Row>
+      {/* Panel móvil */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            key="mobile-panel"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+          >
+            <Column
+              position="fixed"
+              zIndex={9}
+              top="0"
+              left="0"
+              right="0"
+              bottom="0"
+              background="surface"
+              paddingX="20"
+              paddingBottom="40"
+              gap="24"
+              overflowY="auto"
+              style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 64px)" }}
+            >
+              <SearchBar fillWidth />
+              <Line background="neutral-alpha-weak" />
+              <MobileMegaMenu
+                menuGroups={allMenuGroups}
+                onClose={() => setMobileOpen(false)}
+              />
+              <Line background="neutral-alpha-weak" />
+              <AuthZone mobile={true} />
+            </Column>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

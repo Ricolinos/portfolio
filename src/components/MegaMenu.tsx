@@ -43,7 +43,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const contentRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const measureTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const rafId1Ref = useRef<number | undefined>(undefined);
+  const rafId2Ref = useRef<number | undefined>(undefined);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -59,8 +60,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
           height: 200,
         });
 
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
+        rafId1Ref.current = requestAnimationFrame(() => {
+          rafId2Ref.current = requestAnimationFrame(() => {
             if (dropdownRef.current) {
               const dropdown = dropdownRef.current;
               const activeContent = contentRefs.current[activeDropdown];
@@ -112,9 +113,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
     }
 
     return () => {
-      if (measureTimeoutRef.current) {
-        clearTimeout(measureTimeoutRef.current);
-      }
+      if (rafId1Ref.current !== undefined) cancelAnimationFrame(rafId1Ref.current);
+      if (rafId2Ref.current !== undefined) cancelAnimationFrame(rafId2Ref.current);
     };
   }, [activeDropdown]);
 
@@ -132,10 +132,23 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
     setActiveDropdown(null);
   }, [pathname]);
 
+  // Cancel pending close timeout on unmount to avoid setState on an unmounted tree.
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    };
+  }, []);
+
+  // Update previousDropdownRef AFTER each commit so reads during render see the
+  // previous value — required for cross-fade animation between dropdowns.
+  useEffect(() => {
+    previousDropdownRef.current = activeDropdown;
+  }, [activeDropdown]);
+
   const isSelected = useCallback(
     (href?: string) => {
       if (!href || !pathname) return false;
-      return pathname.startsWith(href);
+      return pathname === href || pathname.startsWith(href + "/");
     },
     [pathname]
   );
@@ -153,7 +166,7 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
     <Flex fitHeight className={className} {...rest}>
       {menuGroups.map((group, index) => (
         <Row
-          key={`menu-group-${index}`}
+          key={group.id}
           ref={(el) => {
             buttonRefs.current[group.id] = el;
           }}
@@ -238,15 +251,9 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
               const shouldAnimate =
                 (isActive || isExiting) && previousDropdownRef.current !== null;
 
-              if (isActive && !wasActive) {
-                previousDropdownRef.current = group.id;
-              } else if (!activeDropdown) {
-                previousDropdownRef.current = null;
-              }
-
               return (
                 <Row
-                  key={`dropdown-content-${groupIndex}`}
+                  key={`content-${group.id}`}
                   gap="16"
                   position={isActive ? "relative" : "absolute"}
                   data-dropdown-content
@@ -259,9 +266,8 @@ export const MegaMenu: React.FC<MegaMenuProps> = ({ menuGroups, className, ...re
                     opacity: isActive ? 1 : isExiting ? 0 : 0,
                     pointerEvents: isActive ? "auto" : "none",
                     transition: shouldAnimate
-                      ? "opacity 240ms ease, transform 240ms cubic-bezier(0.4, 0, 0.2, 1)"
-                      : "opacity 200ms ease",
-                    transitionDelay: shouldAnimate ? (isActive ? "120ms" : "0ms") : "0ms",
+                      ? `opacity 240ms ease ${isActive ? "120ms" : "0ms"}, transform 240ms cubic-bezier(0.4,0,0.2,1) ${isActive ? "120ms" : "0ms"}`
+                      : "opacity 200ms ease 0ms",
                     visibility: isActive || isExiting ? "visible" : "hidden",
                   }}
                 >

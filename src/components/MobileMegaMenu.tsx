@@ -104,7 +104,7 @@ const MobileMegaMenu: React.FC<MobileMegaMenuProps> = ({ menuGroups, onClose, ..
                       </Column>
                     </Accordion>
                   ) : (
-                    <Column key={sectionKey} fitHeight fillWidth gap="4" paddingX="8">
+                    <Column key={sectionKey} fitHeight fillWidth gap="4">
                       {section.links.map((link, linkIdx) => (
                         <Option
                           key={`link-${linkIdx}`}

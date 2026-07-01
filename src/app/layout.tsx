@@ -3,6 +3,7 @@ import "@once-ui-system/core/css/tokens.css";
 import "@/resources/custom.css";
 
 import classNames from "classnames";
+import type { Viewport } from "next";
 
 import {
   Background,
@@ -15,6 +16,12 @@ import {
 } from "@once-ui-system/core";
 import { Footer, Header, RouteGuard, Providers } from "@/components";
 import { baseURL, effects, fonts, style, dataStyle, home } from "@/resources";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export async function generateMetadata() {
   return Meta.generate({
@@ -108,7 +115,7 @@ export default async function RootLayout({
           as="body"
           background="page"
           fillWidth
-          style={{ minHeight: "100vh" }}
+          style={{ minHeight: "100dvh" }}
           margin="0"
           padding="0"
           horizontal="center"
@@ -156,10 +163,14 @@ export default async function RootLayout({
               }}
             />
           </RevealFx>
+          {/* Desktop: respiro visual antes del header sticky */}
           <Flex fillWidth minHeight="16" s={{ hide: true }} />
           <Header />
+          {/* Mobile: compensa el header fixed (48px) sacado del flujo.
+              minHeight="48" → var(--static-space-48) = 3rem = 48px (prop nativo Once UI) */}
+          <Flex s={{ hide: false }} fillWidth minHeight="48" />
           <Flex zIndex={0} fillWidth padding="l" horizontal="center" flex={1}>
-            <Flex horizontal="center" fillWidth minHeight="0">
+            <Flex horizontal="center" fillWidth>
               <RouteGuard>{children}</RouteGuard>
             </Flex>
           </Flex>
