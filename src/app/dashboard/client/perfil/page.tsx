@@ -4,148 +4,247 @@ import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import {
   Avatar,
-  Badge,
   Button,
   Card,
-  ClientGrid,
   Column,
+  Flex,
+  Grid,
   Heading,
-  Input,
+  Icon,
+  Media,
+  RevealFx,
   Row,
+  SegmentedControl,
+  Tag,
   Text,
 } from "@once-ui-system/core";
 
-interface ProfileForm {
-  empresa: string;
-  puesto: string;
-  telefono: string;
-  sitio: string;
+const TABS = ["Trabajo", "Servicios", "Estadísticas"] as const;
+
+interface PortfolioProject {
+  id: string;
+  title: string;
+  image: string;
+  tag: string;
+  views: number;
+  likes: number;
+}
+
+const PORTFOLIO_PROJECTS: PortfolioProject[] = [
+  { id: "aurora", title: "Aurora — Identidad Visual", image: "/images/gallery/img-01.jpg", tag: "Branding", views: 18400, likes: 2380 },
+  { id: "nocturna", title: "Nocturna — Serie Editorial", image: "/images/gallery/img-02.jpg", tag: "Ilustración", views: 12200, likes: 1540 },
+  { id: "vela", title: "Sistema Tipográfico Vela", image: "/images/gallery/img-03.jpg", tag: "Tipografía", views: 9600, likes: 980 },
+  { id: "fintech", title: "Rediseño App Fintech", image: "/images/gallery/img-04.jpg", tag: "UI/UX", views: 15800, likes: 2010 },
+  { id: "litho", title: "Campaña Verano Litho", image: "/images/gallery/img-05.jpg", tag: "Fotografía", views: 7300, likes: 640 },
+];
+
+const EXPERIENCE = [
+  { company: "Estudio Litho", role: "Diseñador Senior", period: "2023 — Presente" },
+  { company: "Aurora Studio", role: "Diseñador de Producto", period: "2021 — 2023" },
+  { company: "Freelance", role: "Diseñador Gráfico", period: "2019 — 2021" },
+];
+
+const METRICS = [
+  { label: "Vistas del perfil", value: "24.3K" },
+  { label: "Seguidores", value: "1,204" },
+  { label: "Apreciaciones", value: "3,890" },
+];
+
+function formatCount(value: number) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${value}`;
 }
 
 export default function ClientProfilePage() {
   const { isLoaded, user } = useUser();
+  const [tab, setTab] = useState<string>(TABS[0]);
 
   const displayName = isLoaded && user
     ? [user.firstName, user.lastName].filter(Boolean).join(" ") || "Usuario"
     : "";
-  const email = isLoaded && user ? (user.emailAddresses[0]?.emailAddress ?? "") : "";
   const initials = (displayName[0] ?? "U").toUpperCase();
-  const avatarProps = isLoaded && user?.imageUrl
-    ? { src: user.imageUrl }
-    : { value: initials };
-
-  const [form, setForm] = useState<ProfileForm>({
-    empresa: "",
-    puesto: "",
-    telefono: "",
-    sitio: "",
-  });
-
-  const set = (field: keyof ProfileForm) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((f) => ({ ...f, [field]: e.target.value }));
+  const avatarProps = isLoaded && user?.imageUrl ? { src: user.imageUrl } : { value: initials };
 
   return (
-    <Column fillWidth paddingY="80" paddingX="24" gap="24" maxWidth="l" horizontal="center">
+    <RevealFx fillWidth revealedByDefault>
+      <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
+        <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
-      {/* ── Cabecera de identidad ─────────────────────────────────────────────── */}
-      <Card fillWidth padding="32">
-        <Row gap="24" vertical="center" wrap>
-          <Avatar {...avatarProps} size="xl" />
-          <Column gap="8">
-            <Heading variant="heading-strong-l">
-              {isLoaded ? displayName : "—"}
-            </Heading>
-            <Text onBackground="neutral-weak" variant="body-default-m">
-              {isLoaded ? email : "—"}
-            </Text>
-            <Badge title="Cliente" />
-          </Column>
-        </Row>
-      </Card>
+          {/* ── Banner de cobertura ─────────────────────────────────────────── */}
+          <Flex fillWidth height="160" radius="l" background="brand-alpha-weak" />
 
-      {/* ── Formulario de perfil ──────────────────────────────────────────────── */}
-      <ClientGrid columns="2" s={{ columns: 1 }} style={{ width: "100%", gap: "var(--static-space-24)" }}>
+          {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
+          <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start">
 
-        {/* Campos de empresa y contacto */}
-        <Card fillWidth padding="32">
-          <Column gap="24">
-            <Column gap="4">
-              <Heading variant="heading-strong-m">Información Profesional</Heading>
-              <Text variant="body-default-s" onBackground="neutral-weak">
-                Datos asociados a tu cuenta de cliente.
-              </Text>
-            </Column>
+            {/* Columna izquierda — identidad, métricas y experiencia */}
+            <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
+              <Flex style={{ marginTop: "-48px" }}>
+                <Avatar {...avatarProps} size="xl" />
+              </Flex>
 
-            <Column gap="16">
-              <Input
-                id="empresa"
-                label="Nombre de la Empresa"
-                placeholder="Ej: Acme Corp"
-                value={form.empresa}
-                onChange={set("empresa")}
-              />
-              <Input
-                id="puesto"
-                label="Puesto / Rol"
-                placeholder="Ej: Director de Marketing"
-                value={form.puesto}
-                onChange={set("puesto")}
-              />
-              <Input
-                id="telefono"
-                label="Teléfono de Contacto"
-                placeholder="+52 55 1234 5678"
-                value={form.telefono}
-                onChange={set("telefono")}
-              />
-              <Input
-                id="sitio"
-                label="Sitio Web"
-                placeholder="https://ejemplo.com"
-                value={form.sitio}
-                onChange={set("sitio")}
-              />
-            </Column>
-
-            <Button variant="primary" size="m">Guardar Cambios</Button>
-          </Column>
-        </Card>
-
-        {/* Columna de información de cuenta */}
-        <Column gap="16" fillWidth>
-          <Card fillWidth padding="32">
-            <Column gap="16">
-              <Heading variant="heading-strong-m">Cuenta</Heading>
-              <Column gap="12">
-                <Column gap="4">
-                  <Text variant="label-default-s" onBackground="neutral-weak">
-                    Correo electrónico
+              <Column gap="8">
+                <Heading variant="heading-strong-l">{isLoaded ? displayName : "—"}</Heading>
+                <Row gap="8" vertical="center">
+                  <Icon name="briefcase" size="s" onBackground="neutral-weak" />
+                  <Text variant="body-default-m" onBackground="neutral-weak">
+                    Diseñador de Producto
                   </Text>
-                  <Text variant="body-default-m">
-                    {isLoaded ? email : "—"}
+                </Row>
+                <Row gap="8" vertical="center">
+                  <Icon name="mapPin" size="s" onBackground="neutral-weak" />
+                  <Text variant="body-default-m" onBackground="neutral-weak">
+                    Ciudad de México, MX
                   </Text>
-                </Column>
-                <Column gap="4">
-                  <Text variant="label-default-s" onBackground="neutral-weak">
-                    Nombre completo
+                </Row>
+                <Row gap="8" vertical="center">
+                  <Icon name="openLink" size="s" onBackground="neutral-weak" />
+                  <Text variant="body-default-m" onBackground="neutral-weak">
+                    portfolio.ejemplo.com
                   </Text>
-                  <Text variant="body-default-m">
-                    {isLoaded ? displayName : "—"}
-                  </Text>
-                </Column>
-                <Column gap="4">
-                  <Text variant="label-default-s" onBackground="neutral-weak">
-                    Rol
-                  </Text>
-                  <Badge title="Cliente" />
-                </Column>
+                </Row>
               </Column>
-            </Column>
-          </Card>
-        </Column>
 
-      </ClientGrid>
-    </Column>
+              <Column gap="8" fillWidth>
+                <Button fillWidth variant="primary">Editar Perfil</Button>
+                <Button fillWidth variant="secondary">Compartir Perfil</Button>
+              </Column>
+
+              <Flex
+                background="neutral-alpha-weak"
+                padding="16"
+                radius="m"
+                border="neutral-alpha-weak"
+                direction="column"
+                gap="12"
+              >
+                {METRICS.map((metric) => (
+                  <Row key={metric.label} fillWidth horizontal="between">
+                    <Text variant="label-default-s" onBackground="neutral-weak">
+                      {metric.label}
+                    </Text>
+                    <Text variant="label-strong-s">{metric.value}</Text>
+                  </Row>
+                ))}
+              </Flex>
+
+              <Flex
+                background="neutral-alpha-weak"
+                padding="16"
+                radius="m"
+                border="neutral-alpha-weak"
+                direction="column"
+                gap="12"
+              >
+                <Text variant="label-strong-s">Experiencia</Text>
+                <Column gap="12">
+                  {EXPERIENCE.map((exp) => (
+                    <Row key={exp.company} gap="12" vertical="start">
+                      <Avatar value={exp.company[0]} size="s" radius="s" />
+                      <Column gap="2">
+                        <Text variant="label-default-s" onBackground="neutral-strong">
+                          {exp.role}
+                        </Text>
+                        <Text variant="label-default-s" onBackground="neutral-weak">
+                          {exp.company} · {exp.period}
+                        </Text>
+                      </Column>
+                    </Row>
+                  ))}
+                </Column>
+              </Flex>
+            </Column>
+
+            {/* Columna derecha — showcase de portafolio */}
+            <Column gap="24" fillWidth>
+              <SegmentedControl
+                selected={tab}
+                onToggle={setTab}
+                buttons={TABS.map((t) => ({ value: t, label: t }))}
+              />
+
+              <Flex
+                background="brand-alpha-weak"
+                padding="20"
+                radius="m"
+                fillWidth
+                vertical="center"
+                horizontal="between"
+                gap="16"
+                s={{ direction: "column", horizontal: "start" }}
+              >
+                <Column gap="4">
+                  <Text variant="heading-strong-s">Impulsa tus proyectos</Text>
+                  <Text variant="body-default-s" onBackground="neutral-weak">
+                    Llega a más clientes destacando tu trabajo en la portada de Explorar.
+                  </Text>
+                </Column>
+                <Button variant="primary" size="m">Probar Pro</Button>
+              </Flex>
+
+              <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
+                {PORTFOLIO_PROJECTS.map((project) => (
+                  <Card
+                    key={project.id}
+                    fillWidth
+                    direction="column"
+                    gap="12"
+                    padding="12"
+                    radius="l"
+                    border="neutral-alpha-weak"
+                  >
+                    <Column fillWidth radius="m" overflow="hidden">
+                      <Media
+                        src={project.image}
+                        alt={project.title}
+                        aspectRatio="4 / 3"
+                        sizes="(max-width: 768px) 100vw, 33vw"
+                      />
+                    </Column>
+                    <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
+                      <Row fillWidth horizontal="between" vertical="start" gap="8">
+                        <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
+                          {project.title}
+                        </Text>
+                        <Tag size="s" label={project.tag} variant="neutral" />
+                      </Row>
+                      <Row gap="12" vertical="center">
+                        <Row gap="4" vertical="center">
+                          <Icon name="eye" size="xs" onBackground="neutral-weak" />
+                          <Text variant="label-default-s" onBackground="neutral-weak">
+                            {formatCount(project.views)}
+                          </Text>
+                        </Row>
+                        <Row gap="4" vertical="center">
+                          <Icon name="heart" size="xs" onBackground="neutral-weak" />
+                          <Text variant="label-default-s" onBackground="neutral-weak">
+                            {formatCount(project.likes)}
+                          </Text>
+                        </Row>
+                      </Row>
+                    </Column>
+                  </Card>
+                ))}
+
+                {/* Tarjeta de acción "Crear un proyecto" */}
+                <Flex
+                  border="neutral-medium"
+                  radius="l"
+                  style={{ borderStyle: "dashed" }}
+                  center
+                  padding="40"
+                  direction="column"
+                  gap="12"
+                >
+                  <Icon name="plus" size="l" onBackground="neutral-weak" />
+                  <Text variant="label-default-s" onBackground="neutral-weak">
+                    Crear un proyecto
+                  </Text>
+                </Flex>
+              </Grid>
+            </Column>
+
+          </Row>
+        </Column>
+      </Column>
+    </RevealFx>
   );
 }
