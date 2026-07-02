@@ -1,21 +1,18 @@
-@use "./breakpoints.scss" as breakpoints;
+/* Logo: swap por CSS — sin JS, sin hydration mismatch */
+.logoDark  { display: block; }
+.logoLight { display: none;  }
 
-.mask {
-    pointer-events: none;
-    backdrop-filter: blur(0.5rem);
-    background: linear-gradient(to bottom, var(--page-background), var(--static-transparent));
-    mask-image: linear-gradient(rgba(0,0,0) 25%, rgba(0, 0, 0, 0) 100%);
-    mask-size: 100% 100%;
+:global([data-theme="light"]) {
+  .logoDark  { display: none;  }
+  .logoLight { display: block; }
 }
 
-@media (max-width: breakpoints.$s) {
-    .position {
-        top: auto;
-        bottom: var(--static-space-24);
-    }
-
-    .mask {
-        transform: rotate(180deg);
-        bottom: 0;
-    }
+/*
+ * Safe-area para iPhone notch/Dynamic Island.
+ * Once UI no tiene soporte nativo para env(), por eso esta clase existe.
+ * No controla tamaños ni visibilidad — solo ajusta el padding del OS.
+ */
+.mobileBar {
+  padding-top: calc(env(safe-area-inset-top, 0px) + var(--static-space-12));
 }
+

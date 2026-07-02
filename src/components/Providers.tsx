@@ -17,11 +17,13 @@ import {
   ToastProvider,
   TransitionStyle,
 } from "@once-ui-system/core";
+import { ClerkProvider } from "@clerk/nextjs";
 import { style, dataStyle } from "../resources";
 import { iconLibrary } from "../resources/icons";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
+    <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
     <LayoutProvider>
       <ThemeProvider
         brand={style.brand as Schemes}
@@ -53,5 +55,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
         </DataThemeProvider>
       </ThemeProvider>
     </LayoutProvider>
+    </ClerkProvider>
   );
 }

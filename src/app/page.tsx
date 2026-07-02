@@ -10,11 +10,12 @@ import {
   Schema,
   Meta,
   Line,
+  Card,
 } from "@once-ui-system/core";
 import { home, about, person, baseURL, routes } from "@/resources";
-import { Mailchimp } from "@/components";
-import { Projects } from "@/components/work/Projects";
+import { Mailchimp, ProjectsGrid, DesignerStrip } from "@/components";
 import { Posts } from "@/components/blog/Posts";
+import { getPosts } from "@/utils/utils";
 
 export async function generateMetadata() {
   return Meta.generate({
@@ -27,6 +28,10 @@ export async function generateMetadata() {
 }
 
 export default function Home() {
+  const projects = getPosts(["src", "app", "work", "projects"]).sort(
+    (a, b) => new Date(b.metadata.publishedAt).getTime() - new Date(a.metadata.publishedAt).getTime(),
+  );
+
   return (
     <Column maxWidth="m" gap="xl" paddingY="12" horizontal="center">
       <Schema
@@ -100,8 +105,37 @@ export default function Home() {
           </RevealFx>
         </Column>
       </Column>
-      <RevealFx translateY="16" delay={0.6}>
-        <Projects range={[1, 1]} />
+      <RevealFx translateY="16" delay={0.6} fillWidth paddingX="l">
+        <Row fillWidth gap="24" s={{ direction: "column" }}>
+          <Card fillWidth padding="32" radius="l" direction="column" gap="16">
+            <Heading as="h2" variant="heading-strong-l">
+              ¿Buscas talento?
+            </Heading>
+            <Text onBackground="neutral-weak" variant="body-default-m">
+              Encuentra diseñadores y animadores listos para tu próximo proyecto.
+            </Text>
+            <Button href="/servicios" variant="secondary" size="m" arrowIcon>
+              Ver servicios
+            </Button>
+          </Card>
+          <Card fillWidth padding="32" radius="l" direction="column" gap="16">
+            <Heading as="h2" variant="heading-strong-l">
+              ¿Eres diseñador?
+            </Heading>
+            <Text onBackground="neutral-weak" variant="body-default-m">
+              Comparte tu trabajo y conecta con clientes que buscan tu estilo.
+            </Text>
+            <Button href="/explorar" variant="secondary" size="m" arrowIcon>
+              Explorar plataforma
+            </Button>
+          </Card>
+        </Row>
+      </RevealFx>
+      <RevealFx translateY="16" delay={0.7} fillWidth paddingX="l">
+        <DesignerStrip />
+      </RevealFx>
+      <RevealFx translateY="16" delay={0.8} fillWidth paddingX="l">
+        <ProjectsGrid projects={projects} />
       </RevealFx>
       {routes["/blog"] && (
         <Column fillWidth gap="24" marginBottom="l">
@@ -123,7 +157,6 @@ export default function Home() {
           </Row>
         </Column>
       )}
-      <Projects range={[2]} />
       <Mailchimp />
     </Column>
   );

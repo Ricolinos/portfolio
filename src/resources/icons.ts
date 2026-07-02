@@ -12,6 +12,23 @@ import {
   HiOutlineDocument,
   HiOutlineGlobeAsiaAustralia,
   HiOutlineRocketLaunch,
+  HiOutlineFilm,
+  HiOutlineSparkles,
+  HiOutlinePaintBrush,
+  HiOutlineUserGroup,
+  HiOutlineCodeBracket,
+  HiOutlineBriefcase,
+  HiOutlineInformationCircle,
+  HiOutlineCreditCard,
+  HiOutlineMagnifyingGlass,
+  HiOutlineCog8Tooth,
+  HiArrowRightOnRectangle,
+  HiOutlineHeart,
+  HiOutlineWindow,
+  HiOutlinePuzzlePiece,
+  HiOutlineArrowDownTray,
+  HiOutlinePlus,
+  HiOutlineMapPin,
 } from "react-icons/hi2";
 
 import {
@@ -20,6 +37,9 @@ import {
   PiGridFourDuotone,
   PiBookBookmarkDuotone,
   PiImageDuotone,
+  PiImagesDuotone,
+  PiCameraDuotone,
+  PiShapes,
 } from "react-icons/pi";
 
 import {
@@ -29,7 +49,7 @@ import {
   SiSupabase,
 } from "react-icons/si";
 
-import { FaDiscord, FaGithub, FaLinkedin, FaX, FaThreads, FaInstagram, FaXTwitter, FaFacebook, FaPinterest, FaWhatsapp, FaReddit, FaTelegram, } from "react-icons/fa6";
+import { FaDiscord, FaGithub, FaLinkedin, FaX, FaThreads, FaInstagram, FaXTwitter, FaFacebook, FaPinterest, FaWhatsapp, FaReddit, FaTelegram, FaGoogle, FaBehance, } from "react-icons/fa6";
 
 export const iconLibrary: Record<string, IconType> = {
   arrowUpRight: HiArrowUpRight,
@@ -54,16 +74,38 @@ export const iconLibrary: Record<string, IconType> = {
   arrowUpRightFromSquare: HiArrowTopRightOnSquare,
   document: HiOutlineDocument,
   rocket: HiOutlineRocketLaunch,
+  film: HiOutlineFilm,
+  sparkles: HiOutlineSparkles,
+  paintBrush: HiOutlinePaintBrush,
+  userGroup: HiOutlineUserGroup,
+  codeBracket: HiOutlineCodeBracket,
+  briefcase: HiOutlineBriefcase,
+  infoCircle: HiOutlineInformationCircle,
+  creditCard: HiOutlineCreditCard,
+  search: HiOutlineMagnifyingGlass,
+  settings: HiOutlineCog8Tooth,
+  logOut: HiArrowRightOnRectangle,
+  heart: HiOutlineHeart,
+  mockup: HiOutlineWindow,
+  plugin: HiOutlinePuzzlePiece,
+  download: HiOutlineArrowDownTray,
+  plus: HiOutlinePlus,
+  mapPin: HiOutlineMapPin,
+  images: PiImagesDuotone,
+  camera: PiCameraDuotone,
+  shapes: PiShapes,
   javascript: SiJavascript,
   nextjs: SiNextdotjs,
   supabase: SiSupabase,
   figma: SiFigma,
   facebook: FaFacebook,
+  google: FaGoogle,
   pinterest: FaPinterest,
   whatsapp: FaWhatsapp,
   reddit: FaReddit,
   telegram: FaTelegram,
   instagram: FaInstagram,
+  behance: FaBehance,
 };
 
 export type IconLibrary = typeof iconLibrary;
