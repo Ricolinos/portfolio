@@ -9,6 +9,7 @@ import {
   Avatar,
   Button,
   Column,
+  Dialog,
   Fade,
   Icon,
   Line,
@@ -16,6 +17,7 @@ import {
   Option,
   Row,
   SmartLink,
+  StylePanel,
   Text,
   UserMenu,
 } from "@once-ui-system/core";
@@ -145,7 +147,15 @@ const SearchBar = ({ fillWidth }: { fillWidth?: boolean }) => (
 );
 
 // ─── AuthZone ─────────────────────────────────────────────────────────────────
-const AuthZone = ({ mobile = false, onOpenAuth }: { mobile?: boolean; onOpenAuth: (mode: AuthMode) => void }) => {
+const AuthZone = ({
+  mobile = false,
+  onOpenAuth,
+  onOpenSettings,
+}: {
+  mobile?: boolean;
+  onOpenAuth: (mode: AuthMode) => void;
+  onOpenSettings: () => void;
+}) => {
   const { isLoaded, isSignedIn, user } = useUser();
   const { signOut } = useClerk();
 
@@ -188,7 +198,8 @@ const AuthZone = ({ mobile = false, onOpenAuth }: { mobile?: boolean; onOpenAuth
           <Line background="neutral-alpha-medium" />
           <Option href={user.username ? `/${user.username}` : "/dashboard/client/settings"} label="Perfil" value="perfil"
             hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
-          <Option href="/dashboard/client/settings" label="Configuración" value="settings"
+          <Option label="Ajustes" value="settings"
+            onClick={onOpenSettings}
             hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
           {display.themeSwitcher && (
             <>
@@ -217,7 +228,8 @@ const AuthZone = ({ mobile = false, onOpenAuth }: { mobile?: boolean; onOpenAuth
           <Column minWidth={12} padding="4" gap="2">
             <Option href={user.username ? `/${user.username}` : "/dashboard/client/settings"} label="Perfil" value="perfil"
               hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
-            <Option href="/dashboard/client/settings" label="Configuración" value="settings"
+            <Option label="Ajustes" value="settings"
+              onClick={onOpenSettings}
               hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
             {display.themeSwitcher && (
               <>
@@ -274,9 +286,10 @@ const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
 
 // ─── Header ───────────────────────────────────────────────────────────────────
 export const Header = () => {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [isMobile, setIsMobile]     = useState(false);
-  const [authMode, setAuthMode]     = useState<AuthMode | null>(null);
+  const [mobileOpen, setMobileOpen]       = useState(false);
+  const [isMobile, setIsMobile]           = useState(false);
+  const [authMode, setAuthMode]           = useState<AuthMode | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const pathname   = usePathname() ?? "/";
   const isHome     = pathname === "/";
   const isRecursos = pathname.startsWith("/recursos");
@@ -363,7 +376,7 @@ export const Header = () => {
                 </Row>
               </Row>
               <Row vertical="center" gap="8" paddingRight="4">
-                <AuthZone onOpenAuth={setAuthMode} />
+                <AuthZone onOpenAuth={setAuthMode} onOpenSettings={() => setIsSettingsOpen(true)} />
               </Row>
             </Row>
           </motion.div>
@@ -438,13 +451,22 @@ export const Header = () => {
                 onClose={() => setMobileOpen(false)}
               />
               <Line background="neutral-alpha-weak" />
-              <AuthZone mobile={true} onOpenAuth={setAuthMode} />
+              <AuthZone mobile={true} onOpenAuth={setAuthMode} onOpenSettings={() => setIsSettingsOpen(true)} />
             </Column>
           </motion.div>
         )}
       </AnimatePresence>
 
       <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />
+
+      <Dialog
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        title="Ajustes"
+        maxWidth={30}
+      >
+        <StylePanel fillWidth />
+      </Dialog>
     </>
   );
 };

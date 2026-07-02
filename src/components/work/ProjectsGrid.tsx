@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Column, Grid, SegmentedControl } from "@once-ui-system/core";
 import { ShotCard } from "@/components/work/ShotCard";
+import { home } from "@/resources";
 import type { getPosts } from "@/utils/utils";
 
 const ALL = "Todos";
@@ -41,6 +42,7 @@ export function ProjectsGrid({ projects }: ProjectsGridProps) {
             title={project.metadata.title}
             tag={project.metadata.tag}
             avatar={project.metadata.team?.[0]?.avatar}
+            featured={`/work/${project.slug}` === home.featured.href}
           />
         ))}
       </Grid>
