@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import {
   Avatar,
@@ -54,15 +54,22 @@ function formatCount(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${value}`;
 }
 
-export default function ClientProfilePage() {
+interface UserProfilePageProps {
+  params: Promise<{ username: string }>;
+}
+
+export default function UserProfilePage({ params }: UserProfilePageProps) {
+  const { username } = use(params);
   const { isLoaded, user } = useUser();
   const [tab, setTab] = useState<string>(TABS[0]);
 
-  const displayName = isLoaded && user
-    ? [user.firstName, user.lastName].filter(Boolean).join(" ") || "Usuario"
-    : "";
+  const isOwnProfile = isLoaded && user?.username === username;
+
+  const displayName = isOwnProfile
+    ? [user?.firstName, user?.lastName].filter(Boolean).join(" ") || username
+    : username;
   const initials = (displayName[0] ?? "U").toUpperCase();
-  const avatarProps = isLoaded && user?.imageUrl ? { src: user.imageUrl } : { value: initials };
+  const avatarProps = isOwnProfile && user?.imageUrl ? { src: user.imageUrl } : { value: initials };
 
   return (
     <RevealFx fillWidth revealedByDefault>
@@ -82,7 +89,7 @@ export default function ClientProfilePage() {
               </Flex>
 
               <Column gap="8">
-                <Heading variant="heading-strong-l">{isLoaded ? displayName : "—"}</Heading>
+                <Heading variant="heading-strong-l">{displayName}</Heading>
                 <Row gap="8" vertical="center">
                   <Icon name="briefcase" size="s" onBackground="neutral-weak" />
                   <Text variant="body-default-m" onBackground="neutral-weak">
@@ -103,10 +110,12 @@ export default function ClientProfilePage() {
                 </Row>
               </Column>
 
-              <Column gap="8" fillWidth>
-                <Button fillWidth variant="primary">Editar Perfil</Button>
-                <Button fillWidth variant="secondary">Compartir Perfil</Button>
-              </Column>
+              {isOwnProfile && (
+                <Column gap="8" fillWidth>
+                  <Button fillWidth variant="primary">Editar información de perfil</Button>
+                  <Button fillWidth variant="secondary">Personalizar perfil</Button>
+                </Column>
+              )}
 
               <Flex
                 background="neutral-alpha-weak"
@@ -225,20 +234,22 @@ export default function ClientProfilePage() {
                 ))}
 
                 {/* Tarjeta de acción "Crear un proyecto" */}
-                <Flex
-                  border="neutral-medium"
-                  radius="l"
-                  style={{ borderStyle: "dashed" }}
-                  center
-                  padding="40"
-                  direction="column"
-                  gap="12"
-                >
-                  <Icon name="plus" size="l" onBackground="neutral-weak" />
-                  <Text variant="label-default-s" onBackground="neutral-weak">
-                    Crear un proyecto
-                  </Text>
-                </Flex>
+                {isOwnProfile && (
+                  <Flex
+                    border="neutral-medium"
+                    radius="l"
+                    style={{ borderStyle: "dashed" }}
+                    center
+                    padding="40"
+                    direction="column"
+                    gap="12"
+                  >
+                    <Icon name="plus" size="l" onBackground="neutral-weak" />
+                    <Text variant="label-default-s" onBackground="neutral-weak">
+                      Crear un proyecto
+                    </Text>
+                  </Flex>
+                )}
               </Grid>
             </Column>
 

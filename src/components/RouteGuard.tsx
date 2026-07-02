@@ -27,6 +27,15 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
       }
     }
 
+    // Vanity profile URLs (e.g. /ricolinos) resolve via the [username] dynamic
+    // route. Exclude the app's own static top-level segments so soft-disabled
+    // pages (like /about, /gallery) still respect the `routes` config above.
+    const staticSegments = ["about", "actions", "api", "gallery"];
+    const [firstSegment] = pathname.slice(1).split("/");
+    if (firstSegment && !pathname.includes("/", 1) && !staticSegments.includes(firstSegment)) {
+      return true;
+    }
+
     return false;
   };
 

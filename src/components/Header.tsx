@@ -186,7 +186,7 @@ const AuthZone = ({ mobile = false, onOpenAuth }: { mobile?: boolean; onOpenAuth
             </Column>
           </Row>
           <Line background="neutral-alpha-medium" />
-          <Option href="/dashboard/client/perfil" label="Perfil" value="perfil"
+          <Option href={user.username ? `/${user.username}` : "/dashboard/client/settings"} label="Perfil" value="perfil"
             hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
           <Option href="/dashboard/client/settings" label="Configuración" value="settings"
             hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
@@ -215,7 +215,7 @@ const AuthZone = ({ mobile = false, onOpenAuth }: { mobile?: boolean; onOpenAuth
         placement="bottom-end"
         dropdown={
           <Column minWidth={12} padding="4" gap="2">
-            <Option href="/dashboard/client/perfil" label="Perfil" value="perfil"
+            <Option href={user.username ? `/${user.username}` : "/dashboard/client/settings"} label="Perfil" value="perfil"
               hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
             <Option href="/dashboard/client/settings" label="Configuración" value="settings"
               hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
