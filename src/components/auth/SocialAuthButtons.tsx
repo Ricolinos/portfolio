@@ -2,11 +2,10 @@
 
 import { Button, Column, Line, Row, Text } from "@once-ui-system/core";
 
-export type OAuthProviderStrategy = "oauth_google" | "oauth_apple" | "oauth_facebook";
+export type OAuthProviderStrategy = "oauth_google" | "oauth_facebook";
 
-const PROVIDERS: { strategy: OAuthProviderStrategy; label: string; icon: "google" | "apple" | "facebook" }[] = [
+const PROVIDERS: { strategy: OAuthProviderStrategy; label: string; icon: "google" | "facebook" }[] = [
   { strategy: "oauth_google", label: "Google", icon: "google" },
-  { strategy: "oauth_apple", label: "Apple", icon: "apple" },
   { strategy: "oauth_facebook", label: "Facebook", icon: "facebook" },
 ];
 
@@ -36,7 +35,7 @@ export function SocialAuthButtons({ onSelect, loading = false }: SocialAuthButto
       <Row fillWidth vertical="center" gap="12">
         <Line background="neutral-alpha-medium" style={{ flex: 1 }} />
         <Text variant="label-default-s" onBackground="neutral-weak">
-          o continúa con tu email
+          o
         </Text>
         <Line background="neutral-alpha-medium" style={{ flex: 1 }} />
       </Row>

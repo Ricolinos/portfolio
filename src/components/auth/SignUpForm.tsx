@@ -19,6 +19,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
   const [step, setStep] = useState<Step>("register");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role | null>(null);
@@ -38,6 +39,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
         password,
         firstName,
         lastName,
+        ...(username.trim() ? { username: username.trim() } : {}),
         unsafeMetadata: { role },
       });
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
@@ -86,7 +88,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
 
   return (
     <Column fillWidth gap="l">
-      <Text variant="body-default-m" onBackground="neutral-weak">
+      <Text variant="body-default-m" onBackground="neutral-weak" align="center">
         {step === "register"
           ? "Completa tus datos para registrarte."
           : `Ingresa el código enviado a ${email}.`}
@@ -121,6 +123,14 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+            />
+
+            <Input
+              id="signup-username"
+              label="Nombre de usuario (opcional)"
+              description="Podrás usarlo para iniciar sesión en lugar de tu email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
             />
 
             <Input

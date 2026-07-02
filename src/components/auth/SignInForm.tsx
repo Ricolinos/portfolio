@@ -16,7 +16,7 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
   const { isLoaded, signIn, setActive } = useSignIn();
 
   const [step, setStep] = useState<Step>("credentials");
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -29,7 +29,7 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
     setErrorMsg("");
 
     try {
-      const result = await signIn.create({ identifier: email, password });
+      const result = await signIn.create({ identifier, password });
 
       if (result.status === "complete") {
         await setActive({ session: result.createdSessionId });
@@ -108,10 +108,10 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
 
   return (
     <Column fillWidth gap="l">
-      <Text variant="body-default-m" onBackground="neutral-weak">
+      <Text variant="body-default-m" onBackground="neutral-weak" align="center">
         {step === "credentials"
           ? "Accede a tu cuenta para continuar."
-          : `Ingresa el código de verificación enviado a ${email}.`}
+          : "Ingresa el código de verificación enviado a tu correo."}
       </Text>
 
       {step === "credentials" && <SocialAuthButtons onSelect={handleOAuth} loading={loading} />}
@@ -120,11 +120,10 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
         <form onSubmit={handleCredentials} style={{ width: "100%" }}>
           <Column gap="m">
             <Input
-              id="signin-email"
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="signin-identifier"
+              label="Email o nombre de usuario"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               required
             />
             <Input

@@ -23,5 +23,7 @@ export default async function DashboardPage() {
   if (role === "client") redirect("/dashboard/client");
   if (role === "collaborator") redirect("/dashboard/collaborator");
 
-  redirect("/dashboard/client");
+  // Sin rol asignado (típico de un registro vía Google/Apple/Facebook, que
+  // se salta el paso de selección de rol del formulario de registro).
+  redirect("/complete-profile");
 }
