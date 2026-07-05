@@ -26,7 +26,11 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env*.local
+
+# prisma generated client
+/src/generated/
 
 # vercel
 .vercel
@@ -36,3 +40,5 @@ yarn-error.log*
 next-env.d.ts
 # clerk configuration (can include secrets)
 /.clerk/
+
+/src/generated/prisma

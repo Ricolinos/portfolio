@@ -1,0 +1,37 @@
+import { currentUser } from "@clerk/nextjs/server";
+import { Prisma } from "@/generated/prisma/client";
+import { prisma } from "@/lib/prisma";
+
+// Just-in-Time sync: siembra el usuario de Clerk en la base de datos
+// la primera vez que renderiza una ruta crítica, sin webhooks.
+export async function getOrCreateUser() {
+  const clerkUser = await currentUser();
+  if (!clerkUser) return null;
+
+  const clerkId = clerkUser.id;
+  const email = clerkUser.emailAddresses[0]?.emailAddress;
+  if (!email) return null;
+
+  const existing = await prisma.user.findUnique({ where: { id: clerkId } });
+  if (existing) return existing;
+
+  try {
+    return await prisma.user.create({
+      data: {
+        id: clerkId,
+        email,
+        name:
+          `${clerkUser.firstName || ""} ${clerkUser.lastName || ""}`.trim() ||
+          "Usuario de HUB-NERDS",
+        username: clerkUser.username,
+        imageUrl: clerkUser.imageUrl,
+      },
+    });
+  } catch (error) {
+    // P2002: otro render concurrente lo creó primero; recupéralo.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return prisma.user.findUnique({ where: { id: clerkId } });
+    }
+    throw error;
+  }
+}

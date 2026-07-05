@@ -1,5 +1,6 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { ProfileView } from "@/components/profile/ProfileView";
+import { getOrCreateUser } from "@/lib/syncUser";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
@@ -7,6 +8,7 @@ interface UserProfilePageProps {
 
 export default async function UserProfilePage({ params }: UserProfilePageProps) {
   const { username } = await params;
+  await getOrCreateUser();
   const viewer = await currentUser();
 
   const isOwnProfile = viewer?.username === username;

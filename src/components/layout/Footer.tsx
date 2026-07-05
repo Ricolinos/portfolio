@@ -11,7 +11,7 @@ const exploreLinks: FooterLink[] = [
 ];
 
 const serviceLinks: FooterLink[] = [
-  { label: "Paquetes Animados", href: "/servicios/cotiza" },
+  { label: "Cotiza tu proyecto", href: "/servicios/cotizador" },
   { label: "Diseño Estratégico", href: "/servicios/informacion" },
   { label: "Facturación", href: "/servicios/facturacion" },
 ];
