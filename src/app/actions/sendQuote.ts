@@ -11,7 +11,11 @@ export interface QuoteLead {
   nombre: string;
   whatsapp: string;
   correo: string;
-  proyecto: string; // ej. "Motion / Animación · Logo animado (Medio)"
+  marca: string; // nombre de la marca o proyecto (opcional)
+  descripcion: string; // detalle libre del proyecto (opcional)
+  proyecto: string; // ej. "Motion / Animación · Logo animado"
+  complejidad: string; // ej. "Medio — Conceptualización, varias propuestas y rondas de ajustes"
+  alcance: string; // ej. "Empresa nacional · Difusión estatal"
   estimacion: string; // ej. "$5,000 – $10,000 MXN"
   desglose: { label: string; valor: string }[];
 }
@@ -51,8 +55,20 @@ function plantilla(lead: QuoteLead): string {
     </table>
 
     <h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:#999;">Proyecto</h3>
+    ${lead.marca ? `<p style="margin:0 0 4px;font-size:16px;font-weight:700;">${esc(lead.marca)}</p>` : ""}
     <p style="margin:0 0 4px;font-size:15px;font-weight:600;">${esc(lead.proyecto)}</p>
     <p style="margin:0 0 16px;font-size:22px;font-weight:700;">${esc(lead.estimacion)}</p>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px;">
+      <tr><td style="padding:6px 0;color:#666;vertical-align:top;">Complejidad</td><td style="padding:6px 0 6px 16px;text-align:right;font-weight:600;">${esc(lead.complejidad)}</td></tr>
+      <tr><td style="padding:6px 0;color:#666;vertical-align:top;">Alcance</td><td style="padding:6px 0 6px 16px;text-align:right;font-weight:600;">${esc(lead.alcance)}</td></tr>
+    </table>
+    ${
+      lead.descripcion
+        ? `<h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:#999;">Descripción del proyecto</h3>
+    <p style="margin:0 0 24px;font-size:14px;color:#333;white-space:pre-wrap;">${esc(lead.descripcion)}</p>`
+        : ""
+    }
+    <h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:#999;">Desglose</h3>
     <table style="width:100%;border-collapse:collapse;font-size:14px;">${filas}</table>
 
     <p style="margin:24px 0 0;color:#999;font-size:12px;">Estimación orientativa · IVA no incluido · El costo final se pacta directamente con el cliente.</p>
@@ -63,6 +79,8 @@ export async function sendQuote(lead: QuoteLead): Promise<QuoteResult> {
   const nombre = lead.nombre?.trim() ?? "";
   const whatsapp = lead.whatsapp?.trim() ?? "";
   const correo = lead.correo?.trim() ?? "";
+  const marca = lead.marca?.trim() ?? "";
+  const descripcion = lead.descripcion?.trim() ?? "";
 
   if (!nombre || !EMAIL_REGEX.test(correo) || !TEL_REGEX.test(whatsapp)) {
     return { ok: false, error: "Datos de contacto incompletos o inválidos." };
@@ -77,8 +95,8 @@ export async function sendQuote(lead: QuoteLead): Promise<QuoteResult> {
       from: REMITENTE,
       to: DESTINATARIO,
       replyTo: correo,
-      subject: `Cotización solicitada: ${lead.proyecto} — ${nombre}`,
-      html: plantilla({ ...lead, nombre, whatsapp, correo }),
+      subject: `Cotización solicitada: ${marca || lead.proyecto} — ${nombre}`,
+      html: plantilla({ ...lead, nombre, whatsapp, correo, marca, descripcion }),
     });
     if (error) return { ok: false, error: error.message };
     return { ok: true };

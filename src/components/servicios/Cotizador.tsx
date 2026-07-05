@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import {
   Button,
   Card,
@@ -16,6 +17,7 @@ import {
   Select,
   Switch,
   Text,
+  Textarea,
 } from "@once-ui-system/core";
 import { sendQuote } from "@/app/actions/sendQuote";
 
@@ -192,10 +194,21 @@ export function Cotizador() {
   const [nombre, setNombre]           = useState("");
   const [whatsapp, setWhatsapp]       = useState("");
   const [correo, setCorreo]           = useState("");
+  const [marca, setMarca]             = useState("");
+  const [descripcion, setDescripcion] = useState("");
   const [intentado, setIntentado]     = useState(false);
   const [enviando, setEnviando]       = useState(false);
   const [enviado, setEnviado]         = useState(false);
   const [errorEnvio, setErrorEnvio]   = useState<string | null>(null);
+
+  // Autollenado con la sesión de Clerk (solo campos que el visitante no haya escrito)
+  const { isLoaded, user } = useUser();
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    setNombre((v) => v || user.fullName || "");
+    setCorreo((v) => v || user.emailAddresses[0]?.emailAddress || "");
+    setWhatsapp((v) => v || user.primaryPhoneNumber?.phoneNumber || "");
+  }, [isLoaded, user]);
 
   const catalogo = CATALOGOS[disciplina];
   const item = catalogo.items.find((s) => s.value === servicio) ?? catalogo.items[0];
@@ -240,13 +253,18 @@ export function Cotizador() {
     if (!nombreValido || !whatsappValido || !correoValido) return;
 
     setEnviando(true);
-    const complejidadLabel =
-      COMPLEJIDADES[disciplina].find((c) => c.value === complejidad)?.label ?? complejidad;
+    const nivelComplejidad = COMPLEJIDADES[disciplina].find((c) => c.value === complejidad);
+    const tipoCliente = CLIENTES.find((c) => c.value === cliente);
+    const nivelDifusion = DIFUSIONES.find((d) => d.value === difusion);
     const respuesta = await sendQuote({
       nombre: nombre.trim(),
       whatsapp: whatsapp.trim(),
       correo: correo.trim(),
-      proyecto: `${CATALOGOS[disciplina].label} · ${item.label} (${complejidadLabel})`,
+      marca: marca.trim(),
+      descripcion: descripcion.trim(),
+      proyecto: `${CATALOGOS[disciplina].label} · ${item.label}`,
+      complejidad: `${nivelComplejidad?.label ?? complejidad} — ${nivelComplejidad?.detalle ?? ""}`,
+      alcance: `${tipoCliente?.label ?? cliente} · Difusión ${nivelDifusion?.label.toLowerCase() ?? difusion}`,
       estimacion: `${mxn.format(resultado.min)} – ${mxn.format(resultado.max)} MXN`,
       desglose,
     });
@@ -257,6 +275,8 @@ export function Cotizador() {
       setNombre("");
       setWhatsapp("");
       setCorreo("");
+      setMarca("");
+      setDescripcion("");
       setIntentado(false);
     } else {
       setErrorEnvio(respuesta.error ?? "No se pudo enviar la solicitud. Intenta de nuevo.");
@@ -420,6 +440,14 @@ export function Cotizador() {
             <Column gap="16">
               <Column gap="12" fillWidth>
                 <Input
+                  id="lead-marca"
+                  label="Marca o proyecto"
+                  type="text"
+                  placeholder="Nombre de tu marca, empresa o proyecto"
+                  value={marca}
+                  onChange={(e) => setMarca(e.target.value)}
+                />
+                <Input
                   id="lead-nombre"
                   label="Nombre"
                   type="text"
@@ -452,6 +480,14 @@ export function Cotizador() {
                   errorMessage={
                     intentado && !correoValido ? "Escribe un correo válido" : undefined
                   }
+                />
+                <Textarea
+                  id="lead-descripcion"
+                  label="Cuéntame más de tu proyecto"
+                  placeholder="Describe qué necesitas, para qué lo usarás, referencias, fechas…"
+                  lines={3}
+                  value={descripcion}
+                  onChange={(e) => setDescripcion(e.target.value)}
                 />
               </Column>
 
