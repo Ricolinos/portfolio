@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Column,
+  Feedback,
   Heading,
   Icon,
   IconButton,
@@ -16,6 +17,7 @@ import {
   Switch,
   Text,
 } from "@once-ui-system/core";
+import { sendQuote } from "@/app/actions/sendQuote";
 
 /* ══ Catálogo de servicios y precios base (MXN, sin IVA) ═════════════════════ */
 
@@ -152,6 +154,10 @@ const mxn = new Intl.NumberFormat("es-MX", {
   maximumFractionDigits: 0,
 });
 
+// Validación de los datos de contacto (espejo de la validación del servidor)
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const TEL_REGEX = /^[+\d][\d\s\-()]{6,19}$/;
+
 /* ══ Utilidades de UI ═════════════════════════════════════════════════════════ */
 
 function SectionLabel({ texto, tooltip }: { texto: string; tooltip: string }) {
@@ -182,6 +188,14 @@ export function Cotizador() {
   const [cantidad, setCantidad]       = useState(1);
   const [urgente, setUrgente]         = useState(false);
   const [editables, setEditables]     = useState(false);
+
+  const [nombre, setNombre]           = useState("");
+  const [whatsapp, setWhatsapp]       = useState("");
+  const [correo, setCorreo]           = useState("");
+  const [intentado, setIntentado]     = useState(false);
+  const [enviando, setEnviando]       = useState(false);
+  const [enviado, setEnviado]         = useState(false);
+  const [errorEnvio, setErrorEnvio]   = useState<string | null>(null);
 
   const catalogo = CATALOGOS[disciplina];
   const item = catalogo.items.find((s) => s.value === servicio) ?? catalogo.items[0];
@@ -215,6 +229,39 @@ export function Cotizador() {
     ...(urgente           ? [{ label: "Entrega urgente",      valor: "+50%" }] : []),
     ...(editables         ? [{ label: "Archivos editables",   valor: FACTOR_EDITABLES[disciplina] === 2 ? "× 2" : "+50%" }] : []),
   ];
+
+  const nombreValido   = nombre.trim().length > 0;
+  const whatsappValido = TEL_REGEX.test(whatsapp.trim());
+  const correoValido   = EMAIL_REGEX.test(correo.trim());
+
+  const solicitar = async () => {
+    setIntentado(true);
+    setErrorEnvio(null);
+    if (!nombreValido || !whatsappValido || !correoValido) return;
+
+    setEnviando(true);
+    const complejidadLabel =
+      COMPLEJIDADES[disciplina].find((c) => c.value === complejidad)?.label ?? complejidad;
+    const respuesta = await sendQuote({
+      nombre: nombre.trim(),
+      whatsapp: whatsapp.trim(),
+      correo: correo.trim(),
+      proyecto: `${CATALOGOS[disciplina].label} · ${item.label} (${complejidadLabel})`,
+      estimacion: `${mxn.format(resultado.min)} – ${mxn.format(resultado.max)} MXN`,
+      desglose,
+    });
+    setEnviando(false);
+
+    if (respuesta.ok) {
+      setEnviado(true);
+      setNombre("");
+      setWhatsapp("");
+      setCorreo("");
+      setIntentado(false);
+    } else {
+      setErrorEnvio(respuesta.error ?? "No se pudo enviar la solicitud. Intenta de nuevo.");
+    }
+  };
 
   return (
     <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
@@ -371,21 +418,80 @@ export function Cotizador() {
             <Line background="neutral-alpha-weak" />
 
             <Column gap="16">
+              <Column gap="12" fillWidth>
+                <Input
+                  id="lead-nombre"
+                  label="Nombre"
+                  type="text"
+                  placeholder="¿Cómo te llamas?"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  error={intentado && !nombreValido}
+                  errorMessage={intentado && !nombreValido ? "Escribe tu nombre" : undefined}
+                />
+                <Input
+                  id="lead-whatsapp"
+                  label="WhatsApp"
+                  type="tel"
+                  placeholder="+52 000 000 0000"
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  error={intentado && !whatsappValido}
+                  errorMessage={
+                    intentado && !whatsappValido ? "Escribe un número válido" : undefined
+                  }
+                />
+                <Input
+                  id="lead-correo"
+                  label="Correo electrónico"
+                  type="email"
+                  placeholder="tu@correo.com"
+                  value={correo}
+                  onChange={(e) => setCorreo(e.target.value)}
+                  error={intentado && !correoValido}
+                  errorMessage={
+                    intentado && !correoValido ? "Escribe un correo válido" : undefined
+                  }
+                />
+              </Column>
+
+              {enviado && (
+                <Feedback
+                  variant="success"
+                  title="Solicitud enviada"
+                  description="Recibí tu cotización y te contactaré muy pronto por WhatsApp o correo."
+                  showCloseButton
+                  onClose={() => setEnviado(false)}
+                />
+              )}
+              {errorEnvio && (
+                <Feedback
+                  variant="danger"
+                  title="No se pudo enviar"
+                  description={errorEnvio}
+                  showCloseButton
+                  onClose={() => setErrorEnvio(null)}
+                />
+              )}
+
               <Button
                 fillWidth
                 variant="primary"
                 size="m"
                 arrowIcon
-                href="mailto:ricardo@ricolinos.com?subject=Solicitud%20de%20cotizaci%C3%B3n"
+                loading={enviando}
+                disabled={enviando}
+                onClick={solicitar}
               >
                 Solicitar cotización formal
               </Button>
               <Row gap="12" vertical="start" padding="16" radius="l" background="neutral-alpha-weak">
                 <Icon name="infoCircle" size="s" onBackground="neutral-weak" />
                 <Text variant="body-default-xs" onBackground="neutral-weak">
-                  Esta calculadora genera una aproximación de costos con fines orientativos.
-                  El costo final se pacta directamente contigo, según los requerimientos y el
-                  alcance específico de cada proyecto.
+                  Esta calculadora genera una aproximación de costos con fines orientativos,
+                  basada en tarifas promedio del mercado actual para diseño estratégico,
+                  desarrollo Next.js y motion graphics. El costo final se pacta directamente
+                  contigo, según los requerimientos y el alcance específico de cada proyecto.
                 </Text>
               </Row>
             </Column>
