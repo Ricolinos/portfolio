@@ -21,6 +21,7 @@ const routes: RoutesConfig = {
   "/explorar": true,
   "/recursos": true,
   "/servicios": true,
+  "/ejercicios": true,
   // "/about": true,
   // "/work": true,
   // "/blog": true,

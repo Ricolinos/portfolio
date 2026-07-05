@@ -73,7 +73,7 @@ const menuGroups: MenuGroup[] = [
     sections: [
       {
         links: [
-          { label: "Cotiza tu proyecto de Diseño", href: "/servicios/cotiza",      icon: "rocket" },
+          { label: "Cotiza tu proyecto de Diseño", href: "/servicios/cotizador",   icon: "rocket" },
           { label: "Información",                  href: "/servicios/informacion",  icon: "infoCircle" },
           { label: "Facturación",                  href: "/servicios/facturacion",  icon: "creditCard" },
         ],
@@ -345,6 +345,7 @@ export const Header = () => {
               padding="8"
               horizontal="between"
               vertical="center"
+              background="page"
               data-border="rounded"
             >
               <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
