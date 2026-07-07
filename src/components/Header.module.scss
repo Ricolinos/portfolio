@@ -16,3 +16,42 @@
   padding-top: calc(env(safe-area-inset-top, 0px) + var(--static-space-12));
 }
 
+/*
+ * Barra de menú: degradado (var(--page-background), negro en dark / blanco en light,
+ * hacia transparente) en el tope de la página; sólido + sombra ligera al hacer scroll.
+ * Capas via ::before/::after (fuera del flujo) para no tocar el background prop de Once UI
+ * ni el layout interno (logo, MegaMenu, AuthZone) del Row.
+ */
+.headerBar {
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  &::before {
+    background: linear-gradient(to bottom, var(--page-background) 0%, transparent 100%);
+    opacity: 1;
+  }
+
+  &::after {
+    background: var(--page-background);
+    box-shadow: var(--shadow-s);
+    opacity: 0;
+  }
+
+  &[data-scrolled="true"] {
+    &::before {
+      opacity: 0;
+    }
+
+    &::after {
+      opacity: 1;
+    }
+  }
+}
+

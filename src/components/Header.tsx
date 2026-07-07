@@ -290,6 +290,7 @@ export const Header = () => {
   const [isMobile, setIsMobile]           = useState(false);
   const [authMode, setAuthMode]           = useState<AuthMode | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isScrolled, setIsScrolled]       = useState(false);
   const pathname   = usePathname() ?? "/";
   const isHome     = pathname === "/";
   const isRecursos = pathname.startsWith("/recursos");
@@ -321,6 +322,14 @@ export const Header = () => {
     return () => { document.body.style.overflow = ""; };
   }, [mobileOpen]);
 
+  // Fondo de la barra: degradado (page → transparente) en el tope, sólido + sombra al hacer scroll
+  useEffect(() => {
+    const onScroll = () => setIsScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <>
       <Fade fillWidth position="fixed" height="80" zIndex={9} style={{ pointerEvents: "none" }} />
@@ -335,18 +344,20 @@ export const Header = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            style={{ width: "100%", display: "block" }}
+            style={{ width: "100%", display: "block", position: "sticky", top: 0, zIndex: 10 }}
           >
+            {/* position:sticky va en el wrapper: este div envuelve solo al header (48px),
+                así que si el Row fuera el sticky, su containing block sería su propio
+                tamaño y no tendría rango para "pegarse" al hacer scroll. */}
             <Row
               as="header"
-              position="sticky"
-              zIndex={10}
               fillWidth
               padding="8"
               horizontal="between"
               vertical="center"
-              background="page"
               data-border="rounded"
+              data-scrolled={isScrolled}
+              className={styles.headerBar}
             >
               <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
                 <Row vertical="center" paddingLeft="4" paddingRight="8">
@@ -401,8 +412,8 @@ export const Header = () => {
               paddingY="12"
               horizontal="between"
               vertical="center"
-              background="page"
-              className={styles.mobileBar}
+              data-scrolled={isScrolled}
+              className={`${styles.mobileBar} ${styles.headerBar}`}
             >
               <motion.div layoutId="site-logo">
                 <SiteLogo onClick={() => setMobileOpen(false)} />
