@@ -346,7 +346,6 @@ export const Header = () => {
               horizontal="between"
               vertical="center"
               background="page"
-              data-border="rounded"
             >
               <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
                 <Row vertical="center" paddingLeft="4" paddingRight="8">

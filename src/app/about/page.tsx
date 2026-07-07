@@ -118,7 +118,6 @@ export default function About() {
 
               <IconButton
                 href="/files/Ricardo Gómez CV 2025 (ES).pdf"
-                data-border="rounded"
                 variant="secondary"
                 icon="chevronRight"
               />
@@ -165,7 +164,6 @@ export default function About() {
                 <Row paddingX="8">Agenda una cita</Row>
                 <IconButton
                   href={about.calendar.link}
-                  data-border="rounded"
                   variant="secondary"
                   icon="chevronRight"
                 />
@@ -190,7 +188,6 @@ export default function About() {
                 wrap
                 horizontal="center"
                 fitWidth
-                data-border="rounded"
               >
                 {social
                       .filter((item) => item.essential)

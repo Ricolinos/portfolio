@@ -13,14 +13,15 @@ import {
   Select,
   Switch,
   Text,
+  useTheme,
 } from "@once-ui-system/core";
+import type { Theme } from "@once-ui-system/core";
 
 type Tab = "general" | "seguridad" | "notificaciones";
 
 interface GeneralForm {
   idioma: string;
   zona: string;
-  tema: string;
 }
 
 interface NotifState {
@@ -57,12 +58,12 @@ const TABS = [
 export default function ClientSettingsPage() {
   const { isLoaded, user } = useUser();
   const { signOut, openUserProfile } = useClerk() as any;
+  const { theme, setTheme } = useTheme();
 
   const [tab, setTab]     = useState<Tab>("general");
   const [general, setGeneral] = useState<GeneralForm>({
     idioma: "es",
     zona:   "America/Mexico_City",
-    tema:   "system",
   });
   const [notif, setNotif] = useState<NotifState>({
     estadoProyecto:  true,
@@ -123,8 +124,8 @@ export default function ClientSettingsPage() {
                 id="tema"
                 label="Tema Visual"
                 options={TEMAS}
-                value={general.tema}
-                onSelect={(v) => setGeneral((f) => ({ ...f, tema: v }))}
+                value={theme}
+                onSelect={(v) => setTheme(v as Theme)}
                 fillWidth
               />
             </Column>

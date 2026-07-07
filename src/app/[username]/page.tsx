@@ -1,6 +1,8 @@
+import { notFound } from "next/navigation";
 import { currentUser } from "@clerk/nextjs/server";
 import { ProfileView } from "@/components/profile/ProfileView";
 import { getOrCreateUser } from "@/lib/syncUser";
+import { prisma } from "@/lib/prisma";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
@@ -12,10 +14,19 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   const viewer = await currentUser();
 
   const isOwnProfile = viewer?.username === username;
+  const profileUser = await prisma.user.findUnique({ where: { username } });
+
+  // Username sin usuario en BD y que tampoco es el perfil propio del viewer → 404
+  if (!profileUser && !isOwnProfile) {
+    notFound();
+  }
+
   const displayName = isOwnProfile
     ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
-    : username;
-  const avatarUrl = isOwnProfile ? viewer?.imageUrl : undefined;
+    : profileUser?.name || username;
+  const avatarUrl = isOwnProfile
+    ? viewer?.imageUrl
+    : profileUser?.imageUrl ?? undefined;
 
   return (
     <ProfileView displayName={displayName} avatarUrl={avatarUrl} isOwnProfile={isOwnProfile} />

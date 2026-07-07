@@ -54,53 +54,15 @@ const CREDITED_DESIGNERS = [
   },
 ];
 
-// Datos ilustrativos: perfiles adicionales para probar la vista con más densidad de contenido.
-const MOCK_DESIGNERS = [
-  {
-    name: "Camila Reyes",
-    specialty: "Diseñador de Marca",
-    role: "Desarrollo de sistemas de identidad visual y guías de marca",
-    avatar: "/images/projects/project-01/avatar-01.png",
-    projectHref: "/work/refresh-nba-style-2024",
-    projectTitle: "Refresh NBA Style 2024",
-  },
-  {
-    name: "Diego Salazar",
-    specialty: "Ilustrador",
-    role: "Ilustración editorial y desarrollo de personajes",
-    avatar: "/images/projects/project-01/avatar-02.png",
-    projectHref: "/work/nba-dunkmania-2024",
-    projectTitle: "Refresh NBA Dunkmanía 2024",
-  },
-  {
-    name: "Fernanda López",
-    specialty: "Animador",
-    role: "Animación de personajes y efectos visuales",
-    avatar: "/images/projects/project-01/avatar-03.png",
-    projectHref: "/work/Animated-NBA-Cup-2025",
-    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
-  },
-  {
-    name: "Emiliano Cruz",
-    specialty: "Producción técnica",
-    role: "Optimización de renders y pipeline de producción",
-    avatar: "/images/projects/project-01/avatar-04.png",
-    projectHref: "/work/Animated-NBA-Cup-2025",
-    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
-  },
-  {
-    name: "Valentina Ortiz",
-    specialty: "Diseñador de Marca",
-    role: "Diseño de paquetería gráfica para redes sociales",
-    avatar: "/images/projects/project-01/avatar-05.png",
-    projectHref: "/work/refresh-nba-style-2024",
-    projectTitle: "Refresh NBA Style 2024",
-  },
-];
+// Usuarios reales de la plataforma (rol "collaborator") consultados vía Prisma en el Server Component.
+export type PlatformDesigner = {
+  id: string;
+  name: string | null;
+  username: string | null;
+  imageUrl: string | null;
+};
 
-const DESIGNERS = [...CREDITED_DESIGNERS, ...MOCK_DESIGNERS];
-
-type Designer = (typeof DESIGNERS)[number];
+type Designer = (typeof CREDITED_DESIGNERS)[number];
 
 const CARD_MIN_HEIGHT = 18;
 
@@ -185,17 +147,29 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
   );
 }
 
-export function DesignerDirectory() {
+export function DesignerDirectory({ platformDesigners = [] }: { platformDesigners?: PlatformDesigner[] }) {
   const { query, specialty } = useExploreSearch();
+
+  const designers = useMemo<Designer[]>(() => {
+    const mapped = platformDesigners.map((user) => ({
+      name: user.name ?? user.username ?? "Colaborador",
+      specialty: "Diseñador de Marca",
+      role: "Colaborador de la plataforma Designerds",
+      avatar: user.imageUrl ?? "",
+      projectHref: user.username ? `/${user.username}` : "/explorar",
+      projectTitle: "Perfil de colaborador",
+    }));
+    return [...CREDITED_DESIGNERS, ...mapped];
+  }, [platformDesigners]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return DESIGNERS.filter((designer) => {
+    return designers.filter((designer) => {
       if (specialty !== ALL_SPECIALTIES && designer.specialty !== specialty) return false;
       if (q && !designer.name.toLowerCase().includes(q) && !designer.role.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [query, specialty]);
+  }, [designers, query, specialty]);
 
   return (
     <RevealFx fillWidth direction="column" gap="24" translateY="8" speed="fast">
@@ -213,7 +187,7 @@ export function DesignerDirectory() {
       ) : (
         <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
           {filtered.map((designer) => (
-            <DesignerCard key={designer.name} designer={designer} seed={DESIGNERS.indexOf(designer)} />
+            <DesignerCard key={designer.name} designer={designer} seed={designers.indexOf(designer)} />
           ))}
         </Grid>
       )}

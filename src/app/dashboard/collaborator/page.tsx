@@ -1,12 +1,33 @@
-import { Column, Heading, Text } from "@once-ui-system/core";
+import { redirect } from "next/navigation";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/prisma";
+import CollaboratorProjects, { type CollaboratorProjectItem } from "./CollaboratorProjects";
 
-export default function CollaboratorDashboardPage() {
-  return (
-    <Column fillWidth paddingY="128" horizontal="center" gap="l" maxWidth="m">
-      <Heading variant="display-strong-s">Panel de Colaborador</Heading>
-      <Text variant="body-default-l" onBackground="neutral-weak">
-        Bienvenido a tu panel. Aquí podrás ver y gestionar los proyectos en los que colaboras.
-      </Text>
-    </Column>
-  );
+export default async function CollaboratorDashboardPage() {
+  const { userId } = await auth();
+  if (!userId) redirect("/");
+
+  const user = await currentUser();
+  if (user?.publicMetadata?.role !== "collaborator") redirect("/dashboard");
+
+  // El partner ve TODOS los proyectos de todos los clientes.
+  const quotes = await prisma.projectQuote.findMany({
+    include: { user: { select: { name: true, email: true } } },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  // Serialización de la frontera server→client: Decimal→number, Date→ISO.
+  const items: CollaboratorProjectItem[] = quotes.map((quote) => ({
+    id: quote.id,
+    title: quote.title,
+    clientName: quote.clientName,
+    ownerName: quote.user.name,
+    ownerEmail: quote.user.email,
+    status: quote.status,
+    currency: quote.currency,
+    total: quote.total === null ? null : Number(quote.total),
+    updatedAt: quote.updatedAt.toISOString(),
+  }));
+
+  return <CollaboratorProjects projects={items} />;
 }

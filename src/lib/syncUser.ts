@@ -15,6 +15,15 @@ export async function getOrCreateUser() {
   const existing = await prisma.user.findUnique({ where: { id: clerkId } });
   if (existing) return existing;
 
+  const rawRole = (clerkUser.publicMetadata?.role ?? clerkUser.unsafeMetadata?.role) as
+    | string
+    | undefined;
+  const role = rawRole === "client" || rawRole === "collaborator" ? rawRole : "client";
+  const whatsapp =
+    ((clerkUser.publicMetadata?.whatsapp ?? clerkUser.unsafeMetadata?.whatsapp) as
+      | string
+      | undefined) ?? null;
+
   try {
     return await prisma.user.create({
       data: {
@@ -25,6 +34,8 @@ export async function getOrCreateUser() {
           "Usuario de HUB-NERDS",
         username: clerkUser.username,
         imageUrl: clerkUser.imageUrl,
+        role,
+        whatsapp,
       },
     });
   } catch (error) {

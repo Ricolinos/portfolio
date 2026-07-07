@@ -18,6 +18,8 @@ model User {
   username  String?  @unique
   name      String?
   imageUrl  String?
+  role      String   @default("client")
+  whatsapp  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

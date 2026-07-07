@@ -1,124 +1,19 @@
-"use client";
+import { redirect } from "next/navigation";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/prisma";
+import ClientDashboard from "./ClientDashboard";
 
-import { useState } from "react";
-import { useUser } from "@clerk/nextjs";
-import {
-  Avatar,
-  Badge,
-  Button,
-  Card,
-  ClientGrid,
-  Column,
-  Heading,
-  Icon,
-  Input,
-  Row,
-  Text,
-} from "@once-ui-system/core";
+export default async function ClientDashboardPage() {
+  const { userId } = await auth();
+  if (!userId) redirect("/");
 
-interface FormState {
-  empresa: string;
-  sitio: string;
-  industria: string;
-}
+  const user = await currentUser();
+  if (user?.publicMetadata?.role === "collaborator") redirect("/dashboard/collaborator");
 
-const metrics = [
-  { label: "Proyectos Activos",       value: "2", icon: "briefcase" },
-  { label: "Cotizaciones Pendientes", value: "1", icon: "document"  },
-  { label: "Mensajes",                value: "0", icon: "email"     },
-] as const;
+  const [activeProjects, pendingQuotes] = await Promise.all([
+    prisma.projectQuote.count({ where: { userId, status: "active" } }),
+    prisma.projectQuote.count({ where: { userId, status: "draft" } }),
+  ]);
 
-export default function ClientDashboardPage() {
-  const { isLoaded, user } = useUser();
-  const [form, setForm] = useState<FormState>({ empresa: "", sitio: "", industria: "" });
-
-  const displayName = isLoaded && user
-    ? [user.firstName, user.lastName].filter(Boolean).join(" ") || "Usuario"
-    : "";
-  const email  = isLoaded && user ? (user.emailAddresses[0]?.emailAddress ?? "") : "";
-  const initials = (displayName[0] ?? "U").toUpperCase();
-  const avatarProps = isLoaded && user?.imageUrl
-    ? { src: user.imageUrl }
-    : { value: initials };
-
-  return (
-    <Column fillWidth paddingY="80" paddingX="24" gap="24" maxWidth="l" horizontal="center">
-
-      {/* ── Cabecera de identidad ────────────────────────────────────────────── */}
-      <Card fillWidth padding="32">
-        <Row gap="24" vertical="center" wrap>
-          <Avatar {...avatarProps} size="xl" />
-          <Column gap="8">
-            <Heading variant="heading-strong-l">
-              {isLoaded ? displayName : "—"}
-            </Heading>
-            <Text onBackground="neutral-weak" variant="body-default-m">
-              {email}
-            </Text>
-            <Badge title="Cliente" />
-          </Column>
-        </Row>
-      </Card>
-
-      {/* ── Contenido principal: 2 col en desktop, 1 en mobile ───────────────── */}
-      <ClientGrid columns="2" s={{ columns: 1 }} style={{ width: "100%", gap: "var(--static-space-24)" }}>
-
-        {/* Columna izquierda: formulario de empresa ───────────────────────── */}
-        <Card fillWidth padding="32">
-          <Column gap="24">
-            <Column gap="4">
-              <Heading variant="heading-strong-m">Empresa & Contacto</Heading>
-              <Text variant="body-default-s" onBackground="neutral-weak">
-                Información asociada a tu perfil de cliente.
-              </Text>
-            </Column>
-
-            <Column gap="16">
-              <Input
-                id="empresa"
-                label="Nombre de la Empresa"
-                placeholder="Ej: Acme Corp"
-                value={form.empresa}
-                onChange={(e) => setForm((f) => ({ ...f, empresa: e.target.value }))}
-              />
-              <Input
-                id="sitio"
-                label="Sitio Web (Opcional)"
-                placeholder="https://ejemplo.com"
-                value={form.sitio}
-                onChange={(e) => setForm((f) => ({ ...f, sitio: e.target.value }))}
-              />
-              <Input
-                id="industria"
-                label="Industria / Sector"
-                placeholder="Ej: Tecnología, Salud, Educación…"
-                value={form.industria}
-                onChange={(e) => setForm((f) => ({ ...f, industria: e.target.value }))}
-              />
-            </Column>
-
-            <Button variant="primary" size="m">Guardar Cambios</Button>
-          </Column>
-        </Card>
-
-        {/* Columna derecha: tarjetas de métricas ──────────────────────────── */}
-        <Column gap="16" fillWidth>
-          {metrics.map(({ label, value, icon }) => (
-            <Card key={label} fillWidth padding="24">
-              <Column gap="12">
-                <Row gap="8" vertical="center">
-                  <Icon name={icon} size="s" onBackground="neutral-weak" />
-                  <Text variant="label-default-s" onBackground="neutral-weak">
-                    {label}
-                  </Text>
-                </Row>
-                <Heading variant="display-strong-m">{value}</Heading>
-              </Column>
-            </Card>
-          ))}
-        </Column>
-
-      </ClientGrid>
-    </Column>
-  );
+  return <ClientDashboard activeProjects={activeProjects} pendingQuotes={pendingQuotes} />;
 }

@@ -20,6 +20,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [username, setUsername] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role | null>(null);
@@ -30,6 +31,10 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault();
     if (!isLoaded || !role) return;
+    if (!username.trim() || !firstName.trim() || !lastName.trim() || !whatsapp.trim()) {
+      setErrorMsg("Completa todos los campos obligatorios.");
+      return;
+    }
     setLoading(true);
     setErrorMsg("");
 
@@ -39,8 +44,8 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
         password,
         firstName,
         lastName,
-        ...(username.trim() ? { username: username.trim() } : {}),
-        unsafeMetadata: { role },
+        username: username.trim(),
+        unsafeMetadata: { role, whatsapp: whatsapp.trim() },
       });
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setStep("verify");
@@ -127,10 +132,21 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
 
             <Input
               id="signup-username"
-              label="Nombre de usuario (opcional)"
+              label="Nombre de usuario"
               description="Podrás usarlo para iniciar sesión en lugar de tu email"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+
+            <Input
+              id="signup-whatsapp"
+              label="WhatsApp"
+              type="tel"
+              description="Ej. +52 55 1234 5678"
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              required
             />
 
             <Input
@@ -161,7 +177,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
                   selected={role === "collaborator"}
                   onClick={() => setRole("collaborator")}
                 >
-                  Colaborador
+                  Partner
                 </ToggleButton>
               </Row>
             </Column>
@@ -173,7 +189,18 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
             )}
 
             <div id="clerk-captcha" />
-            <Button type="submit" fillWidth loading={loading} disabled={!role}>
+            <Button
+              type="submit"
+              fillWidth
+              loading={loading}
+              disabled={
+                !role ||
+                !username.trim() ||
+                !firstName.trim() ||
+                !lastName.trim() ||
+                !whatsapp.trim()
+              }
+            >
               Continuar
             </Button>
           </Column>
