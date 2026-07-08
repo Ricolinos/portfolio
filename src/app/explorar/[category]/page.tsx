@@ -39,7 +39,8 @@ export default async function ExplorarCategoryPage({
 
   if (category === "designerds") {
     const platformDesigners = await prisma.user.findMany({
-      where: { role: "collaborator" },
+      // Los Partners con perfil privado no se listan, pero su /[username] sigue accesible.
+      where: { role: "collaborator", isPublic: true },
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, username: true, imageUrl: true },
     });
