@@ -78,6 +78,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     // Enlaza cada pieza a su caso de estudio MDX cuando el partner lo tiene publicado.
     const pieces = rawPieces.map((piece) => ({
       ...piece,
+      coverUrl: piece.coverUrl ?? "",
       href: caseStudyHref(username, piece.title),
     }));
 

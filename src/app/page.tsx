@@ -25,7 +25,7 @@ export default async function Home() {
     avatarUrl: piece.user.imageUrl,
     location: piece.location,
     tag: piece.category,
-    image: piece.coverUrl,
+    image: piece.coverUrl ?? "",
     likes: piece.likes,
     views: piece.views,
   }));
