@@ -62,10 +62,11 @@ const social: Social = [
 
 const home: Home = {
   path: "/",
-  image: "/images/og/home.jpg",
+  image: "/api/og/generate?title=Hub-Nerds",
   label: "Home",
-  title: `Portafolios de ${person.name}`,
-  description: `Una mirada a lo que hago como ${person.role}`,
+  title: "Hub-Nerds",
+  description:
+    "La plataforma B2B donde marcas y estudios conectan con el mejor talento creativo de Latinoamérica.",
   headline: <>Visuales que conectan </>,
   featured: {
     display: true,
