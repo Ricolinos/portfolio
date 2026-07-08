@@ -4,6 +4,8 @@ import { useState, type FormEvent } from "react";
 import { useSignUp } from "@clerk/nextjs/legacy";
 import { Column, Row, Input, Button, Text, ToggleButton } from "@once-ui-system/core";
 import { SocialAuthButtons, type OAuthProviderStrategy } from "./SocialAuthButtons";
+import { translateClerkError } from "./clerkErrors";
+import { useClerkCaptcha } from "./useClerkCaptcha";
 
 type Role = "client" | "collaborator";
 type Step = "register" | "verify";
@@ -27,6 +29,9 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
   const [code, setCode] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthPending, setOauthPending] = useState<OAuthProviderStrategy | null>(null);
+
+  const captchaVisible = useClerkCaptcha(step === "register");
 
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault();
@@ -49,8 +54,8 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
       });
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       setStep("verify");
-    } catch (err: any) {
-      setErrorMsg(err.errors?.[0]?.message || "Error al crear la cuenta");
+    } catch (err) {
+      setErrorMsg(translateClerkError(err, "Error al crear la cuenta"));
     } finally {
       setLoading(false);
     }
@@ -59,6 +64,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
   const handleOAuth = async (strategy: OAuthProviderStrategy) => {
     if (!isLoaded) return;
     setErrorMsg("");
+    setOauthPending(strategy);
 
     try {
       await signUp.authenticateWithRedirect({
@@ -66,8 +72,9 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
         redirectUrl: "/sso-callback",
         redirectUrlComplete: "/dashboard",
       });
-    } catch (err: any) {
-      setErrorMsg(err.errors?.[0]?.message || "No se pudo continuar con este proveedor");
+    } catch (err) {
+      setOauthPending(null);
+      setErrorMsg(translateClerkError(err, "No se pudo continuar con este proveedor"));
     }
   };
 
@@ -84,8 +91,8 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
         onSuccess?.();
         window.location.href = "/dashboard";
       }
-    } catch (err: any) {
-      setErrorMsg(err.errors?.[0]?.message || "Código incorrecto");
+    } catch (err) {
+      setErrorMsg(translateClerkError(err, "Código incorrecto"));
     } finally {
       setLoading(false);
     }
@@ -99,7 +106,14 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
           : `Ingresa el código enviado a ${email}.`}
       </Text>
 
-      {step === "register" && <SocialAuthButtons onSelect={handleOAuth} loading={loading} />}
+      {step === "register" && (
+        <SocialAuthButtons
+          onSelect={handleOAuth}
+          loading={loading}
+          disabled={!isLoaded}
+          pending={oauthPending}
+        />
+      )}
 
       {step === "register" ? (
         <form onSubmit={handleRegister} style={{ width: "100%" }}>
@@ -164,6 +178,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
               </Text>
               <Row gap="m">
                 <ToggleButton
+                  type="button"
                   fillWidth
                   size="l"
                   selected={role === "client"}
@@ -172,6 +187,7 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
                   Cliente
                 </ToggleButton>
                 <ToggleButton
+                  type="button"
                   fillWidth
                   size="l"
                   selected={role === "collaborator"}
@@ -189,11 +205,17 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
             )}
 
             <div id="clerk-captcha" />
+            {captchaVisible && (
+              <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+                Completa la verificación de seguridad para continuar.
+              </Text>
+            )}
             <Button
               type="submit"
               fillWidth
               loading={loading}
               disabled={
+                !isLoaded ||
                 !role ||
                 !username.trim() ||
                 !firstName.trim() ||
