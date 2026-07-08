@@ -10,60 +10,101 @@ import {
   Grid,
   Heading,
   Icon,
-  Media,
+  IconButton,
   RevealFx,
   Row,
   SegmentedControl,
   Tag,
   Text,
 } from "@once-ui-system/core";
+import { STATUS_LABELS, type ProjectStatus } from "@/lib/projectStatus";
 
-const TABS = ["Trabajo", "Servicios", "Estadísticas"] as const;
-
-interface PortfolioProject {
+export interface PartnerProject {
   id: string;
   title: string;
-  image: string;
-  tag: string;
-  views: number;
-  likes: number;
-}
-
-const PORTFOLIO_PROJECTS: PortfolioProject[] = [
-  { id: "aurora", title: "Aurora — Identidad Visual", image: "/images/gallery/img-01.jpg", tag: "Branding", views: 18400, likes: 2380 },
-  { id: "nocturna", title: "Nocturna — Serie Editorial", image: "/images/gallery/img-02.jpg", tag: "Ilustración", views: 12200, likes: 1540 },
-  { id: "vela", title: "Sistema Tipográfico Vela", image: "/images/gallery/img-03.jpg", tag: "Tipografía", views: 9600, likes: 980 },
-  { id: "fintech", title: "Rediseño App Fintech", image: "/images/gallery/img-04.jpg", tag: "UI/UX", views: 15800, likes: 2010 },
-  { id: "litho", title: "Campaña Verano Litho", image: "/images/gallery/img-05.jpg", tag: "Fotografía", views: 7300, likes: 640 },
-];
-
-const EXPERIENCE = [
-  { company: "Estudio Litho", role: "Diseñador Senior", period: "2023 — Presente" },
-  { company: "Aurora Studio", role: "Diseñador de Producto", period: "2021 — 2023" },
-  { company: "Freelance", role: "Diseñador Gráfico", period: "2019 — 2021" },
-];
-
-const METRICS = [
-  { label: "Vistas del perfil", value: "24.3K" },
-  { label: "Seguidores", value: "1,204" },
-  { label: "Apreciaciones", value: "3,890" },
-];
-
-function formatCount(value: number) {
-  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${value}`;
+  clientName: string | null;
+  status: string;
+  currency: string;
+  total: number | null;
+  updatedAt: string; // ISO string
 }
 
 interface ProfileViewProps {
   displayName: string;
   avatarUrl?: string;
   isOwnProfile: boolean;
+  username: string;
+  whatsapp?: string | null;
+  email?: string | null;
+  memberSince?: string; // ISO string
+  projects: PartnerProject[];
 }
 
-export function ProfileView({ displayName, avatarUrl, isOwnProfile }: ProfileViewProps) {
-  const [tab, setTab] = useState<string>(TABS[0]);
+const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
+
+const FILTERS = [
+  { value: "all", label: "Todos" },
+  { value: "progress", label: "En curso" },
+  { value: "done", label: "Completados" },
+] as const;
+
+const STATUS_VARIANTS: Record<ProjectStatus, "neutral" | "info" | "warning" | "success"> = {
+  draft: "neutral",
+  sent: "info",
+  active: "warning",
+  completed: "success",
+  archived: "neutral",
+};
+
+function waLink(whatsapp: string) {
+  return `https://wa.me/${whatsapp.replace(/\D/g, "")}`;
+}
+
+function formatTotal(total: number | null, currency: string) {
+  if (total === null) return "Por definir";
+  return new Intl.NumberFormat("es-MX", { style: "currency", currency }).format(total);
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatMemberSince(iso: string) {
+  return new Date(iso).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+}
+
+export function ProfileView({
+  displayName,
+  avatarUrl,
+  isOwnProfile,
+  username,
+  whatsapp,
+  email,
+  memberSince,
+  projects,
+}: ProfileViewProps) {
+  const [filter, setFilter] = useState<string>(FILTERS[0].value);
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
+
+  const inProgress = projects.filter((p) => IN_PROGRESS.includes(p.status as ProjectStatus));
+  const completed = projects.filter((p) => p.status === "completed");
+  const clients = new Set(projects.map((p) => p.clientName).filter(Boolean));
+  const billed = projects.reduce((sum, p) => sum + (p.total ?? 0), 0);
+
+  const visibleProjects =
+    filter === "progress" ? inProgress : filter === "done" ? completed : projects;
+
+  const metrics = [
+    { label: "En curso", value: String(inProgress.length) },
+    { label: "Completados", value: String(completed.length) },
+    { label: "Clientes", value: String(clients.size) },
+    // Monto facturado: solo visible para el dueño del perfil.
+    ...(isOwnProfile
+      ? [{ label: "Facturado", value: formatTotal(billed, projects[0]?.currency ?? "MXN") }]
+      : []),
+  ];
 
   return (
     <RevealFx fillWidth revealedByDefault>
@@ -76,7 +117,7 @@ export function ProfileView({ displayName, avatarUrl, isOwnProfile }: ProfileVie
           {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
           <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start">
 
-            {/* Columna izquierda — identidad, métricas y experiencia */}
+            {/* Columna izquierda — identidad, contacto y métricas */}
             <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
               <Flex style={{ marginTop: "-48px" }}>
                 <Avatar {...avatarProps} size="xl" />
@@ -85,30 +126,44 @@ export function ProfileView({ displayName, avatarUrl, isOwnProfile }: ProfileVie
               <Column gap="8">
                 <Heading variant="heading-strong-l">{displayName}</Heading>
                 <Row gap="8" vertical="center">
-                  <Icon name="briefcase" size="s" onBackground="neutral-weak" />
+                  <Tag size="s" variant="brand" label="Partner" />
                   <Text variant="body-default-m" onBackground="neutral-weak">
-                    Diseñador de Producto
+                    @{username}
                   </Text>
                 </Row>
-                <Row gap="8" vertical="center">
-                  <Icon name="mapPin" size="s" onBackground="neutral-weak" />
-                  <Text variant="body-default-m" onBackground="neutral-weak">
-                    Ciudad de México, MX
-                  </Text>
-                </Row>
-                <Row gap="8" vertical="center">
-                  <Icon name="openLink" size="s" onBackground="neutral-weak" />
-                  <Text variant="body-default-m" onBackground="neutral-weak">
-                    portfolio.ejemplo.com
-                  </Text>
-                </Row>
+                {memberSince && (
+                  <Row gap="8" vertical="center">
+                    <Icon name="calendar" size="s" onBackground="neutral-weak" />
+                    <Text variant="body-default-m" onBackground="neutral-weak">
+                      Partner desde {formatMemberSince(memberSince)}
+                    </Text>
+                  </Row>
+                )}
+                {isOwnProfile && email && (
+                  <Row gap="8" vertical="center">
+                    <Icon name="email" size="s" onBackground="neutral-weak" />
+                    <Text variant="body-default-m" onBackground="neutral-weak">
+                      {email}
+                    </Text>
+                  </Row>
+                )}
               </Column>
 
-              {isOwnProfile && (
+              {isOwnProfile ? (
                 <Column gap="8" fillWidth>
-                  <Button fillWidth variant="primary">Editar información de perfil</Button>
-                  <Button fillWidth variant="secondary">Personalizar perfil</Button>
+                  <Button fillWidth variant="primary" href="/dashboard/collaborator">
+                    Ir a mi panel
+                  </Button>
+                  <Button fillWidth variant="secondary" href="/dashboard/client/settings">
+                    Editar información de perfil
+                  </Button>
                 </Column>
+              ) : (
+                whatsapp && (
+                  <Button fillWidth variant="primary" href={waLink(whatsapp)} prefixIcon="whatsapp">
+                    Contactar por WhatsApp
+                  </Button>
+                )
               )}
 
               <Flex
@@ -119,7 +174,7 @@ export function ProfileView({ displayName, avatarUrl, isOwnProfile }: ProfileVie
                 direction="column"
                 gap="12"
               >
-                {METRICS.map((metric) => (
+                {metrics.map((metric) => (
                   <Row key={metric.label} fillWidth horizontal="between">
                     <Text variant="label-default-s" onBackground="neutral-weak">
                       {metric.label}
@@ -129,122 +184,138 @@ export function ProfileView({ displayName, avatarUrl, isOwnProfile }: ProfileVie
                 ))}
               </Flex>
 
-              <Flex
-                background="neutral-alpha-weak"
-                padding="16"
-                radius="m"
-                border="neutral-alpha-weak"
-                direction="column"
-                gap="12"
-              >
-                <Text variant="label-strong-s">Experiencia</Text>
-                <Column gap="12">
-                  {EXPERIENCE.map((exp) => (
-                    <Row key={exp.company} gap="12" vertical="start">
-                      <Avatar value={exp.company[0]} size="s" radius="s" />
-                      <Column gap="2">
+              {clients.size > 0 && (
+                <Flex
+                  background="neutral-alpha-weak"
+                  padding="16"
+                  radius="m"
+                  border="neutral-alpha-weak"
+                  direction="column"
+                  gap="12"
+                >
+                  <Text variant="label-strong-s">Clientes</Text>
+                  <Column gap="12">
+                    {[...clients].map((client) => (
+                      <Row key={client} gap="12" vertical="center">
+                        <Avatar value={(client as string)[0].toUpperCase()} size="s" radius="s" />
                         <Text variant="label-default-s" onBackground="neutral-strong">
-                          {exp.role}
+                          {client}
                         </Text>
-                        <Text variant="label-default-s" onBackground="neutral-weak">
-                          {exp.company} · {exp.period}
-                        </Text>
-                      </Column>
-                    </Row>
-                  ))}
-                </Column>
-              </Flex>
+                      </Row>
+                    ))}
+                  </Column>
+                </Flex>
+              )}
             </Column>
 
-            {/* Columna derecha — showcase de portafolio */}
-            <Column gap="24" fillWidth>
+            {/* Columna derecha — showcase de proyectos reales */}
+            <Column gap="24" fillWidth paddingTop="24">
               <SegmentedControl
-                selected={tab}
-                onToggle={setTab}
-                buttons={TABS.map((t) => ({ value: t, label: t }))}
+                selected={filter}
+                onToggle={setFilter}
+                buttons={FILTERS.map((f) => ({ value: f.value, label: f.label }))}
               />
 
-              <Flex
-                background="brand-alpha-weak"
-                padding="20"
-                radius="m"
-                fillWidth
-                vertical="center"
-                horizontal="between"
-                gap="16"
-                s={{ direction: "column", horizontal: "start" }}
-              >
-                <Column gap="4">
-                  <Text variant="heading-strong-s">Impulsa tus proyectos</Text>
-                  <Text variant="body-default-s" onBackground="neutral-weak">
-                    Llega a más clientes destacando tu trabajo en la portada de Explorar.
+              {isOwnProfile && (
+                <Flex
+                  background="brand-alpha-weak"
+                  padding="20"
+                  radius="m"
+                  fillWidth
+                  vertical="center"
+                  horizontal="between"
+                  gap="16"
+                  s={{ direction: "column", horizontal: "start" }}
+                >
+                  <Column gap="4">
+                    <Text variant="heading-strong-s">Impulsa tus proyectos</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Llega a más clientes destacando tu trabajo en la portada de Explorar.
+                    </Text>
+                  </Column>
+                  <Button variant="primary" size="m">Probar Pro</Button>
+                </Flex>
+              )}
+
+              {visibleProjects.length === 0 && !isOwnProfile ? (
+                <Column fillWidth horizontal="center" gap="12" padding="48" border="neutral-alpha-medium" radius="l">
+                  <Icon name="sparkles" size="l" onBackground="neutral-weak" />
+                  <Text variant="body-default-m" onBackground="neutral-weak" align="center">
+                    Sin proyectos en esta vista.
                   </Text>
                 </Column>
-                <Button variant="primary" size="m">Probar Pro</Button>
-              </Flex>
-
-              <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
-                {PORTFOLIO_PROJECTS.map((project) => (
-                  <Card
-                    key={project.id}
-                    fillWidth
-                    direction="column"
-                    gap="12"
-                    padding="12"
-                    radius="l"
-                    border="neutral-alpha-weak"
-                  >
-                    <Column fillWidth radius="m" overflow="hidden">
-                      <Media
-                        src={project.image}
-                        alt={project.title}
-                        aspectRatio="4 / 3"
-                        sizes="(max-width: 768px) 100vw, 33vw"
-                      />
-                    </Column>
-                    <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
-                      <Row fillWidth horizontal="between" vertical="start" gap="8">
-                        <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
-                          {project.title}
-                        </Text>
-                        <Tag size="s" label={project.tag} variant="neutral" />
-                      </Row>
-                      <Row gap="12" vertical="center">
-                        <Row gap="4" vertical="center">
-                          <Icon name="eye" size="xs" onBackground="neutral-weak" />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {formatCount(project.views)}
+              ) : (
+                <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
+                  {visibleProjects.map((project) => (
+                    <Card
+                      key={project.id}
+                      fillWidth
+                      direction="column"
+                      gap="12"
+                      padding="12"
+                      radius="l"
+                      border="neutral-alpha-weak"
+                    >
+                      {/* Sin modelo de imágenes de portafolio aún: bloque de marca */}
+                      <Flex
+                        fillWidth
+                        radius="m"
+                        background="brand-alpha-weak"
+                        center
+                        style={{ aspectRatio: "4 / 3" }}
+                      >
+                        <Icon name="paintBrush" size="l" onBackground="brand-weak" />
+                      </Flex>
+                      <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
+                        <Row fillWidth horizontal="between" vertical="start" gap="8">
+                          <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
+                            {project.title}
                           </Text>
+                          <Tag
+                            size="s"
+                            variant={STATUS_VARIANTS[project.status as ProjectStatus] ?? "neutral"}
+                            label={STATUS_LABELS[project.status as ProjectStatus] ?? project.status}
+                          />
                         </Row>
-                        <Row gap="4" vertical="center">
-                          <Icon name="heart" size="xs" onBackground="neutral-weak" />
+                        <Row fillWidth horizontal="between" vertical="center">
                           <Text variant="label-default-s" onBackground="neutral-weak">
-                            {formatCount(project.likes)}
+                            {project.clientName ?? "Sin cliente asignado"}
                           </Text>
+                          <IconButton
+                            icon="infoCircle"
+                            size="s"
+                            variant="tertiary"
+                            tooltip={
+                              isOwnProfile
+                                ? `Total: ${formatTotal(project.total, project.currency)} · Actualizado: ${formatDate(project.updatedAt)}`
+                                : `Actualizado: ${formatDate(project.updatedAt)}`
+                            }
+                            tooltipPosition="top"
+                          />
                         </Row>
-                      </Row>
-                    </Column>
-                  </Card>
-                ))}
+                      </Column>
+                    </Card>
+                  ))}
 
-                {/* Tarjeta de acción "Crear un proyecto" */}
-                {isOwnProfile && (
-                  <Flex
-                    border="neutral-medium"
-                    radius="l"
-                    style={{ borderStyle: "dashed" }}
-                    center
-                    padding="40"
-                    direction="column"
-                    gap="12"
-                  >
-                    <Icon name="plus" size="l" onBackground="neutral-weak" />
-                    <Text variant="label-default-s" onBackground="neutral-weak">
-                      Crear un proyecto
-                    </Text>
-                  </Flex>
-                )}
-              </Grid>
+                  {/* Tarjeta de acción "Crear un proyecto" */}
+                  {isOwnProfile && (
+                    <Flex
+                      border="neutral-medium"
+                      radius="l"
+                      style={{ borderStyle: "dashed" }}
+                      center
+                      padding="40"
+                      direction="column"
+                      gap="12"
+                    >
+                      <Icon name="plus" size="l" onBackground="neutral-weak" />
+                      <Text variant="label-default-s" onBackground="neutral-weak">
+                        Crear un proyecto
+                      </Text>
+                    </Flex>
+                  )}
+                </Grid>
+              )}
             </Column>
 
           </Row>

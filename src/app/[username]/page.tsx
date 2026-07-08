@@ -37,38 +37,46 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       ? viewerRole
       : "client");
 
-  // Partners (collaborator) conservan la vista showcase estilo Behance.
-  if (role === "collaborator") {
-    return (
-      <ProfileView displayName={displayName} avatarUrl={avatarUrl} isOwnProfile={isOwnProfile} />
-    );
-  }
-
-  // Clientes: dashboard con proyectos contratados, diseñadores y recursos.
   const ownerId = profileUser?.id ?? (isOwnProfile ? viewer?.id : undefined);
-
-  const [quotes, designers] = await Promise.all([
-    ownerId
-      ? prisma.projectQuote.findMany({
-          where: { userId: ownerId },
-          orderBy: { updatedAt: "desc" },
-        })
-      : Promise.resolve([]),
-    prisma.user.findMany({
-      where: { role: "collaborator" },
-      select: { username: true, name: true, imageUrl: true, whatsapp: true },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+  const quotes = ownerId
+    ? await prisma.projectQuote.findMany({
+        where: { userId: ownerId },
+        orderBy: { updatedAt: "desc" },
+      })
+    : [];
 
   const projects = quotes.map((quote) => ({
     id: quote.id,
     title: quote.title,
+    clientName: quote.clientName,
     status: quote.status,
     currency: quote.currency,
     total: quote.total === null ? null : Number(quote.total),
     updatedAt: quote.updatedAt.toISOString(),
   }));
+
+  // Partners (collaborator): showcase estilo Behance con sus proyectos reales.
+  if (role === "collaborator") {
+    return (
+      <ProfileView
+        displayName={displayName}
+        avatarUrl={avatarUrl}
+        isOwnProfile={isOwnProfile}
+        username={username}
+        whatsapp={profileUser?.whatsapp}
+        email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
+        memberSince={profileUser?.createdAt.toISOString()}
+        projects={projects}
+      />
+    );
+  }
+
+  // Clientes: dashboard con proyectos contratados, diseñadores y recursos.
+  const designers = await prisma.user.findMany({
+    where: { role: "collaborator" },
+    select: { username: true, name: true, imageUrl: true, whatsapp: true },
+    orderBy: { createdAt: "asc" },
+  });
 
   return (
     <ClientProfileView
