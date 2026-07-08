@@ -54,7 +54,7 @@ export function SearchBarShell({ leading, query, onQueryChange, placeholder, ari
               pointerEvents: "none",
             }}
           >
-            <Row hide="s" fillWidth style={{ minWidth: 0 }}>
+            <Row s={{ hide: true }} fillWidth style={{ minWidth: 0 }}>
               <ShineFx
                 variant="body-default-s"
                 onBackground="neutral-weak"
@@ -69,7 +69,7 @@ export function SearchBarShell({ leading, query, onQueryChange, placeholder, ari
                 {placeholder}
               </ShineFx>
             </Row>
-            <Row show="s">
+            <Row hide s={{ hide: false }}>
               <ShineFx variant="body-default-s" onBackground="neutral-weak">
                 Buscar…
               </ShineFx>
