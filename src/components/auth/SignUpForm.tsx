@@ -204,12 +204,28 @@ export function SignUpForm({ onSuccess, onSwitchToSignIn }: SignUpFormProps) {
               </Text>
             )}
 
-            <div id="clerk-captcha" />
-            {captchaVisible && (
-              <Text variant="body-default-s" onBackground="neutral-weak" align="center">
-                Completa la verificación de seguridad para continuar.
-              </Text>
-            )}
+            <Column
+              fillWidth
+              horizontal="center"
+              gap="s"
+              radius="l"
+              padding={captchaVisible ? "m" : undefined}
+              background={captchaVisible ? "neutral-alpha-weak" : undefined}
+              border={captchaVisible ? "neutral-alpha-medium" : undefined}
+            >
+              {captchaVisible && (
+                <Column fillWidth gap="4" horizontal="center">
+                  <Text variant="label-strong-s" align="center">
+                    Verificación de seguridad
+                  </Text>
+                  <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+                    Para proteger la plataforma necesitamos confirmar que eres una
+                    persona. Marca la casilla para continuar con tu registro.
+                  </Text>
+                </Column>
+              )}
+              <div id="clerk-captcha" />
+            </Column>
             <Button
               type="submit"
               fillWidth
