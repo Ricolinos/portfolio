@@ -64,9 +64,9 @@ const home: Home = {
   path: "/",
   image: "/api/og/generate?title=Hub-Nerds",
   label: "Home",
-  title: "Hub-Nerds",
+  title: `Portafolios de ${person.name}`,
   description:
-    "La plataforma B2B donde marcas y estudios conectan con el mejor talento creativo de Latinoamérica.",
+    "Plataforma hecha por un grupo de creativos: diseñadores, realizadores y nerds construyendo el lugar donde el trabajo creativo se encuentra con quien lo necesita.",
   headline: <>Visuales que conectan </>,
   featured: {
     display: true,
