@@ -21,7 +21,7 @@ export function toShouts(feed: Awaited<ReturnType<typeof getPortfolioFeed>>): Sh
     avatar: piece.user.imageUrl,
     category: piece.category,
     description: piece.description ?? piece.title,
-    image: piece.coverUrl,
+    image: piece.coverUrl ?? "",
     likes: piece.likes,
     href: piece.user.username ? caseStudyHref(piece.user.username, piece.title) : undefined,
   }));
