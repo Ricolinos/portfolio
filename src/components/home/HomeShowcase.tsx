@@ -269,6 +269,15 @@ export function HomeShowcase({ pieces }: { pieces: ShowcasePiece[] }) {
           >
             Busca en el mundo el mejor trabajo creativo
           </Heading>
+          <Text
+            variant="body-default-l"
+            onBackground="neutral-weak"
+            align="center"
+            wrap="balance"
+            style={{ maxWidth: "34rem" }}
+          >
+            Una plataforma hecha por un grupo de creativos, diseñadores, realizadores y nerds.
+          </Text>
           <Row fillWidth horizontal="center">
             <SearchBarShell
               leading={<CategoryDropdown value={category} options={categoryOptions} onChange={setCategory} />}
