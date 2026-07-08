@@ -29,6 +29,10 @@ import {
   HiOutlineArrowDownTray,
   HiOutlinePlus,
   HiOutlineMapPin,
+  HiOutlinePencilSquare,
+  HiOutlineArrowPath,
+  HiOutlineQuestionMarkCircle,
+  HiOutlineFolder,
 } from "react-icons/hi2";
 
 import {
@@ -91,6 +95,10 @@ export const iconLibrary: Record<string, IconType> = {
   download: HiOutlineArrowDownTray,
   plus: HiOutlinePlus,
   mapPin: HiOutlineMapPin,
+  edit: HiOutlinePencilSquare,
+  refreshCw: HiOutlineArrowPath,
+  helpCircle: HiOutlineQuestionMarkCircle,
+  folder: HiOutlineFolder,
   images: PiImagesDuotone,
   camera: PiCameraDuotone,
   shapes: PiShapes,

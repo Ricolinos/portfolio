@@ -9,10 +9,9 @@ import {
   Avatar,
   Button,
   Column,
-  Dialog,
-  Fade,
   Icon,
   Line,
+  Modal,
   NavIcon,
   Option,
   Row,
@@ -27,6 +26,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { MegaMenu, type MenuGroup } from "./MegaMenu";
 import { MobileMegaMenu } from "./MobileMegaMenu";
 import { AuthModal, type AuthMode } from "./auth/AuthModal";
+import { BrandModalBackdrop } from "./BrandModalBackdrop";
 import styles from "./Header.module.scss";
 
 // ─── Navegación ───────────────────────────────────────────────────────────────
@@ -114,6 +114,39 @@ const signedInMenuGroups: MenuGroup[] = [
 ];
 
 const spring = { type: "spring", stiffness: 320, damping: 32 } as const;
+
+// ─── Fondo del header ─────────────────────────────────────────────────────────
+// En el tope de la página: degradado brand → transparente. Con scroll: fondo de
+// página sólido (blanco en light / negro en dark). Dos capas con crossfade de
+// opacidad porque background-image no interpola en transiciones CSS.
+const HeaderBackdrop = ({ scrolled }: { scrolled: boolean }) => (
+  <>
+    <div
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: -1,
+        pointerEvents: "none",
+        background: "linear-gradient(to bottom, var(--brand-background-strong), transparent)",
+        opacity: scrolled ? 0 : 1,
+        transition: "opacity 0.3s ease",
+      }}
+    />
+    <div
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: -1,
+        pointerEvents: "none",
+        background: "var(--page-background)",
+        opacity: scrolled ? 1 : 0,
+        transition: "opacity 0.3s ease",
+      }}
+    />
+  </>
+);
 
 // ─── SearchBar ────────────────────────────────────────────────────────────────
 const SearchBar = ({ fillWidth }: { fillWidth?: boolean }) => (
@@ -288,6 +321,7 @@ const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
 export const Header = () => {
   const [mobileOpen, setMobileOpen]       = useState(false);
   const [isMobile, setIsMobile]           = useState(false);
+  const [scrolled, setScrolled]           = useState(false);
   const [authMode, setAuthMode]           = useState<AuthMode | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const pathname   = usePathname() ?? "/";
@@ -311,6 +345,14 @@ export const Header = () => {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
+  // Fondo del header según posición de scroll (degradado arriba, sólido al bajar)
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   // Cerrar panel al navegar o al pasar a escritorio
   useEffect(() => { setMobileOpen(false); }, [pathname]);
   useEffect(() => { if (!isMobile) setMobileOpen(false); }, [isMobile]);
@@ -323,8 +365,6 @@ export const Header = () => {
 
   return (
     <>
-      <Fade fillWidth position="fixed" height="80" zIndex={9} style={{ pointerEvents: "none" }} />
-
       {/* Header: fade entre escritorio ↔ móvil. layoutId="site-logo" anima
           la posición del logo entre los dos headers sin salto. */}
       <AnimatePresence initial={false}>
@@ -335,18 +375,22 @@ export const Header = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            style={{ width: "100%", display: "block" }}
+            // sticky aquí (no en el Row): dentro del motion.div el sticky no tenía
+            // recorrido porque el contenedor mide lo mismo que el header.
+            // zIndex 9: igual que el overlay del Dialog de Once UI (hardcoded a 9),
+            // que al ser portal al final del body pinta encima; con 10 el MegaMenu
+            // tapaba el panel de Ajustes.
+            style={{ width: "100%", display: "block", position: "sticky", top: 0, zIndex: 9 }}
           >
             <Row
               as="header"
-              position="sticky"
-              zIndex={10}
+              position="relative"
               fillWidth
               padding="8"
               horizontal="between"
               vertical="center"
-              background="page"
             >
+              <HeaderBackdrop scrolled={scrolled} />
               <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
                 <Row vertical="center" paddingLeft="4" paddingRight="8">
                   <motion.div layoutId="site-logo">
@@ -395,14 +439,14 @@ export const Header = () => {
               top="0"
               left="0"
               fillWidth
-              zIndex={10}
+              zIndex={9}
               paddingX="24"
               paddingY="12"
               horizontal="between"
               vertical="center"
-              background="page"
               className={styles.mobileBar}
             >
+              <HeaderBackdrop scrolled={scrolled || mobileOpen} />
               <motion.div layoutId="site-logo">
                 <SiteLogo onClick={() => setMobileOpen(false)} />
               </motion.div>
@@ -428,7 +472,7 @@ export const Header = () => {
           >
             <Column
               position="fixed"
-              zIndex={9}
+              zIndex={8}
               top="0"
               left="0"
               right="0"
@@ -459,14 +503,14 @@ export const Header = () => {
 
       <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />
 
-      <Dialog
+      <Modal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         title="Ajustes"
-        maxWidth={30}
+        backdrop={<BrandModalBackdrop />}
       >
         <StylePanel fillWidth />
-      </Dialog>
+      </Modal>
     </>
   );
 };

@@ -94,6 +94,11 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       isOwnProfile={isOwnProfile}
       email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
       whatsapp={isOwnProfile ? profileUser?.whatsapp : undefined}
+      secondaryEmail={isOwnProfile ? profileUser?.secondaryEmail : undefined}
+      address={isOwnProfile ? profileUser?.address : undefined}
+      company={profileUser?.company}
+      brand={profileUser?.brand}
+      motto={profileUser?.motto}
       projects={projects}
       designers={designers}
     />

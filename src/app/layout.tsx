@@ -163,8 +163,6 @@ export default async function RootLayout({
               }}
             />
           </RevealFx>
-          {/* Desktop: respiro visual antes del header sticky */}
-          <Flex fillWidth minHeight="16" s={{ hide: true }} />
           <Header />
           {/* Mobile: compensa el header fixed (48px) sacado del flujo.
               minHeight="48" → var(--static-space-48) = 3rem = 48px (prop nativo Once UI) */}

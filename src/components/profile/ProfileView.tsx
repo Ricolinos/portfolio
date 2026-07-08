@@ -107,7 +107,7 @@ export function ProfileView({
   ];
 
   return (
-    <RevealFx fillWidth revealedByDefault>
+    <RevealFx fillWidth horizontal="center" revealedByDefault>
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 

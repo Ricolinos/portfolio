@@ -20,6 +20,13 @@ model User {
   imageUrl  String?
   role      String   @default("client")
   whatsapp  String?
+  // Perfil editable por el cliente desde /[username]
+  secondaryEmail String?
+  address        String?
+  company        String?
+  brand          String?
+  // Lema corto (máx. 15 palabras, validado en la server action)
+  motto          String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import {
   Avatar,
   Button,
   Card,
   Column,
+  ContextMenu,
   Grid,
   Heading,
   Icon,
   IconButton,
   Line,
+  Option,
   RevealFx,
   Row,
   Tag,
@@ -17,6 +20,8 @@ import {
 } from "@once-ui-system/core";
 import { STATUS_LABELS, type ProjectStatus } from "@/lib/projectStatus";
 import { RESOURCE_CATEGORY_SLUGS } from "@/components/resources/categories";
+import { AvatarUploadDialog, EditInfoDialog } from "./ClientProfileEditDialogs";
+import styles from "./ClientProfileView.module.scss";
 
 export interface ClientProject {
   id: string;
@@ -40,6 +45,11 @@ interface ClientProfileViewProps {
   isOwnProfile: boolean;
   email?: string | null;
   whatsapp?: string | null;
+  secondaryEmail?: string | null;
+  address?: string | null;
+  company?: string | null;
+  brand?: string | null;
+  motto?: string | null;
   projects: ClientProject[];
   designers: ClientDesigner[];
 }
@@ -148,11 +158,10 @@ function ProjectGroup({
           {projects.length} {projects.length === 1 ? "proyecto" : "proyectos"}
         </Text>
       </Row>
-      {projects.map((project, index) => (
+      {projects.map((project) => (
         <Column key={project.id} fillWidth>
           <Line background="neutral-alpha-weak" />
           <ProjectRow project={project} designer={designer} />
-          {index === projects.length - 1 ? null : null}
         </Column>
       ))}
     </Column>
@@ -165,9 +174,15 @@ export function ClientProfileView({
   isOwnProfile,
   email,
   whatsapp,
+  secondaryEmail,
+  address,
+  company,
+  brand,
+  motto,
   projects,
   designers,
 }: ClientProfileViewProps) {
+  const [openDialog, setOpenDialog] = useState<"avatar" | "info" | null>(null);
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
 
@@ -176,28 +191,86 @@ export function ClientProfileView({
   // Sin relación proyecto→diseñador en el schema todavía: se contacta al primer partner.
   const mainDesigner = designers[0];
 
+  // Zona de identidad: con perfil propio se envuelve en ContextMenu (click o
+  // click derecho) para cambiar imagen y editar información.
+  const identity = (
+    <Row gap="20" vertical="center">
+      {isOwnProfile ? (
+        // stopPropagation: el click del overlay no debe abrir además el ContextMenu
+        <button
+          type="button"
+          className={styles.avatarButton}
+          aria-label="Cambiar imagen de perfil"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenDialog("avatar");
+          }}
+        >
+          <Avatar {...avatarProps} size="l" />
+          <span className={styles.avatarEdit}>
+            <Icon name="edit" size="s" />
+          </span>
+        </button>
+      ) : (
+        <Avatar {...avatarProps} size="l" />
+      )}
+      <Column gap="4">
+        <Heading variant="heading-strong-l">{displayName}</Heading>
+        <Row gap="8" vertical="center">
+          <Tag size="s" variant="brand" label="Cliente" />
+          {isOwnProfile && email && (
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              {email}
+            </Text>
+          )}
+        </Row>
+        {(company || brand) && (
+          <Text variant="label-default-s" onBackground="neutral-weak">
+            {[company, brand].filter(Boolean).join(" · ")}
+          </Text>
+        )}
+        {motto && (
+          <Text variant="body-default-s" onBackground="neutral-weak" style={{ fontStyle: "italic" }}>
+            “{motto}”
+          </Text>
+        )}
+      </Column>
+    </Row>
+  );
+
   return (
-    <RevealFx fillWidth revealedByDefault>
+    <RevealFx fillWidth horizontal="center" revealedByDefault>
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="40" gap="24">
 
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
           <Card fillWidth padding="24" radius="l">
             <Row fillWidth gap="20" vertical="center" horizontal="between" wrap>
-              <Row gap="20" vertical="center">
-                <Avatar {...avatarProps} size="l" />
-                <Column gap="4">
-                  <Heading variant="heading-strong-l">{displayName}</Heading>
-                  <Row gap="8" vertical="center">
-                    <Tag size="s" variant="brand" label="Cliente" />
-                    {isOwnProfile && email && (
-                      <Text variant="label-default-s" onBackground="neutral-weak">
-                        {email}
-                      </Text>
-                    )}
-                  </Row>
-                </Column>
-              </Row>
+              {isOwnProfile ? (
+                <ContextMenu
+                  placement="bottom-start"
+                  onSelect={(value) => setOpenDialog(value as "avatar" | "info")}
+                  style={{ cursor: "pointer" }}
+                  dropdown={
+                    <Column minWidth={14} padding="4" gap="2">
+                      <Option
+                        label="Cambiar imagen de perfil"
+                        value="avatar"
+                        hasPrefix={<Icon name="camera" size="s" onBackground="neutral-weak" />}
+                      />
+                      <Option
+                        label="Editar información"
+                        value="info"
+                        hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
+                      />
+                    </Column>
+                  }
+                >
+                  {identity}
+                </ContextMenu>
+              ) : (
+                identity
+              )}
 
               <Row gap="8" vertical="center">
                 <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
@@ -349,6 +422,28 @@ export function ClientProfileView({
             </Column>
           </Row>
         </Column>
+
+        {isOwnProfile && (
+          <>
+            <AvatarUploadDialog
+              isOpen={openDialog === "avatar"}
+              onClose={() => setOpenDialog(null)}
+              currentImageUrl={avatarUrl}
+            />
+            <EditInfoDialog
+              isOpen={openDialog === "info"}
+              onClose={() => setOpenDialog(null)}
+              initial={{
+                whatsapp: whatsapp ?? "",
+                secondaryEmail: secondaryEmail ?? "",
+                address: address ?? "",
+                company: company ?? "",
+                brand: brand ?? "",
+                motto: motto ?? "",
+              }}
+            />
+          </>
+        )}
       </Column>
     </RevealFx>
   );
