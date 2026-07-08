@@ -44,19 +44,37 @@ export function SearchBarShell({ leading, query, onQueryChange, placeholder, ari
           }}
         />
         {query.length === 0 && (
-          <ShineFx
-            variant="body-default-s"
-            onBackground="neutral-weak"
+          <Row
+            fillWidth
+            vertical="center"
             style={{
               position: "absolute",
-              left: 0,
-              top: "50%",
-              transform: "translateY(-50%)",
+              inset: 0,
+              overflow: "hidden",
               pointerEvents: "none",
             }}
           >
-            {placeholder}
-          </ShineFx>
+            <Row s={{ hide: true }} fillWidth style={{ minWidth: 0 }}>
+              <ShineFx
+                variant="body-default-s"
+                onBackground="neutral-weak"
+                style={{
+                  display: "block",
+                  maxWidth: "100%",
+                  overflow: "hidden",
+                  whiteSpace: "nowrap",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {placeholder}
+              </ShineFx>
+            </Row>
+            <Row hide s={{ hide: false }}>
+              <ShineFx variant="body-default-s" onBackground="neutral-weak">
+                Buscar…
+              </ShineFx>
+            </Row>
+          </Row>
         )}
       </Row>
       <Icon name="search" size="s" onBackground="neutral-weak" />
