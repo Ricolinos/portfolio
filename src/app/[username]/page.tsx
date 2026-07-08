@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { currentUser } from "@clerk/nextjs/server";
 import { ProfileView } from "@/components/profile/ProfileView";
+import { ClientProfileView } from "@/components/profile/ClientProfileView";
 import { getOrCreateUser } from "@/lib/syncUser";
 import { prisma } from "@/lib/prisma";
 
@@ -28,7 +29,56 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     ? viewer?.imageUrl
     : profileUser?.imageUrl ?? undefined;
 
+  // Rol del dueño del perfil: BD primero; para perfil propio aún sin fila, metadata de Clerk.
+  const viewerRole = viewer?.publicMetadata?.role;
+  const role =
+    profileUser?.role ??
+    (isOwnProfile && (viewerRole === "client" || viewerRole === "collaborator")
+      ? viewerRole
+      : "client");
+
+  // Partners (collaborator) conservan la vista showcase estilo Behance.
+  if (role === "collaborator") {
+    return (
+      <ProfileView displayName={displayName} avatarUrl={avatarUrl} isOwnProfile={isOwnProfile} />
+    );
+  }
+
+  // Clientes: dashboard con proyectos contratados, diseñadores y recursos.
+  const ownerId = profileUser?.id ?? (isOwnProfile ? viewer?.id : undefined);
+
+  const [quotes, designers] = await Promise.all([
+    ownerId
+      ? prisma.projectQuote.findMany({
+          where: { userId: ownerId },
+          orderBy: { updatedAt: "desc" },
+        })
+      : Promise.resolve([]),
+    prisma.user.findMany({
+      where: { role: "collaborator" },
+      select: { username: true, name: true, imageUrl: true, whatsapp: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  const projects = quotes.map((quote) => ({
+    id: quote.id,
+    title: quote.title,
+    status: quote.status,
+    currency: quote.currency,
+    total: quote.total === null ? null : Number(quote.total),
+    updatedAt: quote.updatedAt.toISOString(),
+  }));
+
   return (
-    <ProfileView displayName={displayName} avatarUrl={avatarUrl} isOwnProfile={isOwnProfile} />
+    <ClientProfileView
+      displayName={displayName}
+      avatarUrl={avatarUrl}
+      isOwnProfile={isOwnProfile}
+      email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
+      whatsapp={isOwnProfile ? profileUser?.whatsapp : undefined}
+      projects={projects}
+      designers={designers}
+    />
   );
 }
