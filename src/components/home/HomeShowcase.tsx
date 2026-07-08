@@ -26,114 +26,20 @@ const FEED_TABS = ["Para ti", "Descubrir", "Proyectos"];
 
 const ORDER_OPTIONS = ["Más valorados", "Más recientes", "Más vistos"] as const;
 
-type MockProject = {
+export type ShowcasePiece = {
   id: string;
   title: string;
   designer: string;
-  initials: string;
-  location: string;
+  avatarUrl: string | null;
+  location: string | null;
   tag: string;
   image: string;
   likes: number;
   views: number;
 };
 
-const MOCK_PROJECTS: MockProject[] = [
-  {
-    id: "aurora-branding",
-    title: "Aurora — Identidad Visual",
-    designer: "Mara Ibáñez",
-    initials: "MI",
-    location: "Buenos Aires, AR",
-    tag: "Branding",
-    image: "/images/gallery/img-01.jpg",
-    likes: 2380,
-    views: 18400,
-  },
-  {
-    id: "nocturna-editorial",
-    title: "Nocturna — Serie Editorial",
-    designer: "Tomás Reyes",
-    initials: "TR",
-    location: "Ciudad de México, MX",
-    tag: "Ilustración",
-    image: "/images/gallery/img-02.jpg",
-    likes: 1420,
-    views: 9800,
-  },
-  {
-    id: "kinetic-type",
-    title: "Kinetic Type — Sistema Tipográfico Animado",
-    designer: "Lucía Fernández",
-    initials: "LF",
-    location: "Bogotá, CO",
-    tag: "Motion",
-    image: "/images/gallery/img-03.jpg",
-    likes: 1890,
-    views: 14200,
-  },
-  {
-    id: "sabor-local",
-    title: "Sabor Local — Branding & Packaging",
-    designer: "Diego Salas",
-    initials: "DS",
-    location: "Madrid, ES",
-    tag: "Packaging",
-    image: "/images/gallery/img-04.jpg",
-    likes: 980,
-    views: 7200,
-  },
-  {
-    id: "voltra-app",
-    title: "Voltra — UI/UX Fintech",
-    designer: "Valentina Cruz",
-    initials: "VC",
-    location: "Lima, PE",
-    tag: "UI/UX",
-    image: "/images/gallery/img-05.jpg",
-    likes: 2140,
-    views: 16700,
-  },
-  {
-    id: "estudio-ceramica",
-    title: "Estudio Cerámica — Fotografía de Producto",
-    designer: "Emilio Duarte",
-    initials: "ED",
-    location: "Santiago, CL",
-    tag: "Fotografía",
-    image: "/images/gallery/img-06.jpg",
-    likes: 760,
-    views: 5100,
-  },
-  {
-    id: "mundo-submarino",
-    title: "Mundo Submarino — Arte 3D",
-    designer: "Sofía Ramos",
-    initials: "SR",
-    location: "São Paulo, BR",
-    tag: "3D Art",
-    image: "/images/gallery/img-07.jpg",
-    likes: 3050,
-    views: 21300,
-  },
-  {
-    id: "rio-sonoro",
-    title: "Río Sonoro — Identidad para Festival",
-    designer: "Nicolás Vidal",
-    initials: "NV",
-    location: "Montevideo, UY",
-    tag: "Branding",
-    image: "/images/gallery/img-08.jpg",
-    likes: 1275,
-    views: 8900,
-  },
-];
-
 const ALL_LOCATIONS = "Todas las ubicaciones";
-const LOCATION_OPTIONS = [ALL_LOCATIONS, ...MOCK_PROJECTS.map((p) => p.location)];
-
 const ALL_CATEGORIES = "Todas las categorías";
-const CATEGORY_OPTIONS = [ALL_CATEGORIES, ...Array.from(new Set(MOCK_PROJECTS.map((p) => p.tag)))];
 
 function formatMetric(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : `${value}`;
@@ -141,9 +47,11 @@ function formatMetric(value: number) {
 
 function CategoryDropdown({
   value,
+  options,
   onChange,
 }: {
   value: string;
+  options: string[];
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -162,7 +70,7 @@ function CategoryDropdown({
       }
       dropdown={
         <Column minWidth={10} padding="4" gap="2">
-          {CATEGORY_OPTIONS.map((option) => (
+          {options.map((option) => (
             <Option
               key={option}
               label={option}
@@ -217,9 +125,11 @@ function OrderDropdown({ value, onChange }: { value: string; onChange: (value: s
 
 function LocationDropdown({
   value,
+  options,
   onChange,
 }: {
   value: string;
+  options: string[];
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -238,7 +148,7 @@ function LocationDropdown({
       }
       dropdown={
         <Column minWidth={12} padding="4" gap="2">
-          {LOCATION_OPTIONS.map((option) => (
+          {options.map((option) => (
             <Option
               key={option}
               label={option}
@@ -256,7 +166,11 @@ function LocationDropdown({
   );
 }
 
-function ShowcaseCard({ project }: { project: MockProject }) {
+function ShowcaseCard({ project }: { project: ShowcasePiece }) {
+  const avatarProps = project.avatarUrl
+    ? { src: project.avatarUrl }
+    : { value: (project.designer[0] ?? "P").toUpperCase() };
+
   return (
     <Card fillWidth direction="column" gap="12" padding="12" radius="l" border="neutral-alpha-weak">
       <Column fillWidth radius="m" overflow="hidden">
@@ -278,7 +192,7 @@ function ShowcaseCard({ project }: { project: MockProject }) {
         </Row>
         <Row fillWidth horizontal="between" vertical="center">
           <Row gap="8" vertical="center">
-            <Avatar value={project.initials} size="s" />
+            <Avatar {...avatarProps} size="s" />
             <Text variant="label-default-s" onBackground="neutral-weak">
               {project.designer}
             </Text>
@@ -303,17 +217,26 @@ function ShowcaseCard({ project }: { project: MockProject }) {
   );
 }
 
-export function HomeShowcase() {
+export function HomeShowcase({ pieces }: { pieces: ShowcasePiece[] }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(ALL_CATEGORIES);
   const [feedTab, setFeedTab] = useState(FEED_TABS[0]);
   const [order, setOrder] = useState<string>(ORDER_OPTIONS[0]);
   const [location, setLocation] = useState(ALL_LOCATIONS);
 
+  const categoryOptions = useMemo(
+    () => [ALL_CATEGORIES, ...new Set(pieces.map((p) => p.tag))],
+    [pieces],
+  );
+  const locationOptions = useMemo(
+    () => [ALL_LOCATIONS, ...new Set(pieces.map((p) => p.location).filter((l): l is string => Boolean(l)))],
+    [pieces],
+  );
+
   const projects = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    const filtered = MOCK_PROJECTS.filter((project) => {
+    const filtered = pieces.filter((project) => {
       const matchesSearch =
         !query ||
         project.title.toLowerCase().includes(query) ||
@@ -332,7 +255,7 @@ export function HomeShowcase() {
     }
 
     return sorted;
-  }, [search, category, order, location]);
+  }, [pieces, search, category, order, location]);
 
   return (
     <Column fillWidth gap="0">
@@ -348,7 +271,7 @@ export function HomeShowcase() {
           </Heading>
           <Row fillWidth horizontal="center">
             <SearchBarShell
-              leading={<CategoryDropdown value={category} onChange={setCategory} />}
+              leading={<CategoryDropdown value={category} options={categoryOptions} onChange={setCategory} />}
               query={search}
               onQueryChange={setSearch}
               placeholder="Buscar proyectos, diseñadores, estilos…"
@@ -380,7 +303,7 @@ export function HomeShowcase() {
           />
           <Row gap="24" vertical="center">
             <OrderDropdown value={order} onChange={setOrder} />
-            <LocationDropdown value={location} onChange={setLocation} />
+            <LocationDropdown value={location} options={locationOptions} onChange={setLocation} />
           </Row>
         </Row>
       </RevealFx>

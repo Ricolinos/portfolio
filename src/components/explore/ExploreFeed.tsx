@@ -6,55 +6,34 @@ import { useExploreSearch } from "./SearchContext";
 
 const ALL = "Todos";
 
-// Datos ilustrativos: aún no existe un feed real de shouts en la plataforma.
-const MOCK_SHOUTS = [
-  {
-    id: "shout-01",
-    author: "Julián",
-    avatar: "/images/projects/project-nba-cup-2025/Julian-01.jpg",
-    specialty: "Animador",
-    category: "Animación",
-    description: "Nueva secuencia de intro animado para la NBA Cup 2025, explorando transiciones de logo en 3D.",
-    image: "/images/projects/project-NBA/cover-01.png",
-    likes: 128,
-  },
-  {
-    id: "shout-02",
-    author: "Rodrigo",
-    avatar: "/images/projects/project-nba-style/Rodrigo-01.jpg",
-    specialty: "Diseñador de Marca",
-    category: "Branding",
-    description: "Refresh de identidad visual para la temporada NBA 2024, con un sistema tipográfico renovado.",
-    image: "/images/projects/project-Helvex/img-01.jpg",
-    likes: 64,
-  },
-  {
-    id: "shout-03",
-    author: "Armando",
-    avatar: "/images/projects/project-nba-cup-2025/Armando-01.png",
-    specialty: "Ilustrador",
-    category: "Ilustración",
-    description: "Set de ilustraciones editoriales para acompañar la cobertura de la NBA Dunkmania 2024.",
-    image: "/images/projects/project-01/cover-02.jpg",
-    likes: 41,
-  },
-];
+export interface Shout {
+  id: string;
+  author: string;
+  avatar: string | null;
+  category: string;
+  description: string;
+  image: string;
+  likes: number;
+}
 
-function ShoutCard({ shout }: { shout: (typeof MOCK_SHOUTS)[number] }) {
+function ShoutCard({ shout }: { shout: Shout }) {
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(shout.likes);
+  const avatarProps = shout.avatar
+    ? { src: shout.avatar }
+    : { value: (shout.author[0] ?? "P").toUpperCase() };
 
   return (
     <TiltFx fillWidth radius="l">
       <Card fillWidth direction="column" radius="l" border="neutral-alpha-weak" background="neutral-alpha-weak">
         <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="16" gap="12">
           <Row gap="12" vertical="center" minWidth={0}>
-            <Avatar src={shout.avatar} size="m" />
+            <Avatar {...avatarProps} size="m" />
             <Text variant="label-strong-m" onBackground="neutral-strong" truncate>
               {shout.author}
             </Text>
           </Row>
-          <Tag size="s" variant="brand" label={shout.specialty} style={{ flexShrink: 0 }} />
+          <Tag size="s" variant="brand" label={shout.category} style={{ flexShrink: 0 }} />
         </Row>
 
         <Column fillWidth paddingX="20" gap="16">
@@ -90,15 +69,16 @@ function ShoutCard({ shout }: { shout: (typeof MOCK_SHOUTS)[number] }) {
 
 interface ExploreFeedProps {
   initialCategory?: string;
+  shouts: Shout[];
 }
 
-export function ExploreFeed({ initialCategory }: ExploreFeedProps) {
+export function ExploreFeed({ initialCategory, shouts }: ExploreFeedProps) {
   const selected = initialCategory ?? ALL;
   const { query } = useExploreSearch();
 
   const filtered = useMemo(
     () =>
-      MOCK_SHOUTS.filter((shout) => {
+      shouts.filter((shout) => {
         if (selected !== ALL && shout.category !== selected) return false;
         if (query) {
           const q = query.trim().toLowerCase();
@@ -108,7 +88,7 @@ export function ExploreFeed({ initialCategory }: ExploreFeedProps) {
         }
         return true;
       }),
-    [selected, query],
+    [shouts, selected, query],
   );
 
   return (

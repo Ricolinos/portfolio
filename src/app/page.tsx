@@ -1,6 +1,10 @@
 import { Column, Meta, Schema } from "@once-ui-system/core";
 import { HomeShowcase } from "@/components";
 import { about, baseURL, home, person } from "@/resources";
+import { getPortfolioFeed } from "@/lib/portfolio";
+
+// El showcase consulta la base de datos: evita congelar el fetch en build.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata() {
   return Meta.generate({
@@ -12,7 +16,20 @@ export async function generateMetadata() {
   });
 }
 
-export default function Home() {
+export default async function Home() {
+  const feed = await getPortfolioFeed();
+  const pieces = feed.map((piece) => ({
+    id: piece.id,
+    title: piece.title,
+    designer: piece.user.name ?? piece.user.username ?? "Partner",
+    avatarUrl: piece.user.imageUrl,
+    location: piece.location,
+    tag: piece.category,
+    image: piece.coverUrl,
+    likes: piece.likes,
+    views: piece.views,
+  }));
+
   return (
     <Column fillWidth maxWidth="l" paddingY="12" horizontal="center">
       <Schema
@@ -28,7 +45,7 @@ export default function Home() {
           image: `${baseURL}${person.avatar}`,
         }}
       />
-      <HomeShowcase />
+      <HomeShowcase pieces={pieces} />
     </Column>
   );
 }

@@ -57,6 +57,14 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
 
   // Partners (collaborator): showcase estilo Behance con sus proyectos reales.
   if (role === "collaborator") {
+    const pieces = ownerId
+      ? await prisma.portfolioPiece.findMany({
+          where: { userId: ownerId },
+          orderBy: { createdAt: "desc" },
+          select: { id: true, title: true, category: true, coverUrl: true, views: true, likes: true },
+        })
+      : [];
+
     return (
       <ProfileView
         displayName={displayName}
@@ -67,6 +75,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
         memberSince={profileUser?.createdAt.toISOString()}
         projects={projects}
+        pieces={pieces}
       />
     );
   }

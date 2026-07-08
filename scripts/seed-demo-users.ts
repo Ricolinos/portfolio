@@ -72,6 +72,67 @@ const PARTNER_QUOTES: DemoQuote[] = [
   { title: "Motion Graphics Expo CDMX", status: "active", total: 15000 },
 ];
 
+interface DemoPiece {
+  title: string;
+  description: string;
+  category: string;
+  coverUrl: string;
+  views: number;
+  likes: number;
+}
+
+// Categorías alineadas con CATEGORY_SLUGS de /explorar (Animación, Branding, Ilustración)
+const PARTNER_PIECES: DemoPiece[] = [
+  {
+    title: "Intro Animada Torneo Clausura",
+    description: "Secuencia de apertura para transmisión deportiva, con transiciones de logo en 3D.",
+    category: "Animación",
+    coverUrl: "/images/gallery/img-01.jpg",
+    views: 18400,
+    likes: 2380,
+  },
+  {
+    title: "Identidad Visual Café Madrugada",
+    description: "Sistema de marca completo para cafetería de especialidad: logo, paleta y aplicaciones.",
+    category: "Branding",
+    coverUrl: "/images/gallery/img-02.jpg",
+    views: 12200,
+    likes: 1540,
+  },
+  {
+    title: "Serie Editorial Nocturna",
+    description: "Set de ilustraciones editoriales para revista digital de cultura nocturna.",
+    category: "Ilustración",
+    coverUrl: "/images/gallery/img-03.jpg",
+    views: 9600,
+    likes: 980,
+  },
+  {
+    title: "Wipper Deportivo 3D",
+    description: "Cortinilla animada para canal de deportes con tipografía cinética.",
+    category: "Animación",
+    coverUrl: "/images/gallery/img-04.jpg",
+    views: 15800,
+    likes: 2010,
+  },
+  {
+    title: "Packaging Sabor Local",
+    description: "Branding y empaque para línea de salsas artesanales mexicanas.",
+    category: "Branding",
+    coverUrl: "/images/gallery/img-05.jpg",
+    views: 7300,
+    likes: 640,
+  },
+  {
+    title: "Stickers Festival Río Sonoro",
+    description: "Colección de stickers ilustrados para festival de música independiente.",
+    category: "Ilustración",
+    coverUrl: "/images/gallery/img-06.jpg",
+    views: 5100,
+    likes: 760,
+  },
+];
+
 async function ensureClerkUser(demo: DemoUser): Promise<string> {
   const existing = await clerk.users.getUserList({ emailAddress: [demo.email] });
   if (existing.data.length > 0) {
@@ -111,6 +172,17 @@ async function seedQuotes(userId: string, quotes: DemoQuote[], clientName: strin
   console.log(`💰 ${quotes.length} proyectos demo creados para ${userId}`);
 }
 
+async function seedPortfolio(userId: string, pieces: DemoPiece[], location: string) {
+  // Idempotencia: borra las piezas previas de este usuario demo.
+  await prisma.portfolioPiece.deleteMany({ where: { userId } });
+  for (const piece of pieces) {
+    await prisma.portfolioPiece.create({
+      data: { userId, location, ...piece },
+    });
+  }
+  console.log(`🎨 ${pieces.length} piezas de portafolio creadas para ${userId}`);
+}
+
 async function main() {
   const ids: Record<string, string> = {};
 
@@ -142,6 +214,7 @@ async function main() {
 
   await seedQuotes(ids.cliente_demo, CLIENT_QUOTES, "Carla Cliente");
   await seedQuotes(ids.partner_demo, PARTNER_QUOTES, "Pablo Partner");
+  await seedPortfolio(ids.partner_demo, PARTNER_PIECES, "Ciudad de México, MX");
 
   console.log("\n═══════════════ CREDENCIALES DEMO ═══════════════");
   for (const demo of DEMO_USERS) {

@@ -27,6 +27,30 @@ model User {
   mediaFiles   MediaFile[]
   integrations CloudIntegration[]
   exercises    MarkdownExercise[]
+  portfolio    PortfolioPiece[]
+}
+
+// Pieza de portafolio publicada por un partner. Respalda el showcase del
+// perfil /[username], HomeShowcase y ExploreFeed (antes mocks).
+model PortfolioPiece {
+  id          String   @id @default(cuid())
+  title       String
+  description String?  @db.Text
+  category    String
+  // URL pública (Supabase Storage o /images locales); galería opcional de URLs
+  coverUrl    String
+  gallery     Json?
+  location    String?
+  views       Int      @default(0)
+  likes       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([category])
 }
 
 model ProjectQuote {

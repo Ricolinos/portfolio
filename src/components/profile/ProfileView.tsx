@@ -10,14 +10,14 @@ import {
   Grid,
   Heading,
   Icon,
-  IconButton,
+  Media,
   RevealFx,
   Row,
   SegmentedControl,
   Tag,
   Text,
 } from "@once-ui-system/core";
-import { STATUS_LABELS, type ProjectStatus } from "@/lib/projectStatus";
+import type { ProjectStatus } from "@/lib/projectStatus";
 
 export interface PartnerProject {
   id: string;
@@ -29,6 +29,15 @@ export interface PartnerProject {
   updatedAt: string; // ISO string
 }
 
+export interface PartnerPiece {
+  id: string;
+  title: string;
+  category: string;
+  coverUrl: string;
+  views: number;
+  likes: number;
+}
+
 interface ProfileViewProps {
   displayName: string;
   avatarUrl?: string;
@@ -38,23 +47,12 @@ interface ProfileViewProps {
   email?: string | null;
   memberSince?: string; // ISO string
   projects: PartnerProject[];
+  pieces: PartnerPiece[];
 }
 
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
 
-const FILTERS = [
-  { value: "all", label: "Todos" },
-  { value: "progress", label: "En curso" },
-  { value: "done", label: "Completados" },
-] as const;
-
-const STATUS_VARIANTS: Record<ProjectStatus, "neutral" | "info" | "warning" | "success"> = {
-  draft: "neutral",
-  sent: "info",
-  active: "warning",
-  completed: "success",
-  archived: "neutral",
-};
+const ALL_CATEGORIES = "Todos";
 
 function waLink(whatsapp: string) {
   return `https://wa.me/${whatsapp.replace(/\D/g, "")}`;
@@ -65,12 +63,12 @@ function formatTotal(total: number | null, currency: string) {
   return new Intl.NumberFormat("es-MX", { style: "currency", currency }).format(total);
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
-}
-
 function formatMemberSince(iso: string) {
   return new Date(iso).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+}
+
+function formatCount(value: number) {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${value}`;
 }
 
 export function ProfileView({
@@ -82,8 +80,9 @@ export function ProfileView({
   email,
   memberSince,
   projects,
+  pieces,
 }: ProfileViewProps) {
-  const [filter, setFilter] = useState<string>(FILTERS[0].value);
+  const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
@@ -93,8 +92,9 @@ export function ProfileView({
   const clients = new Set(projects.map((p) => p.clientName).filter(Boolean));
   const billed = projects.reduce((sum, p) => sum + (p.total ?? 0), 0);
 
-  const visibleProjects =
-    filter === "progress" ? inProgress : filter === "done" ? completed : projects;
+  const categories = [ALL_CATEGORIES, ...new Set(pieces.map((p) => p.category))];
+  const visiblePieces =
+    filter === ALL_CATEGORIES ? pieces : pieces.filter((p) => p.category === filter);
 
   const metrics = [
     { label: "En curso", value: String(inProgress.length) },
@@ -213,7 +213,7 @@ export function ProfileView({
               <SegmentedControl
                 selected={filter}
                 onToggle={setFilter}
-                buttons={FILTERS.map((f) => ({ value: f.value, label: f.label }))}
+                buttons={categories.map((c) => ({ value: c, label: c }))}
               />
 
               {isOwnProfile && (
@@ -237,18 +237,18 @@ export function ProfileView({
                 </Flex>
               )}
 
-              {visibleProjects.length === 0 && !isOwnProfile ? (
+              {visiblePieces.length === 0 && !isOwnProfile ? (
                 <Column fillWidth horizontal="center" gap="12" padding="48" border="neutral-alpha-medium" radius="l">
                   <Icon name="sparkles" size="l" onBackground="neutral-weak" />
                   <Text variant="body-default-m" onBackground="neutral-weak" align="center">
-                    Sin proyectos en esta vista.
+                    Sin piezas publicadas en esta vista.
                   </Text>
                 </Column>
               ) : (
                 <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
-                  {visibleProjects.map((project) => (
+                  {visiblePieces.map((piece) => (
                     <Card
-                      key={project.id}
+                      key={piece.id}
                       fillWidth
                       direction="column"
                       gap="12"
@@ -256,42 +256,34 @@ export function ProfileView({
                       radius="l"
                       border="neutral-alpha-weak"
                     >
-                      {/* Sin modelo de imágenes de portafolio aún: bloque de marca */}
-                      <Flex
-                        fillWidth
-                        radius="m"
-                        background="brand-alpha-weak"
-                        center
-                        style={{ aspectRatio: "4 / 3" }}
-                      >
-                        <Icon name="paintBrush" size="l" onBackground="brand-weak" />
-                      </Flex>
+                      <Column fillWidth radius="m" overflow="hidden">
+                        <Media
+                          src={piece.coverUrl}
+                          alt={piece.title}
+                          aspectRatio="4 / 3"
+                          sizes="(max-width: 768px) 100vw, 33vw"
+                        />
+                      </Column>
                       <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
                         <Row fillWidth horizontal="between" vertical="start" gap="8">
                           <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
-                            {project.title}
+                            {piece.title}
                           </Text>
-                          <Tag
-                            size="s"
-                            variant={STATUS_VARIANTS[project.status as ProjectStatus] ?? "neutral"}
-                            label={STATUS_LABELS[project.status as ProjectStatus] ?? project.status}
-                          />
+                          <Tag size="s" label={piece.category} variant="neutral" />
                         </Row>
-                        <Row fillWidth horizontal="between" vertical="center">
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {project.clientName ?? "Sin cliente asignado"}
-                          </Text>
-                          <IconButton
-                            icon="infoCircle"
-                            size="s"
-                            variant="tertiary"
-                            tooltip={
-                              isOwnProfile
-                                ? `Total: ${formatTotal(project.total, project.currency)} · Actualizado: ${formatDate(project.updatedAt)}`
-                                : `Actualizado: ${formatDate(project.updatedAt)}`
-                            }
-                            tooltipPosition="top"
-                          />
+                        <Row gap="12" vertical="center">
+                          <Row gap="4" vertical="center">
+                            <Icon name="eye" size="xs" onBackground="neutral-weak" />
+                            <Text variant="label-default-s" onBackground="neutral-weak">
+                              {formatCount(piece.views)}
+                            </Text>
+                          </Row>
+                          <Row gap="4" vertical="center">
+                            <Icon name="heart" size="xs" onBackground="neutral-weak" />
+                            <Text variant="label-default-s" onBackground="neutral-weak">
+                              {formatCount(piece.likes)}
+                            </Text>
+                          </Row>
                         </Row>
                       </Column>
                     </Card>

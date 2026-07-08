@@ -4,6 +4,7 @@ import { ExploreFeed } from "@/components/explore/ExploreFeed";
 import { DesignerDirectory } from "@/components/explore/DesignerDirectory";
 import { CATEGORY_SLUGS } from "@/components/explore/categories";
 import { prisma } from "@/lib/prisma";
+import { getPortfolioFeed, toShouts } from "@/lib/portfolio";
 
 // La rama "designerds" consulta la base de datos: evita congelar el fetch en build.
 export const dynamic = "force-dynamic";
@@ -45,5 +46,6 @@ export default async function ExplorarCategoryPage({
     return <DesignerDirectory platformDesigners={platformDesigners} />;
   }
 
-  return <ExploreFeed initialCategory={label} />;
+  const feed = await getPortfolioFeed();
+  return <ExploreFeed initialCategory={label} shouts={toShouts(feed)} />;
 }
