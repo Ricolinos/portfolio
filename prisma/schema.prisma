@@ -27,6 +27,11 @@ model User {
   brand          String?
   // Lema corto (máx. 15 palabras, validado en la server action)
   motto          String?
+  // Portada del perfil de Partner (data URL comprimida, validada en la server action)
+  coverImageUrl  String?
+  // Visibilidad del Partner en Explorar/designerds; el perfil directo por
+  // username sigue siendo accesible aunque sea privado
+  isPublic       Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -50,6 +55,8 @@ model PortfolioPiece {
   location    String?
   views       Int      @default(0)
   likes       Int      @default(0)
+  // Visibilidad: false = borrador, solo visible para el dueño
+  isPublic    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

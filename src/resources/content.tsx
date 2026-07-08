@@ -62,7 +62,7 @@ const social: Social = [
 
 const home: Home = {
   path: "/",
-  image: "/images/og/home.jpg",
+  image: "/api/og/generate?title=Hub-Nerds",
   label: "Home",
   title: `Portafolios de ${person.name}`,
   description:

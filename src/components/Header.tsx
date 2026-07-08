@@ -49,23 +49,6 @@ const menuGroups: MenuGroup[] = [
     ],
   },
   {
-    id: "recursos",
-    label: "Recursos",
-    href: "/recursos",
-    suffixIcon: "chevronDown",
-    sections: [
-      {
-        links: [
-          { label: "Mockups",  href: "/recursos/mockups",  icon: "mockup" },
-          { label: "Plug-ins", href: "/recursos/plugins",  icon: "plugin" },
-          { label: "Imágenes", href: "/recursos/imagenes", icon: "images" },
-          { label: "Fotos",    href: "/recursos/fotos",    icon: "camera" },
-          { label: "Iconos",   href: "/recursos/iconos",   icon: "shapes" },
-        ],
-      },
-    ],
-  },
-  {
     id: "servicios",
     label: "Servicios",
     href: "/servicios",

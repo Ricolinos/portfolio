@@ -16,11 +16,6 @@ const serviceLinks: FooterLink[] = [
   { label: "Facturación", href: "/servicios/facturacion" },
 ];
 
-const resourceLinks: FooterLink[] = [
-  { label: "Plantillas", href: "/recursos/mockups" },
-  { label: "Biblioteca de Recursos", href: "/recursos" },
-];
-
 const accountLinks: FooterLink[] = [
   { label: "Perfil", href: "/dashboard/client/perfil" },
   { label: "Proyectos", href: "/dashboard/client/projects" },
@@ -63,7 +58,7 @@ export const Footer = () => {
       borderTop="neutral-alpha-weak"
       fillWidth
     >
-      <Grid columns={5} m={{ columns: 2 }} s={{ columns: 1 }} gap="40" fillWidth paddingBottom="48">
+      <Grid columns={4} m={{ columns: 2 }} s={{ columns: 1 }} gap="40" fillWidth paddingBottom="48">
         <Column gap="16">
           <Row>
             <Image
@@ -88,7 +83,6 @@ export const Footer = () => {
         </Column>
         <FooterColumn title="Explorar" links={exploreLinks} />
         <FooterColumn title="Servicios" links={serviceLinks} />
-        <FooterColumn title="Recursos" links={resourceLinks} />
         <FooterColumn title="Mi Cuenta" links={accountLinks} />
       </Grid>
       <Row

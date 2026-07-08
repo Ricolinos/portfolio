@@ -79,6 +79,8 @@ interface DemoPiece {
   coverUrl: string;
   views: number;
   likes: number;
+  // false = borrador: solo visible para el dueño en su perfil
+  isPublic?: boolean;
 }
 
 // Categorías alineadas con CATEGORY_SLUGS de /explorar (Animación, Branding, Ilustración)
@@ -122,6 +124,7 @@ const PARTNER_PIECES: DemoPiece[] = [
     coverUrl: "/images/gallery/img-05.jpg",
     views: 7300,
     likes: 640,
+    isPublic: false,
   },
   {
     title: "Stickers Festival Río Sonoro",
@@ -130,6 +133,7 @@ const PARTNER_PIECES: DemoPiece[] = [
     coverUrl: "/images/gallery/img-06.jpg",
     views: 5100,
     likes: 760,
+    isPublic: false,
   },
 ];
 
