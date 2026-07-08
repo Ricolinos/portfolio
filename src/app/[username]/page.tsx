@@ -58,11 +58,20 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
 
   // Partners (collaborator): showcase estilo Behance con sus proyectos reales.
   if (role === "collaborator") {
+    // Los visitantes solo ven piezas públicas; el dueño también sus borradores.
     const rawPieces = ownerId
       ? await prisma.portfolioPiece.findMany({
-          where: { userId: ownerId },
+          where: { userId: ownerId, ...(isOwnProfile ? {} : { isPublic: true }) },
           orderBy: { createdAt: "desc" },
-          select: { id: true, title: true, category: true, coverUrl: true, views: true, likes: true },
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            coverUrl: true,
+            views: true,
+            likes: true,
+            isPublic: true,
+          },
         })
       : [];
 

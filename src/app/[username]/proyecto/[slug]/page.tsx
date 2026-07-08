@@ -1,5 +1,7 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { auth } from "@clerk/nextjs/server";
 import {
   Avatar,
   Column,
@@ -16,17 +18,45 @@ import {
 import { baseURL } from "@/resources";
 import { formatDate } from "@/utils/formatDate";
 import { ScrollToHash, CustomMDX } from "@/components";
-import { getCaseStudy } from "@/lib/caseStudies";
+import { getCaseStudy, slugifyTitle } from "@/lib/caseStudies";
 import { prisma } from "@/lib/prisma";
 
 interface CaseStudyPageProps {
   params: Promise<{ username: string; slug: string }>;
 }
 
+// Resuelve autor y caso de estudio respetando visibilidad: si la pieza en BD
+// está en borrador, solo el dueño puede verla. cache() dedupe entre
+// generateMetadata y la página.
+const loadCaseStudy = cache(async (username: string, slug: string) => {
+  const post = getCaseStudy(username, slug);
+  if (!post) return null;
+
+  const author = await prisma.user.findUnique({
+    where: { username },
+    select: {
+      id: true,
+      name: true,
+      imageUrl: true,
+      portfolio: { select: { title: true, isPublic: true } },
+    },
+  });
+  if (!author) return null;
+
+  const piece = author.portfolio.find((p) => slugifyTitle(p.title) === slug);
+  if (piece && !piece.isPublic) {
+    const { userId } = await auth();
+    if (userId !== author.id) return null;
+  }
+
+  return { post, author };
+});
+
 export async function generateMetadata({ params }: CaseStudyPageProps): Promise<Metadata> {
   const { username, slug } = await params;
-  const post = getCaseStudy(username, slug);
-  if (!post) return {};
+  const result = await loadCaseStudy(username, slug);
+  if (!result) return {};
+  const { post } = result;
 
   return Meta.generate({
     title: post.metadata.title,
@@ -40,18 +70,11 @@ export async function generateMetadata({ params }: CaseStudyPageProps): Promise<
 export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
   const { username, slug } = await params;
 
-  const post = getCaseStudy(username, slug);
-  if (!post) {
+  const result = await loadCaseStudy(username, slug);
+  if (!result) {
     notFound();
   }
-
-  const author = await prisma.user.findUnique({
-    where: { username },
-    select: { name: true, imageUrl: true },
-  });
-  if (!author) {
-    notFound();
-  }
+  const { post, author } = result;
 
   return (
     <Column as="section" maxWidth="m" horizontal="center" gap="l">
