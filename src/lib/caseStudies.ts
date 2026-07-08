@@ -1,10 +1,13 @@
 import fs from "fs";
 import path from "path";
+import matter from "gray-matter";
 import { getPosts } from "@/utils/utils";
+import { prisma } from "@/lib/prisma";
 
-// Casos de estudio MDX de piezas publicadas por Partners.
-// Un archivo por pieza en src/content/portfolio/<username>/<slug>.mdx,
-// donde <slug> es el título de la pieza slugificado.
+// Casos de estudio MDX de piezas publicadas por Partners. Dos orígenes:
+// - BD (PortfolioPiece.caseStudy): creados desde el panel del perfil.
+// - Archivo en src/content/portfolio/<username>/<slug>.mdx: piezas antiguas,
+//   donde <slug> es el título de la pieza slugificado.
 const CONTENT_ROOT = ["src", "content", "portfolio"];
 
 export function slugifyTitle(title: string): string {
@@ -26,7 +29,30 @@ export function caseStudyHref(username: string, title: string): string | undefin
   return fs.existsSync(file) ? `/${username}/proyecto/${slug}` : undefined;
 }
 
-export function getCaseStudy(username: string, slug: string) {
+export async function getCaseStudy(username: string, slug: string) {
+  const piece = await prisma.portfolioPiece.findFirst({
+    where: { slug, caseStudy: { not: null }, user: { username } },
+    select: { caseStudy: true, isPublic: true },
+  });
+
+  if (piece?.caseStudy) {
+    const { data, content } = matter(piece.caseStudy);
+    return {
+      slug,
+      content,
+      isPublic: piece.isPublic,
+      metadata: {
+        title: (data.title as string) ?? "",
+        publishedAt: (data.publishedAt as string) ?? "",
+        summary: (data.summary as string) ?? "",
+        images: (data.images as string[]) ?? [],
+        tag: (data.tag as string) ?? "",
+        image: "",
+      },
+    };
+  }
+
   if (!fs.existsSync(partnerDir(username))) return null;
-  return getPosts([...CONTENT_ROOT, username]).find((post) => post.slug === slug) ?? null;
+  const post = getPosts([...CONTENT_ROOT, username]).find((p) => p.slug === slug);
+  return post ? { ...post, isPublic: true } : null;
 }

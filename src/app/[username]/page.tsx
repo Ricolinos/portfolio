@@ -60,16 +60,27 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   if (role === "collaborator") {
     const rawPieces = ownerId
       ? await prisma.portfolioPiece.findMany({
-          where: { userId: ownerId },
+          // Los borradores solo aparecen en el perfil propio del Partner
+          where: { userId: ownerId, ...(isOwnProfile ? {} : { isPublic: true }) },
           orderBy: { createdAt: "desc" },
-          select: { id: true, title: true, category: true, coverUrl: true, views: true, likes: true },
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            coverUrl: true,
+            views: true,
+            likes: true,
+            slug: true,
+            isPublic: true,
+          },
         })
       : [];
 
-    // Enlaza cada pieza a su caso de estudio MDX cuando el partner lo tiene publicado.
-    const pieces = rawPieces.map((piece) => ({
+    // Enlaza cada pieza a su caso de estudio: BD (panel de creación) primero,
+    // con fallback al archivo MDX de las piezas antiguas.
+    const pieces = rawPieces.map(({ slug, ...piece }) => ({
       ...piece,
-      href: caseStudyHref(username, piece.title),
+      href: slug ? `/${username}/proyecto/${slug}` : caseStudyHref(username, piece.title),
     }));
 
     return (

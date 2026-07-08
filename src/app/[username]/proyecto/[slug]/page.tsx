@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { currentUser } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
 import {
   Avatar,
@@ -25,8 +26,8 @@ interface CaseStudyPageProps {
 
 export async function generateMetadata({ params }: CaseStudyPageProps): Promise<Metadata> {
   const { username, slug } = await params;
-  const post = getCaseStudy(username, slug);
-  if (!post) return {};
+  const post = await getCaseStudy(username, slug);
+  if (!post || !post.isPublic) return {};
 
   return Meta.generate({
     title: post.metadata.title,
@@ -40,9 +41,17 @@ export async function generateMetadata({ params }: CaseStudyPageProps): Promise<
 export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
   const { username, slug } = await params;
 
-  const post = getCaseStudy(username, slug);
+  const post = await getCaseStudy(username, slug);
   if (!post) {
     notFound();
+  }
+
+  // Borradores: visibles únicamente para el Partner dueño del proyecto.
+  if (!post.isPublic) {
+    const viewer = await currentUser();
+    if (viewer?.username !== username) {
+      notFound();
+    }
   }
 
   const author = await prisma.user.findUnique({

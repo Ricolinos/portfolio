@@ -50,12 +50,20 @@ model PortfolioPiece {
   location    String?
   views       Int      @default(0)
   likes       Int      @default(0)
+  // Caso de estudio creado desde el panel: slug de la ruta
+  // /<username>/proyecto/<slug> y MDX completo (frontmatter + cuerpo).
+  // Piezas antiguas lo dejan en null (su caso de estudio vive en archivo).
+  slug        String?
+  caseStudy   String?  @db.Text
+  // false = borrador: solo visible en el perfil propio, fuera de Explorar/Home
+  isPublic    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, slug])
   @@index([userId])
   @@index([category])
 }
@@ -97,10 +105,14 @@ model MediaFile {
   id        String   @id @default(cuid())
   fileName  String
   fileType  String
-  // URL pública o firmada de Supabase Storage
+  // URL pública o firmada de Supabase Storage, o /api/media/<id> cuando los
+  // bytes viven en la columna `data` (imágenes de casos de estudio, sin bucket)
   fileUrl   String
   // Bytes
   fileSize  Int
+  // Contenido base64 (sin prefijo data:) servido por /api/media/[id].
+  // Workaround por falta de bucket de Storage; null para archivos externos.
+  data      String?  @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

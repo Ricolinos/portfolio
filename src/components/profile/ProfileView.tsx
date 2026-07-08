@@ -18,6 +18,7 @@ import {
   Text,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
+import { CreateCaseStudyDialog } from "@/components/profile/CreateCaseStudyDialog";
 
 export interface PartnerProject {
   id: string;
@@ -38,6 +39,8 @@ export interface PartnerPiece {
   likes: number;
   // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
   href?: string;
+  // false = borrador: solo lo ve el dueño en su propio perfil
+  isPublic?: boolean;
 }
 
 interface ProfileViewProps {
@@ -85,6 +88,7 @@ export function ProfileView({
   pieces,
 }: ProfileViewProps) {
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
+  const [creating, setCreating] = useState(false);
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
@@ -272,7 +276,12 @@ export function ProfileView({
                           <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
                             {piece.title}
                           </Text>
-                          <Tag size="s" label={piece.category} variant="neutral" />
+                          <Row gap="4">
+                            {piece.isPublic === false && (
+                              <Tag size="s" label="Borrador" variant="warning" />
+                            )}
+                            <Tag size="s" label={piece.category} variant="neutral" />
+                          </Row>
                         </Row>
                         <Row gap="12" vertical="center">
                           <Row gap="4" vertical="center">
@@ -292,16 +301,23 @@ export function ProfileView({
                     </Card>
                   ))}
 
-                  {/* Tarjeta de acción "Crear un proyecto" */}
+                  {/* Tarjeta de acción "Crear un proyecto": abre el panel de casos de estudio */}
                   {isOwnProfile && (
                     <Flex
                       border="neutral-medium"
                       radius="l"
-                      style={{ borderStyle: "dashed" }}
+                      style={{ borderStyle: "dashed", cursor: "pointer" }}
                       center
                       padding="40"
                       direction="column"
                       gap="12"
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Crear un proyecto"
+                      onClick={() => setCreating(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setCreating(true);
+                      }}
                     >
                       <Icon name="plus" size="l" onBackground="neutral-weak" />
                       <Text variant="label-default-s" onBackground="neutral-weak">
@@ -316,6 +332,10 @@ export function ProfileView({
           </Row>
         </Column>
       </Column>
+
+      {isOwnProfile && (
+        <CreateCaseStudyDialog isOpen={creating} onClose={() => setCreating(false)} />
+      )}
     </RevealFx>
   );
 }

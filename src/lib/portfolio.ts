@@ -4,6 +4,8 @@ import type { Shout } from "@/components/explore/ExploreFeed";
 // Feed de piezas de portafolio con su autor: alimenta HomeShowcase y ExploreFeed.
 export async function getPortfolioFeed() {
   return prisma.portfolioPiece.findMany({
+    // Los borradores (isPublic=false) solo existen en el perfil de su dueño
+    where: { isPublic: true },
     orderBy: { createdAt: "desc" },
     include: {
       user: { select: { name: true, username: true, imageUrl: true } },

@@ -25,6 +25,9 @@ import {
   List,
   ListItem,
   Line,
+  AvatarGroup,
+  Carousel,
+  CompareImage,
 } from "@once-ui-system/core";
 
 type CustomLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
@@ -202,6 +205,10 @@ const components = {
   Icon,
   Media,
   SmartLink,
+  // Bloques de los casos de estudio creados desde el panel del Partner
+  AvatarGroup,
+  Carousel,
+  CompareImage,
 };
 
 type CustomMDXProps = MDXRemoteProps & {
