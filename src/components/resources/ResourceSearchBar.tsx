@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Button, Column, DropdownWrapper, Icon, Line, Option, Row, ShineFx, Text } from "@once-ui-system/core";
+import { Button, Column, DropdownWrapper, Icon, Option, Row, Text } from "@once-ui-system/core";
+import { SearchBarShell } from "@/components/explore/SearchBarShell";
 import { RESOURCE_CATEGORY_SLUGS } from "./categories";
 import { ALL_APPS, ALL_FORMATS, ALL_ORIENTATIONS, useResourceSearch } from "./SearchContext";
 
@@ -101,54 +102,13 @@ export function ResourceSearchBar() {
 
   return (
     <Column fillWidth gap="12">
-      <Row
-        fillWidth
-        vertical="center"
-        gap="12"
-        radius="full"
-        border="neutral-alpha-medium"
-        background="neutral-alpha-weak"
-        paddingX="16"
-        paddingY="4"
-      >
-        <CategoryDropdown />
-        <Line background="neutral-alpha-medium" vert maxHeight="20" />
-        <Row style={{ position: "relative", flex: 1, minWidth: 0 }} vertical="center">
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Buscar recursos"
-            style={{
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              color: "inherit",
-              font: "inherit",
-              fontSize: "var(--font-size-body-s)",
-              width: "100%",
-              minWidth: 0,
-              height: "2.25rem",
-            }}
-          />
-          {query.length === 0 && (
-            <ShineFx
-              variant="body-default-s"
-              onBackground="neutral-weak"
-              style={{
-                position: "absolute",
-                left: 0,
-                top: "50%",
-                transform: "translateY(-50%)",
-                pointerEvents: "none",
-              }}
-            >
-              Buscar mockups, plug-ins, imágenes, fotos e iconos…
-            </ShineFx>
-          )}
-        </Row>
-        <Icon name="search" size="s" onBackground="neutral-weak" />
-      </Row>
+      <SearchBarShell
+        leading={<CategoryDropdown />}
+        query={query}
+        onQueryChange={setQuery}
+        placeholder="Buscar mockups, plug-ins, imágenes, fotos e iconos…"
+        ariaLabel="Buscar recursos"
+      />
 
       <Row gap="8" wrap>
         <FilterDropdown label="Orientación" options={ORIENTATION_OPTIONS} value={orientation} onChange={setOrientation} />
