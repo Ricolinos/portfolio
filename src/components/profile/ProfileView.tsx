@@ -235,9 +235,13 @@ export function ProfileView({
                   </Row>
                 )}
                 {isOwnProfile && email && (
-                  <Row gap="8" vertical="center">
+                  <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
-                    <Text variant="body-default-m" onBackground="neutral-weak">
+                    <Text
+                      variant="body-default-m"
+                      onBackground="neutral-weak"
+                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                    >
                       {email}
                     </Text>
                   </Row>
