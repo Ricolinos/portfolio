@@ -36,6 +36,8 @@ export interface PartnerPiece {
   coverUrl: string;
   views: number;
   likes: number;
+  // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
+  href?: string;
 }
 
 interface ProfileViewProps {
@@ -249,6 +251,7 @@ export function ProfileView({
                   {visiblePieces.map((piece) => (
                     <Card
                       key={piece.id}
+                      href={piece.href}
                       fillWidth
                       direction="column"
                       gap="12"
