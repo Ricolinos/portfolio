@@ -74,6 +74,8 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         whatsapp={profileUser?.whatsapp}
         email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
         memberSince={profileUser?.createdAt.toISOString()}
+        coverImageUrl={profileUser?.coverImageUrl}
+        isPublic={profileUser?.isPublic ?? true}
         projects={projects}
         pieces={pieces}
       />

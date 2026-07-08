@@ -18,6 +18,9 @@ import {
   Text,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
+import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
+import { CoverUploadDialog, PartnerSettingsDialog } from "./PartnerProfileEditDialogs";
+import styles from "./ProfileView.module.scss";
 
 export interface PartnerProject {
   id: string;
@@ -46,6 +49,8 @@ interface ProfileViewProps {
   whatsapp?: string | null;
   email?: string | null;
   memberSince?: string; // ISO string
+  coverImageUrl?: string | null;
+  isPublic?: boolean;
   projects: PartnerProject[];
   pieces: PartnerPiece[];
 }
@@ -79,10 +84,13 @@ export function ProfileView({
   whatsapp,
   email,
   memberSince,
+  coverImageUrl,
+  isPublic = true,
   projects,
   pieces,
 }: ProfileViewProps) {
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
+  const [openDialog, setOpenDialog] = useState<"avatar" | "cover" | "info" | null>(null);
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
@@ -112,7 +120,41 @@ export function ProfileView({
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
           {/* ── Banner de cobertura ─────────────────────────────────────────── */}
-          <Flex fillWidth height="160" radius="l" background="brand-alpha-weak" />
+          {(() => {
+            const banner = (
+              <Flex
+                fillWidth
+                height="160"
+                radius="l"
+                background="brand-alpha-weak"
+                style={
+                  coverImageUrl
+                    ? {
+                        backgroundImage: `url(${coverImageUrl})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                      }
+                    : undefined
+                }
+              />
+            );
+            return isOwnProfile ? (
+              <button
+                type="button"
+                className={styles.coverButton}
+                aria-label="Cambiar imagen de portada"
+                onClick={() => setOpenDialog("cover")}
+              >
+                {banner}
+                <span className={styles.coverEdit}>
+                  <Icon name="camera" size="s" />
+                  <Text variant="label-strong-s">Cambiar portada</Text>
+                </span>
+              </button>
+            ) : (
+              banner
+            );
+          })()}
 
           {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
           <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start">
@@ -120,7 +162,21 @@ export function ProfileView({
             {/* Columna izquierda — identidad, contacto y métricas */}
             <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
               <Flex style={{ marginTop: "-48px" }}>
-                <Avatar {...avatarProps} size="xl" />
+                {isOwnProfile ? (
+                  <button
+                    type="button"
+                    className={styles.avatarButton}
+                    aria-label="Cambiar imagen de perfil"
+                    onClick={() => setOpenDialog("avatar")}
+                  >
+                    <Avatar {...avatarProps} size="xl" />
+                    <span className={styles.avatarEdit}>
+                      <Icon name="edit" size="s" />
+                    </span>
+                  </button>
+                ) : (
+                  <Avatar {...avatarProps} size="xl" />
+                )}
               </Flex>
 
               <Column gap="8">
@@ -154,7 +210,7 @@ export function ProfileView({
                   <Button fillWidth variant="primary" href="/dashboard/collaborator">
                     Ir a mi panel
                   </Button>
-                  <Button fillWidth variant="secondary" href="/dashboard/client/settings">
+                  <Button fillWidth variant="secondary" onClick={() => setOpenDialog("info")}>
                     Editar información de perfil
                   </Button>
                 </Column>
@@ -312,6 +368,26 @@ export function ProfileView({
 
           </Row>
         </Column>
+
+        {isOwnProfile && (
+          <>
+            <AvatarUploadDialog
+              isOpen={openDialog === "avatar"}
+              onClose={() => setOpenDialog(null)}
+              currentImageUrl={avatarUrl}
+            />
+            <CoverUploadDialog
+              isOpen={openDialog === "cover"}
+              onClose={() => setOpenDialog(null)}
+              currentCoverUrl={coverImageUrl}
+            />
+            <PartnerSettingsDialog
+              isOpen={openDialog === "info"}
+              onClose={() => setOpenDialog(null)}
+              initialIsPublic={isPublic}
+            />
+          </>
+        )}
       </Column>
     </RevealFx>
   );
