@@ -14,6 +14,8 @@ import {
   RevealFx,
   Row,
   SegmentedControl,
+  SmartLink,
+  Switch,
   Tag,
   Text,
 } from "@once-ui-system/core";
@@ -21,6 +23,7 @@ import type { ProjectStatus } from "@/lib/projectStatus";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import { CoverUploadDialog, PartnerSettingsDialog } from "./PartnerProfileEditDialogs";
 import styles from "./ProfileView.module.scss";
+import { setPieceVisibility } from "@/app/actions/portfolioPieces";
 
 export interface PartnerProject {
   id: string;
@@ -39,6 +42,9 @@ export interface PartnerPiece {
   coverUrl: string;
   views: number;
   likes: number;
+  isPublic: boolean;
+  // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
+  href?: string;
 }
 
 interface ProfileViewProps {
@@ -74,6 +80,95 @@ function formatMemberSince(iso: string) {
 
 function formatCount(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : `${value}`;
+}
+
+// Tarjeta de pieza publicada. Para visitantes toda la tarjeta enlaza al caso
+// de estudio; para el dueño solo la portada enlaza, dejando el switch de
+// visibilidad (público ↔ borrador) operable sin navegar.
+function PieceCard({ piece, isOwnProfile }: { piece: PartnerPiece; isOwnProfile: boolean }) {
+  const [isPublic, setIsPublic] = useState(piece.isPublic);
+  const [saving, setSaving] = useState(false);
+
+  const toggleVisibility = async () => {
+    const next = !isPublic;
+    setIsPublic(next);
+    setSaving(true);
+    try {
+      await setPieceVisibility(piece.id, next);
+    } catch {
+      setIsPublic(!next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cover = (
+    <Column fillWidth radius="m" overflow="hidden">
+      <Media
+        src={piece.coverUrl}
+        alt={piece.title}
+        aspectRatio="4 / 3"
+        sizes="(max-width: 768px) 100vw, 33vw"
+      />
+    </Column>
+  );
+
+  return (
+    <Card
+      href={isOwnProfile ? undefined : piece.href}
+      fillWidth
+      direction="column"
+      gap="12"
+      padding="12"
+      radius="l"
+      border="neutral-alpha-weak"
+    >
+      {isOwnProfile && piece.href ? (
+        <SmartLink unstyled fillWidth href={piece.href}>
+          {cover}
+        </SmartLink>
+      ) : (
+        cover
+      )}
+      <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
+        <Row fillWidth horizontal="between" vertical="start" gap="8">
+          <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
+            {piece.title}
+          </Text>
+          <Tag size="s" label={piece.category} variant="neutral" />
+        </Row>
+        <Row fillWidth horizontal="between" vertical="center" gap="12">
+          <Row gap="12" vertical="center">
+            <Row gap="4" vertical="center">
+              <Icon name="eye" size="xs" onBackground="neutral-weak" />
+              <Text variant="label-default-s" onBackground="neutral-weak">
+                {formatCount(piece.views)}
+              </Text>
+            </Row>
+            <Row gap="4" vertical="center">
+              <Icon name="heart" size="xs" onBackground="neutral-weak" />
+              <Text variant="label-default-s" onBackground="neutral-weak">
+                {formatCount(piece.likes)}
+              </Text>
+            </Row>
+          </Row>
+          {isOwnProfile && (
+            <Row gap="8" vertical="center">
+              <Text variant="label-default-s" onBackground="neutral-weak">
+                {isPublic ? "Público" : "Borrador"}
+              </Text>
+              <Switch
+                isChecked={isPublic}
+                onToggle={toggleVisibility}
+                loading={saving}
+                ariaLabel={`Visibilidad de ${piece.title}`}
+              />
+            </Row>
+          )}
+        </Row>
+      </Column>
+    </Card>
+  );
 }
 
 export function ProfileView({
@@ -196,9 +291,13 @@ export function ProfileView({
                   </Row>
                 )}
                 {isOwnProfile && email && (
-                  <Row gap="8" vertical="center">
+                  <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
-                    <Text variant="body-default-m" onBackground="neutral-weak">
+                    <Text
+                      variant="body-default-m"
+                      onBackground="neutral-weak"
+                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                    >
                       {email}
                     </Text>
                   </Row>
@@ -303,46 +402,7 @@ export function ProfileView({
               ) : (
                 <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
                   {visiblePieces.map((piece) => (
-                    <Card
-                      key={piece.id}
-                      fillWidth
-                      direction="column"
-                      gap="12"
-                      padding="12"
-                      radius="l"
-                      border="neutral-alpha-weak"
-                    >
-                      <Column fillWidth radius="m" overflow="hidden">
-                        <Media
-                          src={piece.coverUrl}
-                          alt={piece.title}
-                          aspectRatio="4 / 3"
-                          sizes="(max-width: 768px) 100vw, 33vw"
-                        />
-                      </Column>
-                      <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
-                        <Row fillWidth horizontal="between" vertical="start" gap="8">
-                          <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
-                            {piece.title}
-                          </Text>
-                          <Tag size="s" label={piece.category} variant="neutral" />
-                        </Row>
-                        <Row gap="12" vertical="center">
-                          <Row gap="4" vertical="center">
-                            <Icon name="eye" size="xs" onBackground="neutral-weak" />
-                            <Text variant="label-default-s" onBackground="neutral-weak">
-                              {formatCount(piece.views)}
-                            </Text>
-                          </Row>
-                          <Row gap="4" vertical="center">
-                            <Icon name="heart" size="xs" onBackground="neutral-weak" />
-                            <Text variant="label-default-s" onBackground="neutral-weak">
-                              {formatCount(piece.likes)}
-                            </Text>
-                          </Row>
-                        </Row>
-                      </Column>
-                    </Card>
+                    <PieceCard key={piece.id} piece={piece} isOwnProfile={isOwnProfile} />
                   ))}
 
                   {/* Tarjeta de acción "Crear un proyecto" */}

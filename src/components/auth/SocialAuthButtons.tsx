@@ -12,9 +12,18 @@ const PROVIDERS: { strategy: OAuthProviderStrategy; label: string; icon: "google
 interface SocialAuthButtonsProps {
   onSelect: (strategy: OAuthProviderStrategy) => void;
   loading?: boolean;
+  /** Deshabilita los botones mientras Clerk aún no carga (el clic se perdería en silencio) */
+  disabled?: boolean;
+  /** Proveedor con redirección en curso: muestra spinner en su botón */
+  pending?: OAuthProviderStrategy | null;
 }
 
-export function SocialAuthButtons({ onSelect, loading = false }: SocialAuthButtonsProps) {
+export function SocialAuthButtons({
+  onSelect,
+  loading = false,
+  disabled = false,
+  pending = null,
+}: SocialAuthButtonsProps) {
   return (
     <Column fillWidth gap="m">
       <Column fillWidth gap="8">
@@ -25,7 +34,8 @@ export function SocialAuthButtons({ onSelect, loading = false }: SocialAuthButto
             variant="secondary"
             fillWidth
             prefixIcon={icon}
-            disabled={loading}
+            loading={pending === strategy}
+            disabled={disabled || loading || (pending !== null && pending !== strategy)}
             onClick={() => onSelect(strategy)}
           >
             Continuar con {label}

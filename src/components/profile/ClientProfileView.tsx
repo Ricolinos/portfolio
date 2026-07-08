@@ -214,12 +214,16 @@ export function ClientProfileView({
       ) : (
         <Avatar {...avatarProps} size="l" />
       )}
-      <Column gap="4">
+      <Column gap="4" style={{ minWidth: 0 }}>
         <Heading variant="heading-strong-l">{displayName}</Heading>
-        <Row gap="8" vertical="center">
+        <Row gap="8" vertical="center" wrap style={{ minWidth: 0 }}>
           <Tag size="s" variant="brand" label="Cliente" />
           {isOwnProfile && email && (
-            <Text variant="label-default-s" onBackground="neutral-weak">
+            <Text
+              variant="label-default-s"
+              onBackground="neutral-weak"
+              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+            >
               {email}
             </Text>
           )}

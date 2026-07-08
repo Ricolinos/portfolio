@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Avatar, Button, Card, Column, Grid, Media, RevealFx, Row, Tag, Text, TiltFx } from "@once-ui-system/core";
+import { Avatar, Button, Card, Column, Grid, Media, RevealFx, Row, SmartLink, Tag, Text, TiltFx } from "@once-ui-system/core";
 import { useExploreSearch } from "./SearchContext";
 
 const ALL = "Todos";
@@ -14,6 +14,8 @@ export interface Shout {
   description: string;
   image: string;
   likes: number;
+  // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
+  href?: string;
 }
 
 function ShoutCard({ shout }: { shout: Shout }) {
@@ -40,13 +42,26 @@ function ShoutCard({ shout }: { shout: Shout }) {
           <Text variant="body-default-m" onBackground="neutral-weak">
             {shout.description}
           </Text>
-          <Media
-            src={shout.image}
-            alt={shout.description}
-            radius="m"
-            aspectRatio="16 / 9"
-            sizes="(max-width: 768px) 100vw, 33vw"
-          />
+          {/* La imagen enlaza al caso de estudio; el like queda fuera del link */}
+          {shout.href ? (
+            <SmartLink unstyled fillWidth href={shout.href}>
+              <Media
+                src={shout.image}
+                alt={shout.description}
+                radius="m"
+                aspectRatio="16 / 9"
+                sizes="(max-width: 768px) 100vw, 33vw"
+              />
+            </SmartLink>
+          ) : (
+            <Media
+              src={shout.image}
+              alt={shout.description}
+              radius="m"
+              aspectRatio="16 / 9"
+              sizes="(max-width: 768px) 100vw, 33vw"
+            />
+          )}
         </Column>
 
         <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="16">
@@ -61,6 +76,11 @@ function ShoutCard({ shout }: { shout: Shout }) {
           >
             {likes}
           </Button>
+          {shout.href && (
+            <SmartLink href={shout.href} suffixIcon="chevronRight">
+              <Text variant="label-default-s">Ver proyecto</Text>
+            </SmartLink>
+          )}
         </Row>
       </Card>
     </TiltFx>

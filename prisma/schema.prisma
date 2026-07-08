@@ -55,6 +55,8 @@ model PortfolioPiece {
   location    String?
   views       Int      @default(0)
   likes       Int      @default(0)
+  // Visibilidad: false = borrador, solo visible para el dueño
+  isPublic    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

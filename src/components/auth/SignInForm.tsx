@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useSignIn } from "@clerk/nextjs/legacy";
 import { Column, Row, Input, Button, Text } from "@once-ui-system/core";
 import { SocialAuthButtons, type OAuthProviderStrategy } from "./SocialAuthButtons";
+import { translateClerkError } from "./clerkErrors";
 
 type Step = "credentials" | "verify";
 
@@ -21,6 +22,7 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
   const [code, setCode] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthPending, setOauthPending] = useState<OAuthProviderStrategy | null>(null);
 
   const handleCredentials = async (e: FormEvent) => {
     e.preventDefault();
@@ -45,12 +47,8 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
       }
 
       setErrorMsg(`Error inesperado (${result.status}). Intenta de nuevo.`);
-    } catch (err: any) {
-      setErrorMsg(
-        err?.errors?.[0]?.longMessage ||
-          err?.errors?.[0]?.message ||
-          "Credenciales incorrectas"
-      );
+    } catch (err) {
+      setErrorMsg(translateClerkError(err, "Credenciales incorrectas"));
     } finally {
       setLoading(false);
     }
@@ -59,6 +57,7 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
   const handleOAuth = async (strategy: OAuthProviderStrategy) => {
     if (!isLoaded) return;
     setErrorMsg("");
+    setOauthPending(strategy);
 
     try {
       await signIn.authenticateWithRedirect({
@@ -66,12 +65,9 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
         redirectUrl: "/sso-callback",
         redirectUrlComplete: "/dashboard",
       });
-    } catch (err: any) {
-      setErrorMsg(
-        err?.errors?.[0]?.longMessage ||
-          err?.errors?.[0]?.message ||
-          "No se pudo iniciar sesión con este proveedor"
-      );
+    } catch (err) {
+      setOauthPending(null);
+      setErrorMsg(translateClerkError(err, "No se pudo iniciar sesión con este proveedor"));
     }
   };
 
@@ -95,12 +91,8 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
       }
 
       setErrorMsg(`Error inesperado (${result.status}). Intenta de nuevo.`);
-    } catch (err: any) {
-      setErrorMsg(
-        err?.errors?.[0]?.longMessage ||
-          err?.errors?.[0]?.message ||
-          "Código incorrecto"
-      );
+    } catch (err) {
+      setErrorMsg(translateClerkError(err, "Código incorrecto"));
     } finally {
       setLoading(false);
     }
@@ -114,7 +106,14 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
           : "Ingresa el código de verificación enviado a tu correo."}
       </Text>
 
-      {step === "credentials" && <SocialAuthButtons onSelect={handleOAuth} loading={loading} />}
+      {step === "credentials" && (
+        <SocialAuthButtons
+          onSelect={handleOAuth}
+          loading={loading}
+          disabled={!isLoaded}
+          pending={oauthPending}
+        />
+      )}
 
       {step === "credentials" ? (
         <form onSubmit={handleCredentials} style={{ width: "100%" }}>
@@ -140,7 +139,7 @@ export function SignInForm({ onSuccess, onSwitchToSignUp }: SignInFormProps) {
               </Text>
             )}
             <div id="clerk-captcha" />
-            <Button type="submit" fillWidth loading={loading}>
+            <Button type="submit" fillWidth loading={loading} disabled={!isLoaded}>
               Entrar
             </Button>
           </Column>
