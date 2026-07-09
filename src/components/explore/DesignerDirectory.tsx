@@ -54,7 +54,14 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
   const imageSrc = designer.featuredImageUrl || designer.avatar || null;
 
   return (
-    <Column fillWidth aspectRatio={CARD_ASPECT} radius="l" overflow="hidden" background="neutral-alpha-weak">
+    <Column
+      fillWidth
+      aspectRatio={CARD_ASPECT}
+      radius="l"
+      overflow="hidden"
+      background="neutral-alpha-weak"
+      style={{ alignSelf: "flex-start" }}
+    >
       {imageSrc ? (
         <Media
           src={imageSrc}
@@ -123,7 +130,7 @@ function DesignerBack({ designer }: { designer: Designer }) {
   return (
     <Column
       fillWidth
-      aspectRatio={CARD_ASPECT}
+      fillHeight
       radius="l"
       border="neutral-alpha-weak"
       background="neutral-alpha-weak"
@@ -170,6 +177,7 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
     <TiltFx fillWidth radius="l">
       <FlipFx
         fillWidth
+        aspectRatio={CARD_ASPECT}
         radius="l"
         front={<DesignerFront designer={designer} seed={seed} />}
         back={<DesignerBack designer={designer} />}
