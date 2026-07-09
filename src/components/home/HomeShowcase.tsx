@@ -7,7 +7,6 @@ import {
   Column,
   DropdownWrapper,
   Grid,
-  Heading,
   Icon,
   Media,
   Option,
@@ -271,24 +270,7 @@ export function HomeShowcase({ pieces }: { pieces: ShowcasePiece[] }) {
   return (
     <Column fillWidth gap="0">
       <RevealFx fillWidth>
-        <Column fillWidth horizontal="center" align="center" paddingY="64" gap="24">
-          <Heading
-            variant="display-strong-l"
-            align="center"
-            wrap="balance"
-            style={{ maxWidth: "40rem" }}
-          >
-            Busca en el mundo el mejor trabajo creativo
-          </Heading>
-          <Text
-            variant="body-default-l"
-            onBackground="neutral-weak"
-            align="center"
-            wrap="balance"
-            style={{ maxWidth: "34rem" }}
-          >
-            Una plataforma hecha por un grupo de creativos, diseñadores, realizadores y nerds.
-          </Text>
+        <Column fillWidth horizontal="center" align="center" paddingY="40" gap="24">
           <Row fillWidth horizontal="center">
             <SearchBarShell
               leading={<CategoryDropdown value={category} options={categoryOptions} onChange={setCategory} />}
