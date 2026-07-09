@@ -71,15 +71,18 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
             views: true,
             likes: true,
             isPublic: true,
+            markdownContent: true,
           },
         })
       : [];
 
-    // Enlaza cada pieza a su caso de estudio MDX cuando el partner lo tiene publicado.
-    const pieces = rawPieces.map((piece) => ({
+    // Enlaza cada pieza a su caso de estudio: MDX en BD (editor propio) o
+    // legado en archivo, lo que exista. markdownContent solo se usa aquí
+    // para decidir el link — no se manda al cliente (puede pesar mucho).
+    const pieces = rawPieces.map(({ markdownContent, ...piece }) => ({
       ...piece,
       coverUrl: piece.coverUrl ?? "",
-      href: caseStudyHref(username, piece.title),
+      href: caseStudyHref(username, piece.title, Boolean(markdownContent)),
     }));
 
     return (

@@ -28,26 +28,62 @@ interface CaseStudyPageProps {
 // Resuelve autor y caso de estudio respetando visibilidad: si la pieza en BD
 // está en borrador, solo el dueño puede verla. cache() dedupe entre
 // generateMetadata y la página.
+//
+// Dos fuentes de contenido, mismo shape de salida ({post, author}):
+// 1. BD (piece.markdownContent): piezas creadas desde el editor propio.
+// 2. Archivo .mdx en src/content/portfolio (legado, fixtures de seed).
+// La BD tiene prioridad; el archivo es fallback para piezas antiguas que
+// nunca tuvieron fila con markdownContent.
 const loadCaseStudy = cache(async (username: string, slug: string) => {
-  const post = getCaseStudy(username, slug);
-  if (!post) return null;
-
   const author = await prisma.user.findUnique({
     where: { username },
     select: {
       id: true,
       name: true,
       imageUrl: true,
-      portfolio: { select: { title: true, isPublic: true } },
+      portfolio: {
+        select: {
+          title: true,
+          category: true,
+          coverUrl: true,
+          gallery: true,
+          markdownContent: true,
+          releaseDate: true,
+          createdAt: true,
+          isPublic: true,
+        },
+      },
     },
   });
   if (!author) return null;
 
   const piece = author.portfolio.find((p) => slugifyTitle(p.title) === slug);
+
   if (piece && !piece.isPublic) {
     const { userId } = await auth();
     if (userId !== author.id) return null;
   }
+
+  if (piece?.markdownContent) {
+    const gallery = Array.isArray(piece.gallery) ? (piece.gallery as string[]) : [];
+    const post = {
+      slug,
+      metadata: {
+        title: piece.title,
+        publishedAt: (piece.releaseDate ?? piece.createdAt).toISOString(),
+        summary: "",
+        image: piece.coverUrl ?? "",
+        images: piece.coverUrl ? [piece.coverUrl, ...gallery] : gallery,
+        tag: piece.category,
+        team: [],
+      },
+      content: piece.markdownContent,
+    };
+    return { post, author };
+  }
+
+  const post = getCaseStudy(username, slug);
+  if (!post) return null;
 
   return { post, author };
 });

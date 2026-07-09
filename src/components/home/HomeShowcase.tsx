@@ -7,13 +7,13 @@ import {
   Column,
   DropdownWrapper,
   Grid,
-  Heading,
   Icon,
   Media,
   Option,
   RevealFx,
   Row,
   SegmentedControl,
+  SmartLink,
   Tag,
   Text,
 } from "@once-ui-system/core";
@@ -36,6 +36,8 @@ export type ShowcasePiece = {
   image: string;
   likes: number;
   views: number;
+  // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
+  href?: string;
 };
 
 const ALL_LOCATIONS = "Todas las ubicaciones";
@@ -171,7 +173,7 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
     ? { src: project.avatarUrl }
     : { value: (project.designer[0] ?? "P").toUpperCase() };
 
-  return (
+  const card = (
     <Card fillWidth direction="column" gap="12" padding="12" radius="l" border="neutral-alpha-weak">
       <Column fillWidth radius="m" overflow="hidden">
         <Animation triggerType="hover" scale={1.03} fade={1} reverse easing="ease" fillWidth>
@@ -214,6 +216,14 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
         </Row>
       </Column>
     </Card>
+  );
+
+  if (!project.href) return card;
+
+  return (
+    <SmartLink href={project.href} unstyled style={{ width: "100%" }}>
+      {card}
+    </SmartLink>
   );
 }
 
@@ -260,24 +270,7 @@ export function HomeShowcase({ pieces }: { pieces: ShowcasePiece[] }) {
   return (
     <Column fillWidth gap="0">
       <RevealFx fillWidth>
-        <Column fillWidth horizontal="center" align="center" paddingY="64" gap="24">
-          <Heading
-            variant="display-strong-l"
-            align="center"
-            wrap="balance"
-            style={{ maxWidth: "40rem" }}
-          >
-            Busca en el mundo el mejor trabajo creativo
-          </Heading>
-          <Text
-            variant="body-default-l"
-            onBackground="neutral-weak"
-            align="center"
-            wrap="balance"
-            style={{ maxWidth: "34rem" }}
-          >
-            Una plataforma hecha por un grupo de creativos, diseñadores, realizadores y nerds.
-          </Text>
+        <Column fillWidth horizontal="center" align="center" paddingY="40" gap="24">
           <Row fillWidth horizontal="center">
             <SearchBarShell
               leading={<CategoryDropdown value={category} options={categoryOptions} onChange={setCategory} />}

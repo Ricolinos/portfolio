@@ -26,6 +26,8 @@ export function toShouts(feed: Awaited<ReturnType<typeof getPortfolioFeed>>): Sh
     // La consulta ya filtra coverUrl no nulo; el fallback solo satisface al tipo.
     image: piece.coverUrl ?? "",
     likes: piece.likes,
-    href: piece.user.username ? caseStudyHref(piece.user.username, piece.title) : undefined,
+    href: piece.user.username
+      ? caseStudyHref(piece.user.username, piece.title, Boolean(piece.markdownContent))
+      : undefined,
   }));
 }
