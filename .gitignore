@@ -41,9 +41,11 @@ next-env.d.ts
 # clerk configuration (can include secrets)
 /.clerk/
 
-# claude code: solo se versionan los perfiles de roles
+# claude code: solo se versionan los perfiles de roles/agentes/comandos
 /.claude/*
 !/.claude/roles/
+!/.claude/agents/
+!/.claude/commands/
 
 /src/generated/prisma
 .env*
