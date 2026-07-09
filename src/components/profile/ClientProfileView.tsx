@@ -8,7 +8,6 @@ import {
   Card,
   Column,
   ContextMenu,
-  Feedback,
   Grid,
   Heading,
   Icon,
@@ -452,15 +451,26 @@ export function ClientProfileView({
                     <>
                       {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
                       <Line vert background="neutral-alpha-medium" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
-                      <Feedback
-                        variant="warning"
-                        icon
-                        title="Configuración de tu cuenta"
-                        description="Haz clic derecho sobre tu información (en computadora) o toca con dos dedos (en dispositivos táctiles) para acceder a las opciones de tu cuenta."
+                      {/* Mismo patrón que "Administra tus proyectos" del perfil de Partner */}
+                      <Row
+                        background="brand-alpha-weak"
+                        padding="20"
+                        radius="m"
+                        vertical="center"
+                        gap="16"
                         maxWidth={26}
                         s={{ style: { maxWidth: "100%", width: "100%" } }}
                         style={{ minWidth: 0 }}
-                      />
+                      >
+                        <Icon name="warning" size="m" onBackground="brand-strong" />
+                        <Column gap="4" style={{ minWidth: 0 }}>
+                          <Text variant="heading-strong-s">Administra tu cuenta</Text>
+                          <Text variant="body-default-s" onBackground="neutral-weak">
+                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas táctiles) para
+                            cambiar tu imagen, editar tu perfil o ajustar tu seguridad y privacidad.
+                          </Text>
+                        </Column>
+                      </Row>
                     </>
                   )}
                 </Row>
