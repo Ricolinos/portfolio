@@ -24,6 +24,7 @@ import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import { CoverUploadDialog, PartnerSettingsDialog } from "./PartnerProfileEditDialogs";
 import styles from "./ProfileView.module.scss";
 import { setPieceVisibility } from "@/app/actions/portfolioPieces";
+import { CreateProjectModal } from "./CreateProjectModal";
 
 export interface PartnerProject {
   id: string;
@@ -39,7 +40,8 @@ export interface PartnerPiece {
   id: string;
   title: string;
   category: string;
-  coverUrl: string;
+  // Nula en piezas creadas desde el editor de Markdown (sin portada)
+  coverUrl: string | null;
   views: number;
   likes: number;
   isPublic: boolean;
@@ -102,7 +104,7 @@ function PieceCard({ piece, isOwnProfile }: { piece: PartnerPiece; isOwnProfile:
     }
   };
 
-  const cover = (
+  const cover = piece.coverUrl ? (
     <Column fillWidth radius="m" overflow="hidden">
       <Media
         src={piece.coverUrl}
@@ -110,6 +112,17 @@ function PieceCard({ piece, isOwnProfile }: { piece: PartnerPiece; isOwnProfile:
         aspectRatio="4 / 3"
         sizes="(max-width: 768px) 100vw, 33vw"
       />
+    </Column>
+  ) : (
+    <Column
+      fillWidth
+      radius="m"
+      background="neutral-alpha-weak"
+      style={{ aspectRatio: "4 / 3" }}
+      horizontal="center"
+      vertical="center"
+    >
+      <Icon name="document" size="l" onBackground="neutral-weak" />
     </Column>
   );
 
@@ -186,6 +199,7 @@ export function ProfileView({
 }: ProfileViewProps) {
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
   const [openDialog, setOpenDialog] = useState<"avatar" | "cover" | "info" | null>(null);
+  const [isCreateOpen, setCreateOpen] = useState(false);
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
@@ -408,9 +422,15 @@ export function ProfileView({
                   {/* Tarjeta de acción "Crear un proyecto" */}
                   {isOwnProfile && (
                     <Flex
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setCreateOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setCreateOpen(true);
+                      }}
                       border="neutral-medium"
                       radius="l"
-                      style={{ borderStyle: "dashed" }}
+                      style={{ borderStyle: "dashed", cursor: "pointer" }}
                       center
                       padding="40"
                       direction="column"
@@ -449,6 +469,10 @@ export function ProfileView({
           </>
         )}
       </Column>
+
+      {isOwnProfile && (
+        <CreateProjectModal isOpen={isCreateOpen} onClose={() => setCreateOpen(false)} />
+      )}
     </RevealFx>
   );
 }

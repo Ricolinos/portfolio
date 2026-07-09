@@ -25,6 +25,7 @@ export default async function Home() {
     avatarUrl: piece.user.imageUrl,
     location: piece.location,
     tag: piece.category,
+    // getPortfolioFeed ya filtra coverUrl no nulo; el fallback solo satisface al tipo.
     image: piece.coverUrl ?? "",
     likes: piece.likes,
     views: piece.views,
