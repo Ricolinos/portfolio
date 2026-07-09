@@ -424,10 +424,13 @@ export function ClientProfileView({
         <Row gap="8" vertical="center" wrap style={{ minWidth: 0 }}>
           <Tag size="s" variant="brand" label="Cliente" />
           {isOwnProfile && email && (
+            // Ellipsis en vez de quiebre a media palabra ("hubnerds.co m");
+            // el correo completo queda en el title al hover
             <Text
               variant="label-default-s"
               onBackground="neutral-weak"
-              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+              title={email}
+              style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
             >
               {email}
             </Text>

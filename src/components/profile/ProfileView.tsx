@@ -587,10 +587,12 @@ export function ProfileView({
                 {isOwnProfile && email && (
                   <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
+                    {/* Ellipsis en vez de quiebre a media palabra ("hubnerds.co m") */}
                     <Text
                       variant="body-default-m"
                       onBackground="neutral-weak"
-                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                      title={email}
+                      style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                     >
                       {email}
                     </Text>
