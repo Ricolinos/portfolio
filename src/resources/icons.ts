@@ -26,6 +26,7 @@ import {
   HiOutlineArrowPath,
   HiOutlineArrowsRightLeft,
   HiOutlineBriefcase,
+  HiOutlineCheckCircle,
   HiOutlineCodeBracket,
   HiOutlineCog8Tooth,
   HiOutlineCreditCard,
@@ -54,6 +55,7 @@ import {
   HiOutlineTrash,
   HiOutlineUserGroup,
   HiOutlineWindow,
+  HiOutlineXCircle,
 } from "react-icons/hi2";
 import {
   PiBookBookmarkDuotone,
@@ -122,6 +124,8 @@ export const iconLibrary: Record<string, IconType> = {
   carousel: HiOutlineSquares2X2,
   audio: HiOutlineMusicalNote,
   trash: HiOutlineTrash,
+  check: HiOutlineCheckCircle,
+  xCircle: HiOutlineXCircle,
   divider: HiOutlineMinus,
   bold: PiTextBDuotone,
   italic: PiTextItalicDuotone,
