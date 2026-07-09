@@ -1,8 +1,5 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import ReactDOM from "react-dom";
-import { useRouter } from "next/navigation";
 import {
   Button,
   Card,
@@ -10,27 +7,29 @@ import {
   DateInput,
   Dialog,
   Feedback,
-  Grid,
   Icon,
   IconButton,
   Input,
   Line,
   Row,
   ScrollLock,
-  Select,
   TagInput,
   Text,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import { createPortfolioPiece } from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { readFileAsDataUrl } from "@/lib/files";
 import { AttachFilesModal, type ProjectAttachment } from "./AttachFilesModal";
 import {
   BLOCK_TYPES,
-  ContentBlockCard,
   blocksToMarkdown,
-  createBlock,
   type ContentBlock,
+  ContentBlockCard,
+  createBlock,
 } from "./ContentBlocks";
 
 const modalBackdrop = <BrandModalBackdrop />;
@@ -43,25 +42,17 @@ const modalBackdrop = <BrandModalBackdrop />;
 // 67.5 lienzo + 2 (gap) + 25 panel = ~100.5rem; sin el margen el panel se
 // recortaba contra el borde derecho del diálogo.
 const DIALOG_MAX_WIDTH = 108; // rem (1728px)
-// El panel de herramientas es de ancho fijo (no proporcional): así el Canvas
-// siempre se queda con la mayoría del espacio. SplitView (Once UI 1.7.12) se
-// descartó a propósito: sus props defaultSplit/minSplit/maxSplit no hacen
-// nada —el hook interno los ignora y clampea 20-80% con estado inicial fijo
-// en 30%—, lo que en producción invertía la proporción (lienzo 30%, panel 70%).
-const TOOLS_PANEL_MIN_WIDTH = 20; // rem
-const TOOLS_PANEL_MAX_WIDTH = 24; // rem
+// El panel de herramientas debe quedarse entre 20% y 30% del ancho útil (el
+// Canvas, complemento, entre 70% y 80%). Se probó el SplitView de Once UI
+// (1.7.12, la última publicada) con defaultSplit/minSplit/maxSplit en estos
+// mismos valores y, verificado en pantalla, ignora las props: siempre
+// arranca en ~30% para el PRIMER panel (leftPanel/Canvas), invirtiendo la
+// proporción (lienzo 33%, panel 67%). Por eso el divisor arrastrable de
+// abajo (ResizableSplit) es propio, no el componente de la librería.
+const SPLIT_DEFAULT = 0.75;
+const SPLIT_MIN = 0.7;
+const SPLIT_MAX = 0.8;
 const MAX_TAGS = 5;
-
-// Sin bucket de Storage todavía: la portada se guarda como data URL en
-// PortfolioPiece.coverUrl, igual que la galería de AttachFilesModal.
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
-    reader.readAsDataURL(file);
-  });
-}
 
 function hasForeignDialogOpen(ownDialog: HTMLElement | null): boolean {
   if (!ownDialog) return false;
@@ -174,7 +165,13 @@ function WideDialog({ isOpen, onClose, children }: WideDialogProps) {
             transition: "transform 600ms ease",
           }}
         >
-          <Column ref={contentRef} fill overflowY="auto" padding="l" tabIndex={-1}>
+          {/* Sin overflowY aquí: antes este contenedor Y cada panel interno
+              scrolleaban por separado, y la altura fija del Row (44rem) no
+              coincidía con el alto real del diálogo, cortando las últimas
+              tarjetas del panel a la mitad. Ahora este nivel solo reparte
+              alto (título fijo + split flex:1) y cada panel hace su propio
+              scroll dentro de su caja exacta. */}
+          <Column ref={contentRef} fill overflow="hidden" padding="l" tabIndex={-1}>
             <Row position="absolute" right="0" top="0" paddingTop="l" paddingRight="l" zIndex={2}>
               <IconButton
                 icon="close"
@@ -193,44 +190,82 @@ function WideDialog({ isOpen, onClose, children }: WideDialogProps) {
   );
 }
 
-// Tile de acción para agregar una sección al Canvas: icono arriba, etiqueta abajo.
-function ContentTypeTile({
-  icon,
-  label,
-  onClick,
-  disabled,
-}: {
-  icon: string;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
+interface ResizableSplitProps {
+  leftPanel: React.ReactNode;
+  rightPanel: React.ReactNode;
+  defaultSplit: number;
+  minSplit: number;
+  maxSplit: number;
+}
+
+// Divisor arrastrable propio: reemplaza al SplitView de Once UI, que en la
+// versión instalada (1.7.12, la más reciente en npm) ignora defaultSplit/
+// minSplit/maxSplit y arranca fijo en ~30% para el primer panel (ver nota
+// en SPLIT_DEFAULT). El split se guarda como fracción (0-1) del ancho del
+// leftPanel, igual que la API que reemplaza.
+function ResizableSplit({
+  leftPanel,
+  rightPanel,
+  defaultSplit,
+  minSplit,
+  maxSplit,
+}: ResizableSplitProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+  const [split, setSplit] = useState(defaultSplit);
+
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const ratio = (e.clientX - rect.left) / rect.width;
+      setSplit(Math.min(maxSplit, Math.max(minSplit, ratio)));
+    };
+    const stopDragging = () => {
+      draggingRef.current = false;
+      document.body.style.removeProperty("cursor");
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopDragging);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopDragging);
+    };
+  }, [minSplit, maxSplit]);
+
+  const step = 0.02;
+
   return (
-    <Column
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled}
-      onClick={disabled ? undefined : onClick}
-      onKeyDown={(e) => {
-        if (!disabled && (e.key === "Enter" || e.key === " ")) {
+    <Row ref={containerRef} fillWidth flex={1} style={{ minHeight: 0 }}>
+      <Column fillHeight style={{ width: `${split * 100}%`, minWidth: 0 }}>
+        {leftPanel}
+      </Column>
+      <Row
+        role="separator"
+        aria-orientation="vertical"
+        aria-valuenow={Math.round(split * 100)}
+        aria-valuemin={Math.round(minSplit * 100)}
+        aria-valuemax={Math.round(maxSplit * 100)}
+        tabIndex={0}
+        horizontal="center"
+        fillHeight
+        style={{ width: "1rem", cursor: "col-resize", touchAction: "none", flexShrink: 0 }}
+        onPointerDown={(e) => {
           e.preventDefault();
-          onClick();
-        }
-      }}
-      horizontal="center"
-      vertical="center"
-      gap="8"
-      paddingY="16"
-      radius="m"
-      border="neutral-alpha-weak"
-      background="neutral-alpha-weak"
-      style={{ cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1 }}
-    >
-      <Icon name={icon} size="m" onBackground="neutral-weak" />
-      <Text variant="label-default-s" onBackground="neutral-weak" align="center">
-        {label}
-      </Text>
-    </Column>
+          draggingRef.current = true;
+          document.body.style.cursor = "col-resize";
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") setSplit((s) => Math.max(minSplit, s - step));
+          if (e.key === "ArrowRight") setSplit((s) => Math.min(maxSplit, s + step));
+        }}
+      >
+        <Line background="neutral-alpha-medium" style={{ width: "0.0625rem", height: "100%" }} />
+      </Row>
+      <Column fillHeight flex={1} style={{ minWidth: 0 }}>
+        {rightPanel}
+      </Column>
+    </Row>
   );
 }
 
@@ -246,11 +281,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
   const [coverUrl, setCoverUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
-  const [isAddSectionOpen, setAddSectionOpen] = useState(false);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
-  const [downloadUrl, setDownloadUrl] = useState("");
-  const [resourcePassword, setResourcePassword] = useState("");
-  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [tags, setTags] = useState<string[]>([]);
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined);
@@ -266,10 +297,6 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     setCategory("");
     setCoverUrl("");
     setBlocks([]);
-    setAddSectionOpen(false);
-    setDownloadUrl("");
-    setResourcePassword("");
-    setVisibility("public");
     setTags([]);
     setCollaborators([]);
     setReleaseDate(undefined);
@@ -314,9 +341,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
         content: markdown,
         category: category || undefined,
         coverUrl: coverUrl || undefined,
-        downloadUrl: downloadUrl || undefined,
-        resourcePassword: resourcePassword || undefined,
-        isPublic: publish && visibility === "public",
+        isPublic: publish,
         gallery: attachments.map((attachment) => attachment.url),
         tags,
         collaborators,
@@ -357,240 +382,188 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
           disabled={disabled}
           style={{ paddingRight: "4rem" }}
         />
-        <Row fillWidth paddingTop="16" gap="16" style={{ height: "44rem" }}>
-          {/* Lienzo: se queda con todo el espacio restante junto al panel de
-              herramientas, que ahora es de ancho fijo (ver TOOLS_PANEL_*). */}
-          <Column flex={1} fillHeight overflowY="auto" style={{ minWidth: 0 }}>
-            <Card
-              fillWidth
-              padding="24"
-              radius="l"
-              direction="column"
-              gap="16"
-              border="neutral-alpha-weak"
-              style={{ minHeight: "100%" }}
-            >
-              <Feedback
-                variant="info"
-                description="Arma tu caso de estudio por secciones con el botón «Añadir sección»; el orden en que las acomodes será el orden final de la publicación."
-              />
+        <Column fillWidth flex={1} paddingTop="16" style={{ minHeight: 0 }}>
+          <ResizableSplit
+            defaultSplit={SPLIT_DEFAULT}
+            minSplit={SPLIT_MIN}
+            maxSplit={SPLIT_MAX}
+            leftPanel={
+              // Lienzo: contenedor propio, separado del panel lateral por el
+              // divisor arrastrable. Scroll propio dentro de su caja exacta
+              // (fillHeight), no del diálogo completo.
+              <Column fillHeight overflowY="auto" paddingRight="16" style={{ minWidth: 0 }}>
+                <Card
+                  fillWidth
+                  padding="24"
+                  radius="l"
+                  direction="column"
+                  gap="16"
+                  border="neutral-alpha-weak"
+                  style={{ minHeight: "100%" }}
+                >
+                  <Feedback
+                    variant="info"
+                    description="Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
+                  />
 
-              <Input
-                id="project-category"
-                placeholder="Categoría (Branding, Motion, Web…)"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                disabled={disabled}
-              />
+                  <Input
+                    id="project-category"
+                    placeholder="Categoría (Branding, Motion, Web…)"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    disabled={disabled}
+                  />
 
-              <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
-                <Row gap="8" vertical="center">
-                  <Icon name="images" size="s" onBackground="neutral-weak" />
-                  <Text variant="label-strong-s" onBackground="neutral-weak">
-                    Portada
-                  </Text>
-                </Row>
-                <MediaUpload
-                  aspectRatio="16 / 9"
-                  accept="image/*"
-                  compress
-                  resizeMaxWidth={1600}
-                  resizeMaxHeight={1600}
-                  initialPreviewImage={coverUrl || null}
-                  emptyState="Subir"
-                  loading={coverUploading}
-                  onFileUpload={handleCoverUpload}
-                />
+                  <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
+                    <Row gap="8" vertical="center">
+                      <Icon name="images" size="s" onBackground="neutral-weak" />
+                      <Text variant="label-strong-s" onBackground="neutral-weak">
+                        Portada
+                      </Text>
+                    </Row>
+                    <MediaUpload
+                      aspectRatio="16 / 9"
+                      accept="image/*"
+                      compress
+                      resizeMaxWidth={1600}
+                      resizeMaxHeight={1600}
+                      initialPreviewImage={coverUrl || null}
+                      emptyState="Subir"
+                      loading={coverUploading}
+                      onFileUpload={handleCoverUpload}
+                    />
+                  </Column>
+
+                  {blocks.map((block, index) => (
+                    <ContentBlockCard
+                      key={block.id}
+                      block={block}
+                      disabled={disabled}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < blocks.length - 1}
+                      onMoveUp={() => moveBlock(block.id, "up")}
+                      onMoveDown={() => moveBlock(block.id, "down")}
+                      onChange={(next) =>
+                        setBlocks((current) => current.map((b) => (b.id === next.id ? next : b)))
+                      }
+                      onRemove={() =>
+                        setBlocks((current) => current.filter((b) => b.id !== block.id))
+                      }
+                    />
+                  ))}
+                </Card>
               </Column>
-
-              {blocks.map((block, index) => (
-                <ContentBlockCard
-                  key={block.id}
-                  block={block}
-                  disabled={disabled}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < blocks.length - 1}
-                  onMoveUp={() => moveBlock(block.id, "up")}
-                  onMoveDown={() => moveBlock(block.id, "down")}
-                  onChange={(next) =>
-                    setBlocks((current) => current.map((b) => (b.id === next.id ? next : b)))
-                  }
-                  onRemove={() =>
-                    setBlocks((current) => current.filter((b) => b.id !== block.id))
-                  }
-                />
-              ))}
-
-              {isAddSectionOpen && (
-                <Column fillWidth gap="8" padding="16" radius="m" border="neutral-alpha-weak">
+            }
+            rightPanel={
+              <Column gap="16" fillHeight overflowY="auto" paddingLeft="16">
+                <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                   <Text variant="label-strong-s" onBackground="neutral-weak">
                     Añadir sección
                   </Text>
-                  <Grid columns={2} gap="8">
+                  <Row gap="8" style={{ overflowX: "auto" }}>
                     {BLOCK_TYPES.map(({ type, label, icon }) => (
-                      <ContentTypeTile
+                      <IconButton
                         key={type}
                         icon={icon}
-                        label={label}
+                        tooltip={label}
+                        tooltipPosition="top"
+                        variant="secondary"
+                        size="l"
                         disabled={disabled}
-                        onClick={() => {
-                          setBlocks((current) => [...current, createBlock(type)]);
-                          setAddSectionOpen(false);
-                        }}
+                        onClick={() => setBlocks((current) => [...current, createBlock(type)])}
                       />
                     ))}
-                  </Grid>
-                </Column>
-              )}
+                  </Row>
+                </Card>
 
-              <Button
-                variant="secondary"
-                prefixIcon="plus"
-                onClick={() => setAddSectionOpen((open) => !open)}
-                disabled={disabled}
-              >
-                Añadir sección
-              </Button>
-            </Card>
-          </Column>
+                <Card fillWidth padding="16" radius="l" direction="column" gap="12">
+                  <Text variant="label-strong-s" onBackground="neutral-weak">
+                    Adjuntar archivos
+                  </Text>
+                  <Button
+                    fillWidth
+                    variant="secondary"
+                    prefixIcon="attach"
+                    onClick={() => setAttachOpen(true)}
+                    disabled={disabled}
+                  >
+                    Adjuntar archivo
+                  </Button>
+                  <Line background="neutral-alpha-weak" />
+                  <Text variant="body-default-xs" onBackground="neutral-weak">
+                    Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
+                  </Text>
+                </Card>
 
-          {/* Panel de herramientas: ancho acotado (no proporcional) para que
-              el Canvas siempre tenga buena visibilidad. */}
-          <Column
-            gap="16"
-            fillHeight
-            overflowY="auto"
-            style={{
-              width: "100%",
-              minWidth: `${TOOLS_PANEL_MIN_WIDTH}rem`,
-              maxWidth: `${TOOLS_PANEL_MAX_WIDTH}rem`,
-            }}
-          >
-            <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-              <Text variant="label-strong-s" onBackground="neutral-weak">
-                Adjuntar archivos
-              </Text>
-              <Button
-                fillWidth
-                variant="secondary"
-                prefixIcon="attach"
-                onClick={() => setAttachOpen(true)}
-                disabled={disabled}
-              >
-                Adjuntar archivo
-              </Button>
-              <Line background="neutral-alpha-weak" />
-              <Text variant="body-default-xs" onBackground="neutral-weak">
-                Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
-              </Text>
-            </Card>
-
-            <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-              <Text variant="label-strong-s" onBackground="neutral-weak">
-                Editar proyecto
-              </Text>
-              <TagInput
-                id="project-tags"
-                label="Etiquetas"
-                placeholder="Escribe y presiona coma (,) para agregar"
-                description={`${tags.length}/${MAX_TAGS} etiquetas`}
-                value={tags}
-                onChange={(next) => setTags(next.slice(0, MAX_TAGS))}
-                disabled={disabled}
-              />
-              <TagInput
-                id="project-collaborators"
-                label="Colaboradores"
-                placeholder="Nombre de usuario y coma (,) para agregar"
-                value={collaborators}
-                onChange={setCollaborators}
-                disabled={disabled}
-              />
-              <Row fillWidth gap="8" vertical="end">
-                <Column fillWidth>
-                  <DateInput
-                    id="project-release-date"
-                    label="Fecha de lanzamiento (opcional)"
-                    value={releaseDate}
-                    onChange={setReleaseDate}
+                <Card fillWidth padding="16" radius="l" direction="column" gap="12">
+                  <Text variant="label-strong-s" onBackground="neutral-weak">
+                    Editar proyecto
+                  </Text>
+                  <TagInput
+                    id="project-tags"
+                    label="Etiquetas"
+                    placeholder="Escribe y presiona coma (,) para agregar"
+                    description={`${tags.length}/${MAX_TAGS} etiquetas`}
+                    value={tags}
+                    onChange={(next) => setTags(next.slice(0, MAX_TAGS))}
                     disabled={disabled}
                   />
-                </Column>
-                {releaseDate && (
-                  <IconButton
-                    icon="close"
-                    variant="tertiary"
-                    tooltip="Quitar fecha"
-                    onClick={() => setReleaseDate(undefined)}
+                  <TagInput
+                    id="project-collaborators"
+                    label="Colaboradores"
+                    placeholder="Nombre de usuario y coma (,) para agregar"
+                    value={collaborators}
+                    onChange={setCollaborators}
                     disabled={disabled}
                   />
-                )}
-              </Row>
-            </Card>
+                  <Row fillWidth gap="8" vertical="end">
+                    <Column fillWidth>
+                      <DateInput
+                        id="project-release-date"
+                        label="Fecha de lanzamiento (opcional)"
+                        value={releaseDate}
+                        onChange={setReleaseDate}
+                        disabled={disabled}
+                      />
+                    </Column>
+                    {releaseDate && (
+                      <IconButton
+                        icon="close"
+                        variant="tertiary"
+                        tooltip="Quitar fecha"
+                        onClick={() => setReleaseDate(undefined)}
+                        disabled={disabled}
+                      />
+                    )}
+                  </Row>
+                </Card>
 
-            <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-              <Text variant="label-strong-s" onBackground="neutral-weak">
-                Recurso descargable
-              </Text>
-              <Input
-                id="project-download-url"
-                label="Enlace externo de descarga"
-                value={downloadUrl}
-                onChange={(e) => setDownloadUrl(e.target.value)}
-                disabled={disabled}
-              />
-              <Input
-                id="project-resource-password"
-                label="Contraseña del recurso"
-                type="password"
-                value={resourcePassword}
-                onChange={(e) => setResourcePassword(e.target.value)}
-                disabled={disabled}
-              />
-            </Card>
+                {error && <Feedback variant="danger" description={error} />}
 
-            <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-              <Text variant="label-strong-s" onBackground="neutral-weak">
-                Privacidad
-              </Text>
-              <Select
-                id="project-visibility"
-                label="Visibilidad"
-                options={[
-                  { label: "Público", value: "public" },
-                  { label: "Privado", value: "private" },
-                ]}
-                value={visibility}
-                onSelect={(value) => setVisibility(value as "public" | "private")}
-                fillWidth
-                disabled={disabled}
-              />
-            </Card>
-
-            {error && <Feedback variant="danger" description={error} />}
-
-            <Column gap="8">
-              <Button
-                fillWidth
-                variant="primary"
-                onClick={() => handleSave(true)}
-                loading={saving === "publish"}
-                disabled={disabled}
-              >
-                Publicar proyecto
-              </Button>
-              <Button
-                fillWidth
-                variant="secondary"
-                onClick={() => handleSave(false)}
-                loading={saving === "draft"}
-                disabled={disabled}
-              >
-                Guardar como borrador
-              </Button>
-            </Column>
-          </Column>
-        </Row>
+                <Column gap="8">
+                  <Button
+                    fillWidth
+                    variant="primary"
+                    onClick={() => handleSave(true)}
+                    loading={saving === "publish"}
+                    disabled={disabled}
+                  >
+                    Publicar proyecto
+                  </Button>
+                  <Button
+                    fillWidth
+                    variant="secondary"
+                    onClick={() => handleSave(false)}
+                    loading={saving === "draft"}
+                    disabled={disabled}
+                  >
+                    Guardar como borrador
+                  </Button>
+                </Column>
+              </Column>
+            }
+          />
+        </Column>
       </WideDialog>
 
       <AttachFilesModal
