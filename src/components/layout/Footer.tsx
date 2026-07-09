@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { Column, Flex, Grid, Icon, IconName, Row, SmartLink, Text } from "@once-ui-system/core";
+import { Column, Flex, Grid, Row, SmartLink, Text } from "@once-ui-system/core";
 import styles from "./Footer.module.scss";
 
 type FooterLink = { label: string; href: string };
@@ -20,12 +20,6 @@ const accountLinks: FooterLink[] = [
   { label: "Perfil", href: "/dashboard/client/perfil" },
   { label: "Proyectos", href: "/dashboard/client/projects" },
   { label: "Configuración", href: "/dashboard/client/settings" },
-];
-
-const socialLinks: { label: string; href: string; icon: IconName }[] = [
-  { label: "LinkedIn", href: "#", icon: "linkedin" },
-  { label: "Instagram", href: "#", icon: "instagram" },
-  { label: "Behance", href: "#", icon: "behance" },
 ];
 
 function FooterColumn({ title, links }: { title: string; links: FooterLink[] }) {
@@ -77,8 +71,8 @@ export const Footer = () => {
             />
           </Row>
           <Text variant="body-default-s" onBackground="neutral-weak">
-            La plataforma B2B donde marcas y estudios conectan con el mejor talento creativo de
-            Latinoamérica.
+            Una colaboración de creativos: la plataforma B2B donde marcas y estudios conectan con
+            el mejor talento creativo de Latinoamérica.
           </Text>
         </Column>
         <FooterColumn title="Explorar" links={exploreLinks} />
@@ -97,18 +91,10 @@ export const Footer = () => {
         <Text variant="body-default-xs" onBackground="neutral-weak">
           © {currentYear} HUB-NERDS. Todos los derechos reservados.
         </Text>
-        <Row gap="20" vertical="center">
-          {socialLinks.map((item) => (
-            <SmartLink key={item.label} href={item.href}>
-              <Row gap="8" vertical="center">
-                <Icon name={item.icon} size="s" onBackground="neutral-weak" />
-                <Text variant="body-default-xs" onBackground="neutral-weak">
-                  {item.label}
-                </Text>
-              </Row>
-            </SmartLink>
-          ))}
-        </Row>
+        <Text variant="body-default-xs" onBackground="neutral-weak">
+          Diseñado con Once UI, sistema de diseño de{" "}
+          <SmartLink href="https://github.com/lorant-one">Lorànt One</SmartLink>.
+        </Text>
       </Row>
     </Flex>
   );
