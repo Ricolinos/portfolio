@@ -8,6 +8,7 @@ import {
   Card,
   Column,
   ContextMenu,
+  Feedback,
   Grid,
   Heading,
   Icon,
@@ -431,9 +432,9 @@ export function ClientProfileView({
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
           {(() => {
             const headerContent = (
-              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap>
+              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column" }}>
                 {identity}
-                <Column gap="8" horizontal="end" style={{ minWidth: 0 }}>
+                <Row gap="20" vertical="center" wrap s={{ direction: "column", style: { width: "100%" } }}>
                   <Row gap="8" vertical="center">
                     <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
                     <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
@@ -448,17 +449,21 @@ export function ClientProfileView({
                     )}
                   </Row>
                   {isOwnProfile && (
-                    <Text
-                      variant="label-default-s"
-                      onBackground="neutral-weak"
-                      align="right"
-                      style={{ maxWidth: 260, overflowWrap: "anywhere" }}
-                    >
-                      Haz click derecho sobre la zona izquierda (en computadora) o tap con dos dedos
-                      (en dispositivos touch) para acceder a la configuración de tu cuenta.
-                    </Text>
+                    <>
+                      {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
+                      <Line vert background="neutral-alpha-medium" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
+                      <Feedback
+                        variant="warning"
+                        icon
+                        title="Configuración de tu cuenta"
+                        description="Haz clic derecho sobre tu información (en computadora) o toca con dos dedos (en dispositivos táctiles) para acceder a las opciones de tu cuenta."
+                        maxWidth={26}
+                        s={{ style: { maxWidth: "100%", width: "100%" } }}
+                        style={{ minWidth: 0 }}
+                      />
+                    </>
                   )}
-                </Column>
+                </Row>
               </Row>
             );
             return (

@@ -31,6 +31,7 @@ import {
   HiOutlineCog8Tooth,
   HiOutlineCreditCard,
   HiOutlineDocument,
+  HiOutlineExclamationTriangle,
   HiOutlineShieldCheck,
   HiOutlineEye,
   HiOutlineEyeSlash,
@@ -127,6 +128,8 @@ export const iconLibrary: Record<string, IconType> = {
   trash: HiOutlineTrash,
   check: HiOutlineCheckCircle,
   shield: HiOutlineShieldCheck,
+  // Icono que el componente Feedback busca para variant="warning"
+  warning: HiOutlineExclamationTriangle,
   xCircle: HiOutlineXCircle,
   divider: HiOutlineMinus,
   bold: PiTextBDuotone,
