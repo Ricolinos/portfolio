@@ -10,19 +10,20 @@ import {
   Button,
   Column,
   Fade,
+  Flex,
   FlipFx,
   Grid,
   Heading,
   HoloFx,
   IconButton,
   InfiniteScroll,
-  MatrixFx,
   Media,
   RevealFx,
   Text,
   TiltFx,
 } from "@once-ui-system/core";
 import { ALL_SPECIALTIES, useExploreSearch } from "./SearchContext";
+import styles from "./DesignerDirectory.module.scss";
 
 // Usuarios reales de la plataforma (rol "collaborator") consultados vía Prisma en el Server Component.
 export type PlatformDesigner = {
@@ -49,27 +50,18 @@ type Designer = {
   bio: string | null;
 };
 
-// Proporción vertical fija de la tarjeta (frente y reverso miden lo mismo:
-// FlipFx ajusta su alto al mayor de los dos, así que ambas caras comparten
-// este aspect ratio para no "saltar" al voltear).
-const CARD_ASPECT = "3 / 4";
-
+// La proporción vertical fija de la tarjeta (3/4) vive en
+// DesignerDirectory.module.scss (.flipCard): FlipFx fija su altura por JS y
+// esa clase la anula con !important, dejando que el aspect-ratio en CSS
+// controle el alto de ambas caras (ver detalle en el .scss).
 function DesignerFront({ designer, seed }: { designer: Designer; seed: number }) {
   const imageSrc = designer.featuredImageUrl || designer.avatar || null;
 
   return (
-    <Column
-      fillWidth
-      aspectRatio={CARD_ASPECT}
-      radius="l"
-      overflow="hidden"
-      background="neutral-alpha-weak"
-      style={{ alignSelf: "flex-start" }}
-    >
+    <Column fillWidth fillHeight radius="l" overflow="hidden" background="neutral-alpha-weak">
       {imageSrc ? (
-        // HoloFx es el wrapper absoluto full-bleed (evita romper el aspect
-        // ratio + alignSelf de la Column padre); la Media queda dentro, sin
-        // posicionarse ella misma, rellenando el "base" de HoloFx al 100%.
+        // HoloFx es el wrapper absoluto full-bleed; la Media queda dentro,
+        // sin posicionarse ella misma, rellenando el "base" de HoloFx al 100%.
         <HoloFx position="absolute" top="0" left="0" fill radius="l">
           <Media
             src={imageSrc}
@@ -130,11 +122,9 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
 
 function DesignerBack({
   designer,
-  matrixActive,
   onFlipBack,
 }: {
   designer: Designer;
-  matrixActive: boolean;
   onFlipBack: () => void;
 }) {
   const router = useRouter();
@@ -169,7 +159,7 @@ function DesignerBack({
       cursor="interactive"
       onClick={goToProfile}
     >
-      {/* Decoración de fondo, detrás del contenido: patrón de puntos con un
+      {/* Decoración de fondo, detrás de todo: patrón de puntos con un
           spotlight circular estático (mask), solo tokens globales, sin
           interceptar clicks. */}
       <Background
@@ -182,35 +172,23 @@ function DesignerBack({
         mask={{ x: 50, y: 30, radius: 18 }}
       />
 
-      {/* Flecha para des-voltear sin navegar; siempre visible, esquina superior
-          derecha. IconButton no trae props de posicionamiento (no extiende
-          los mixins de Flex), así que el absolute/zIndex va en `style`. */}
-      <IconButton
-        icon="refresh"
-        variant="secondary"
-        size="m"
-        tooltip="Voltear tarjeta"
-        aria-label="Voltear tarjeta"
-        style={{ position: "absolute", top: "0.75rem", right: "0.75rem", zIndex: 2 }}
-        onClick={handleUnflip}
+      {/* Mismo Fade con patrón de puntos que el frente, decorativo, debajo
+          del contenido (zIndex 1 < 2) para que nunca lo tape. */}
+      <Fade
+        to="top"
+        base="page"
+        pattern={{ display: true, size: "8" }}
+        position="absolute"
+        bottom="0"
+        left="0"
+        fillWidth
+        pointerEvents="none"
+        zIndex={1}
+        style={{ height: "30%" }}
       />
 
-      {/* El contenido se revela con un pulso de MatrixFx al voltear la
-          tarjeta (trigger="manual" + active=matrixActive, apagado por
-          DesignerCard ~900ms después), no al montar la página ni de forma
-          permanente. */}
-      <MatrixFx
-        trigger="manual"
-        active={matrixActive}
-        revealFrom="center"
-        direction="column"
-        fillWidth
-        fillHeight
-        padding="24"
-        gap="12"
-        center
-        zIndex={1}
-      >
+      {/* Contenido directamente visible al voltear, sin efecto de revelado. */}
+      <Column fillWidth fillHeight padding="24" gap="12" center zIndex={2}>
         <Avatar {...avatarProps} size="l" />
         <Column gap="4" horizontal="center" align="center">
           <Text variant="heading-strong-s" onBackground="neutral-strong" align="center">
@@ -234,53 +212,44 @@ function DesignerBack({
         >
           Ver perfil
         </Button>
-      </MatrixFx>
+      </Column>
+
+      {/* Flecha para des-voltear sin navegar; siempre visible, esquina superior
+          derecha, por encima de todo lo demás. Va dentro de un Flex absoluto
+          propio: con `tooltip`, IconButton se envuelve en un wrapper relative
+          y un absolute en su `style` se anclaría a ese wrapper (que fluye al
+          fondo de la columna), no a la tarjeta. */}
+      <Flex position="absolute" top="12" right="12" zIndex={3}>
+        <IconButton
+          icon="refresh"
+          variant="secondary"
+          size="m"
+          tooltip="Voltear tarjeta"
+          aria-label="Voltear tarjeta"
+          onClick={handleUnflip}
+        />
+      </Flex>
     </Column>
   );
 }
-
-// Duración del pulso de MatrixFx: los puntos barren el reverso y se
-// disuelven, dejando el contenido legible. Con trigger="manual", active=true
-// se queda cubriendo para siempre (no es un "reveal" único), así que hay que
-// apagarlo nosotros mismos poco después de voltear.
-const MATRIX_PULSE_MS = 900;
 
 // TiltFx se autodesactiva en dispositivos táctiles (detecta "ontouchstart" y
 // no aplica el efecto), así que convive sin estorbar con el tap-to-flip.
 function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) {
   // Estado levantado: FlipFx queda controlado para que la flecha del reverso
-  // pueda des-voltear la tarjeta y para disparar el pulso de MatrixFx.
+  // pueda des-voltear la tarjeta.
   const [flipped, setFlipped] = useState(false);
-  const [matrixActive, setMatrixActive] = useState(false);
-
-  useEffect(() => {
-    if (!flipped) {
-      setMatrixActive(false);
-      return;
-    }
-    setMatrixActive(true);
-    const timeout = setTimeout(() => setMatrixActive(false), MATRIX_PULSE_MS);
-    // Si se voltea de vuelta (o el componente se desmonta) antes de que
-    // termine el pulso, se cancela el timeout pendiente.
-    return () => clearTimeout(timeout);
-  }, [flipped]);
 
   return (
     <TiltFx fillWidth radius="l">
       <FlipFx
         fillWidth
-        aspectRatio={CARD_ASPECT}
         radius="l"
+        className={styles.flipCard}
         flipped={flipped}
         onFlip={setFlipped}
         front={<DesignerFront designer={designer} seed={seed} />}
-        back={
-          <DesignerBack
-            designer={designer}
-            matrixActive={matrixActive}
-            onFlipBack={() => setFlipped(false)}
-          />
-        }
+        back={<DesignerBack designer={designer} onFlipBack={() => setFlipped(false)} />}
       />
     </TiltFx>
   );
