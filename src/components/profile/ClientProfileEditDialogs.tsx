@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useClerk, useUser } from "@clerk/nextjs";
 import {
+  Avatar,
   Button,
   Column,
   Feedback,
+  Grid,
+  Heading,
   Input,
   Line,
   Modal,
@@ -15,6 +18,7 @@ import {
   Select,
   Slider,
   Text,
+  ToggleButton,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import {
@@ -330,17 +334,60 @@ const CONTACT_PREFERENCE_OPTIONS = [
   { value: "email", label: "Correo electrónico" },
 ];
 
+// Secciones del panel: navegación lateral (izquierda) + contenido (derecha)
+const EDIT_SECTIONS = [
+  {
+    key: "general",
+    label: "Información general",
+    icon: "infoCircle",
+    description: "Tu identidad en la plataforma: imagen de perfil, nombre y usuario.",
+  },
+  {
+    key: "contacto",
+    label: "Contacto",
+    icon: "email",
+    description: "Cómo y cuándo prefieres que tus diseñadores te contacten.",
+  },
+  {
+    key: "empresa",
+    label: "Empresa",
+    icon: "briefcase",
+    description: "Los datos de tu negocio o marca.",
+  },
+  {
+    key: "perfil",
+    label: "Perfil",
+    icon: "edit",
+    description: "La información que aparece en la portada de tu perfil.",
+  },
+  {
+    key: "seguridad",
+    label: "Seguridad",
+    icon: "shield",
+    description: "Privacidad de tu perfil y protección de tu cuenta.",
+  },
+] as const;
+
+type EditSectionKey = (typeof EDIT_SECTIONS)[number]["key"];
+
 export function EditInfoDialog({
   isOpen,
   onClose,
   initial,
+  avatarUrl,
+  onOpenAvatar,
 }: {
   isOpen: boolean;
   onClose: () => void;
   initial: EditProfileInitial;
+  avatarUrl?: string;
+  // Abre el diálogo de recorte de imagen existente (cierra este panel)
+  onOpenAvatar?: () => void;
 }) {
   const router = useRouter();
+  const { openUserProfile } = useClerk();
   const [form, setForm] = useState<EditProfileInitial>(initial);
+  const [section, setSection] = useState<EditSectionKey>("general");
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -351,6 +398,7 @@ export function EditInfoDialog({
   useEffect(() => {
     if (isOpen) {
       setForm(initial);
+      setSection("general");
       setStep("form");
       setPassword("");
       setError(null);
@@ -475,93 +523,183 @@ export function EditInfoDialog({
           </Row>
         </Column>
       ) : (
-        <Column gap="24" fillWidth paddingTop="12">
-          <Column gap="12" fillWidth>
-            <Text variant="label-strong-s">Identidad</Text>
-            <Input id="profile-first-name" label="Nombre" value={form.firstName} onChange={set("firstName")} />
-            <Input id="profile-last-name" label="Apellido" value={form.lastName} onChange={set("lastName")} />
-            <Input
-              id="profile-username"
-              label="Nombre de usuario"
-              value={form.username}
-              onChange={set("username")}
-              description={`Tu perfil vive en /${form.username || "usuario"}`}
-            />
-          </Column>
+        <Column gap="16" fillWidth paddingTop="12">
+          <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
+            {/* ── Navegación lateral ── */}
+            <Column gap="4" minWidth={14} maxWidth={14} s={{ style: { maxWidth: "100%", width: "100%" } }}>
+              {EDIT_SECTIONS.map((s) => (
+                <ToggleButton
+                  key={s.key}
+                  fillWidth
+                  horizontal="start"
+                  prefixIcon={s.icon}
+                  label={s.label}
+                  selected={section === s.key}
+                  onClick={() => setSection(s.key)}
+                />
+              ))}
+            </Column>
 
-          <Line background="neutral-alpha-weak" />
+            <Line vert background="neutral-alpha-weak" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
 
-          <Column gap="12" fillWidth>
-            <Text variant="label-strong-s">Contacto</Text>
-            <Input
-              id="profile-whatsapp"
-              label="Teléfono celular"
-              type="tel"
-              value={form.whatsapp}
-              onChange={set("whatsapp")}
-            />
-            <Input
-              id="profile-secondary-email"
-              label="Segundo correo electrónico"
-              type="email"
-              value={form.secondaryEmail}
-              onChange={set("secondaryEmail")}
-            />
-            <Select
-              id="profile-contact-preference"
-              label="Preferencia de contacto"
-              placeholder="Selecciona una opción"
-              options={CONTACT_PREFERENCE_OPTIONS}
-              value={form.contactPreference ?? ""}
-              onSelect={(value) => setForm((f) => ({ ...f, contactPreference: value }))}
-            />
-            <Input
-              id="profile-contact-hours"
-              label="Horario de contacto"
-              placeholder="L-V 9:00-18:00"
-              value={form.contactHours ?? ""}
-              onChange={set("contactHours")}
-            />
-          </Column>
+            {/* ── Contenido de la sección activa ── */}
+            <Column gap="20" fillWidth style={{ minWidth: 0 }}>
+              {(() => {
+                const active = EDIT_SECTIONS.find((s) => s.key === section)!;
+                return (
+                  <Column gap="4" fillWidth>
+                    <Heading variant="heading-strong-m">{active.label}</Heading>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      {active.description}
+                    </Text>
+                  </Column>
+                );
+              })()}
+              <Line background="neutral-alpha-weak" />
 
-          <Line background="neutral-alpha-weak" />
+              {section === "general" && (
+                <Column gap="20" fillWidth>
+                  <Column gap="12" fillWidth>
+                    <Text variant="label-strong-s">Imagen de perfil</Text>
+                    <Row gap="16" vertical="center" wrap>
+                      <Avatar
+                        size="l"
+                        {...(avatarUrl
+                          ? { src: avatarUrl }
+                          : { value: (form.firstName[0] ?? "U").toUpperCase() })}
+                      />
+                      <Column gap="2" style={{ minWidth: 0 }}>
+                        <Text variant="label-strong-s">
+                          {[form.firstName, form.lastName].filter(Boolean).join(" ") || "Tu nombre"}
+                        </Text>
+                        <Text variant="label-default-s" onBackground="neutral-weak">
+                          /{form.username || "usuario"}
+                        </Text>
+                      </Column>
+                      {onOpenAvatar && (
+                        <Button size="s" variant="secondary" prefixIcon="camera" onClick={onOpenAvatar}>
+                          Cambiar imagen
+                        </Button>
+                      )}
+                    </Row>
+                  </Column>
+                  <Grid columns={2} s={{ columns: 1 }} gap="12" fillWidth>
+                    <Input id="profile-first-name" label="Nombre" value={form.firstName} onChange={set("firstName")} />
+                    <Input id="profile-last-name" label="Apellido" value={form.lastName} onChange={set("lastName")} />
+                  </Grid>
+                  <Input
+                    id="profile-username"
+                    label="Nombre de usuario"
+                    value={form.username}
+                    onChange={set("username")}
+                    description={`Tu perfil vive en /${form.username || "usuario"} · cambiarlo requiere confirmar tu contraseña`}
+                  />
+                </Column>
+              )}
 
-          <Column gap="12" fillWidth>
-            <Text variant="label-strong-s">Empresa</Text>
-            <Input id="profile-company" label="Empresa" value={form.company} onChange={set("company")} />
-            <Input id="profile-brand" label="Marca" value={form.brand} onChange={set("brand")} />
-            <Input
-              id="profile-industry"
-              label="Giro o industria"
-              value={form.industry ?? ""}
-              onChange={set("industry")}
-            />
-            <Input
-              id="profile-website"
-              label="Sitio web"
-              type="url"
-              value={form.website ?? ""}
-              onChange={set("website")}
-            />
-          </Column>
+              {section === "contacto" && (
+                <Column gap="12" fillWidth>
+                  <Grid columns={2} s={{ columns: 1 }} gap="12" fillWidth>
+                    <Input
+                      id="profile-whatsapp"
+                      label="Teléfono celular"
+                      type="tel"
+                      value={form.whatsapp}
+                      onChange={set("whatsapp")}
+                    />
+                    <Input
+                      id="profile-secondary-email"
+                      label="Segundo correo electrónico"
+                      type="email"
+                      value={form.secondaryEmail}
+                      onChange={set("secondaryEmail")}
+                    />
+                    <Select
+                      id="profile-contact-preference"
+                      label="Preferencia de contacto"
+                      placeholder="Selecciona una opción"
+                      options={CONTACT_PREFERENCE_OPTIONS}
+                      value={form.contactPreference ?? ""}
+                      onSelect={(value) => setForm((f) => ({ ...f, contactPreference: value }))}
+                    />
+                    <Input
+                      id="profile-contact-hours"
+                      label="Horario de contacto"
+                      placeholder="L-V 9:00-18:00"
+                      value={form.contactHours ?? ""}
+                      onChange={set("contactHours")}
+                    />
+                  </Grid>
+                </Column>
+              )}
 
-          <Line background="neutral-alpha-weak" />
+              {section === "empresa" && (
+                <Grid columns={2} s={{ columns: 1 }} gap="12" fillWidth>
+                  <Input id="profile-company" label="Empresa" value={form.company} onChange={set("company")} />
+                  <Input id="profile-brand" label="Marca" value={form.brand} onChange={set("brand")} />
+                  <Input
+                    id="profile-industry"
+                    label="Giro o industria"
+                    value={form.industry ?? ""}
+                    onChange={set("industry")}
+                  />
+                  <Input
+                    id="profile-website"
+                    label="Sitio web"
+                    type="url"
+                    value={form.website ?? ""}
+                    onChange={set("website")}
+                  />
+                </Grid>
+              )}
 
-          <Column gap="12" fillWidth>
-            <Text variant="label-strong-s">Perfil</Text>
-            <Input id="profile-address" label="Dirección" value={form.address} onChange={set("address")} />
-            <Input
-              id="profile-motto"
-              label="Lema"
-              value={form.motto}
-              onChange={set("motto")}
-              error={mottoTooLong}
-              errorMessage={`El lema no puede exceder ${MAX_MOTTO_WORDS} palabras.`}
-              description={`${mottoWords}/${MAX_MOTTO_WORDS} palabras`}
-            />
-          </Column>
+              {section === "perfil" && (
+                <Column gap="12" fillWidth>
+                  <Input id="profile-address" label="Dirección" value={form.address} onChange={set("address")} />
+                  <Input
+                    id="profile-motto"
+                    label="Lema"
+                    value={form.motto}
+                    onChange={set("motto")}
+                    error={mottoTooLong}
+                    errorMessage={`El lema no puede exceder ${MAX_MOTTO_WORDS} palabras.`}
+                    description={`${mottoWords}/${MAX_MOTTO_WORDS} palabras`}
+                  />
+                </Column>
+              )}
+
+              {section === "seguridad" && (
+                <Column gap="16" fillWidth>
+                  <Feedback
+                    variant="info"
+                    title="Tu perfil es privado"
+                    description="Nadie más puede ver tu perfil de cliente, ni siquiera con el enlace directo. Tus diseñadores solo ven los proyectos y recursos que tú decidas compartir con ellos."
+                  />
+                  <Text variant="body-default-s" onBackground="neutral-weak">
+                    Protege tu cuenta desde el panel de seguridad: ahí puedes cambiar tu contraseña,
+                    activar la verificación en dos pasos y cerrar sesiones abiertas en otros dispositivos.
+                  </Text>
+                  <Row fillWidth>
+                    <Button
+                      variant="secondary"
+                      size="m"
+                      prefixIcon="shield"
+                      onClick={() => {
+                        onClose();
+                        openUserProfile();
+                      }}
+                    >
+                      Abrir panel de seguridad
+                    </Button>
+                  </Row>
+                </Column>
+              )}
+            </Column>
+          </Row>
 
           {error && <Feedback variant="danger" description={error} />}
+
+          <Line background="neutral-alpha-weak" />
 
           <Row fillWidth gap="8" horizontal="end">
             <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>

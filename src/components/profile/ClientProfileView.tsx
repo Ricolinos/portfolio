@@ -778,6 +778,8 @@ export function ClientProfileView({
             <EditInfoDialog
               isOpen={openDialog === "info"}
               onClose={() => setOpenDialog(null)}
+              avatarUrl={avatarUrl}
+              onOpenAvatar={() => setOpenDialog("avatar")}
               initial={{
                 firstName: firstName ?? "",
                 lastName: lastName ?? "",
