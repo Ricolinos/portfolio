@@ -25,7 +25,12 @@ import {
   List,
   ListItem,
   Line,
+  Carousel,
 } from "@once-ui-system/core";
+// CompareImage no se registra: en next-mdx-remote/rsc no muestra ninguna
+// de las dos imágenes sin importar la forma de leftContent/rightContent
+// (verificado en pantalla), aunque en TSX puro (fuera de MDX) sí funciona.
+// El editor serializa el bloque "compare" como un side-by-side con Media.
 
 type CustomLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
@@ -202,6 +207,7 @@ const components = {
   Icon,
   Media,
   SmartLink,
+  Carousel,
 };
 
 type CustomMDXProps = MDXRemoteProps & {
