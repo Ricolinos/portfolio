@@ -37,6 +37,7 @@ import {
   HiOutlineArrowsRightLeft,
   HiOutlineSquares2X2,
   HiOutlineMusicalNote,
+  HiOutlineTrash,
 } from "react-icons/hi2";
 
 import {
@@ -107,6 +108,7 @@ export const iconLibrary: Record<string, IconType> = {
   compare: HiOutlineArrowsRightLeft,
   carousel: HiOutlineSquares2X2,
   audio: HiOutlineMusicalNote,
+  trash: HiOutlineTrash,
   images: PiImagesDuotone,
   camera: PiCameraDuotone,
   shapes: PiShapes,

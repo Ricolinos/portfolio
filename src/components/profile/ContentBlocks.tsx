@@ -93,10 +93,23 @@ interface ContentBlockCardProps {
   block: ContentBlock;
   onChange: (block: ContentBlock) => void;
   onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   disabled?: boolean;
 }
 
-export function ContentBlockCard({ block, onChange, onRemove, disabled }: ContentBlockCardProps) {
+export function ContentBlockCard({
+  block,
+  onChange,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
+  disabled,
+}: ContentBlockCardProps) {
   return (
     <Column
       fillWidth
@@ -104,7 +117,7 @@ export function ContentBlockCard({ block, onChange, onRemove, disabled }: Conten
       padding="16"
       radius="m"
       border="neutral-alpha-weak"
-      background="neutral-alpha-weak"
+      background="page"
     >
       <Row fillWidth horizontal="between" vertical="center">
         <Row gap="8" vertical="center">
@@ -113,14 +126,32 @@ export function ContentBlockCard({ block, onChange, onRemove, disabled }: Conten
             {BLOCK_LABEL[block.type]}
           </Text>
         </Row>
-        <IconButton
-          icon="close"
-          variant="tertiary"
-          size="s"
-          tooltip="Quitar sección"
-          onClick={onRemove}
-          disabled={disabled}
-        />
+        <Row gap="4" vertical="center">
+          <IconButton
+            icon="chevronUp"
+            variant="tertiary"
+            size="s"
+            tooltip="Mover arriba"
+            onClick={onMoveUp}
+            disabled={disabled || !canMoveUp}
+          />
+          <IconButton
+            icon="chevronDown"
+            variant="tertiary"
+            size="s"
+            tooltip="Mover abajo"
+            onClick={onMoveDown}
+            disabled={disabled || !canMoveDown}
+          />
+          <IconButton
+            icon="trash"
+            variant="tertiary"
+            size="s"
+            tooltip="Quitar sección"
+            onClick={onRemove}
+            disabled={disabled}
+          />
+        </Row>
       </Row>
 
       {block.type === "text" && (
