@@ -25,6 +25,7 @@ import {
   HiOutlineArrowDownTray,
   HiOutlineArrowPath,
   HiOutlineArrowsRightLeft,
+  HiOutlineBell,
   HiOutlineBriefcase,
   HiOutlineCheckCircle,
   HiOutlineCodeBracket,
@@ -126,6 +127,7 @@ export const iconLibrary: Record<string, IconType> = {
   carousel: HiOutlineSquares2X2,
   audio: HiOutlineMusicalNote,
   trash: HiOutlineTrash,
+  bell: HiOutlineBell,
   check: HiOutlineCheckCircle,
   shield: HiOutlineShieldCheck,
   // Icono que el componente Feedback busca para variant="warning"

@@ -354,6 +354,11 @@ export function ClientProfileView({
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
 
   const inProgress = projects.filter((p) => IN_PROGRESS.includes(p.status as ProjectStatus));
+  // Notificaciones del cliente: tareas que los partners enviaron a su aprobación
+  const notificationCount = collabProjects.reduce(
+    (acc, project) => acc + project.tasks.filter((task) => task.status === "in_review").length,
+    0,
+  );
   const finished = projects.filter((p) => !IN_PROGRESS.includes(p.status as ProjectStatus));
   const acceptedConnections = connections.filter((c) => c.status === "ACCEPTED");
   const pendingConnections = connections.filter((c) => c.status === "PENDING");
@@ -434,19 +439,6 @@ export function ClientProfileView({
               <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column" }}>
                 {identity}
                 <Row gap="20" vertical="center" wrap s={{ direction: "column", style: { width: "100%" } }}>
-                  <Row gap="8" vertical="center">
-                    <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
-                    <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
-                    {isOwnProfile && whatsapp && (
-                      <IconButton
-                        icon="whatsapp"
-                        size="m"
-                        variant="tertiary"
-                        tooltip={`Tu WhatsApp: ${whatsapp}`}
-                        tooltipPosition="bottom"
-                      />
-                    )}
-                  </Row>
                   {isOwnProfile && (
                     <>
                       {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
@@ -513,6 +505,13 @@ export function ClientProfileView({
               </Card>
             );
           })()}
+
+          {/* ── Resumen de actividad ───────────────────────────────────────── */}
+          <Row fillWidth horizontal="end" vertical="center" gap="8" wrap>
+            <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
+            <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
+            <Tag size="m" variant="info" prefixIcon="bell" label={`${notificationCount} notificaciones`} />
+          </Row>
 
           {/* ── Accesos rápidos ────────────────────────────────────────────── */}
           <Grid columns={2} s={{ columns: 1 }} gap="16" fillWidth>
