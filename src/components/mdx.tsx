@@ -27,10 +27,72 @@ import {
   Line,
   Carousel,
 } from "@once-ui-system/core";
-// CompareImage no se registra: en next-mdx-remote/rsc no muestra ninguna
-// de las dos imágenes sin importar la forma de leftContent/rightContent
-// (verificado en pantalla), aunque en TSX puro (fuera de MDX) sí funciona.
-// El editor serializa el bloque "compare" como un side-by-side con Media.
+// El CompareImage de Once UI no se registra: en next-mdx-remote/rsc no
+// muestra ninguna de las dos imágenes sin importar la forma de
+// leftContent/rightContent (verificado en pantalla), aunque en TSX puro
+// (fuera de MDX) sí funciona. El editor serializa el bloque "compare" como
+// un side-by-side con Media (ver ContentBlocks.tsx) — pero antes de ese
+// ajuste algunas piezas ya publicadas quedaron con <CompareImage
+// leftContent=... rightContent=...> literal en su Markdown guardado en BD.
+// Este shim registra ese nombre con un side-by-side equivalente que acepta
+// las formas de leftContent/rightContent que se llegaron a probar (string,
+// objeto {src,alt}, o un elemento <Media/> como expresión), para que ese
+// contenido legado siga renderizando en vez de tronar.
+type LegacyCompareSide = string | { src?: string | ReactNode; alt?: string } | ReactNode;
+
+function resolveLegacyCompareSide(
+  content: LegacyCompareSide,
+): { src: string; alt?: string } | null {
+  if (!content) return null;
+  if (typeof content === "string") return { src: content };
+  if (React.isValidElement(content)) {
+    const props = content.props as { src?: string; alt?: string };
+    return props.src ? { src: props.src, alt: props.alt } : null;
+  }
+  if (typeof content === "object" && "src" in content) {
+    const { src, alt } = content as { src?: string | ReactNode; alt?: string };
+    if (typeof src === "string") return { src, alt };
+    if (React.isValidElement(src)) {
+      const nested = src.props as { src?: string; alt?: string };
+      return nested.src ? { src: nested.src, alt: alt ?? nested.alt } : null;
+    }
+  }
+  return null;
+}
+
+function LegacyCompareImage({
+  leftContent,
+  rightContent,
+}: {
+  leftContent?: LegacyCompareSide;
+  rightContent?: LegacyCompareSide;
+  aspectRatio?: string;
+}) {
+  const left = resolveLegacyCompareSide(leftContent);
+  const right = resolveLegacyCompareSide(rightContent);
+  if (!left && !right) return null;
+
+  return (
+    <Row gap="16" fillWidth marginTop="8" marginBottom="16">
+      {left && (
+        <Column flex={1} gap="8">
+          <Text variant="label-strong-s" onBackground="neutral-weak">
+            Antes
+          </Text>
+          <Media src={left.src} alt={left.alt ?? "Antes"} aspectRatio="4 / 3" radius="m" />
+        </Column>
+      )}
+      {right && (
+        <Column flex={1} gap="8">
+          <Text variant="label-strong-s" onBackground="neutral-weak">
+            Después
+          </Text>
+          <Media src={right.src} alt={right.alt ?? "Después"} aspectRatio="4 / 3" radius="m" />
+        </Column>
+      )}
+    </Row>
+  );
+}
 
 type CustomLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
@@ -208,6 +270,7 @@ const components = {
   Media,
   SmartLink,
   Carousel,
+  CompareImage: LegacyCompareImage as any,
 };
 
 type CustomMDXProps = MDXRemoteProps & {
