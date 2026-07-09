@@ -38,6 +38,13 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       ? viewerRole
       : "client");
 
+  // Perfiles de cliente son privados: solo el dueño puede verlos, ni
+  // modificando la URL ni de ninguna otra forma. (Compartir con partners
+  // específicos queda para una iteración futura.)
+  if (role !== "collaborator" && !isOwnProfile) {
+    notFound();
+  }
+
   const ownerId = profileUser?.id ?? (isOwnProfile ? viewer?.id : undefined);
   const quotes = ownerId
     ? await prisma.projectQuote.findMany({
@@ -55,6 +62,13 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     total: quote.total === null ? null : Number(quote.total),
     updatedAt: quote.updatedAt.toISOString(),
   }));
+
+  // El WhatsApp de un partner solo se revela si él mismo lo activó (opt-in)
+  // y quien visita es un usuario logueado de la plataforma; nunca a público
+  // anónimo. Al dueño no le hace falta este dato en la vista (edita desde el
+  // diálogo de configuración), así que se omite también en su propio perfil.
+  const isLoggedIn = Boolean(viewer);
+  const canSeeWhatsapp = !isOwnProfile && isLoggedIn && Boolean(profileUser?.shareWhatsapp);
 
   // Partners (collaborator): showcase estilo Behance con sus proyectos reales.
   if (role === "collaborator") {
@@ -91,11 +105,12 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         avatarUrl={avatarUrl}
         isOwnProfile={isOwnProfile}
         username={username}
-        whatsapp={profileUser?.whatsapp}
+        whatsapp={canSeeWhatsapp ? profileUser?.whatsapp : undefined}
         email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
         memberSince={profileUser?.createdAt.toISOString()}
         coverImageUrl={profileUser?.coverImageUrl}
         isPublic={profileUser?.isPublic ?? true}
+        shareWhatsapp={profileUser?.shareWhatsapp ?? false}
         projects={projects}
         pieces={pieces}
       />
@@ -103,11 +118,20 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   }
 
   // Clientes: dashboard con proyectos contratados, diseñadores y recursos.
-  const designers = await prisma.user.findMany({
+  // (Este bloque solo corre para isOwnProfile: los perfiles de cliente ajenos
+  // ya fueron bloqueados arriba, así que el cliente que llega aquí siempre
+  // está logueado como sí mismo.)
+  const rawDesigners = await prisma.user.findMany({
     where: { role: "collaborator" },
-    select: { username: true, name: true, imageUrl: true, whatsapp: true },
+    select: { username: true, name: true, imageUrl: true, whatsapp: true, shareWhatsapp: true },
     orderBy: { createdAt: "asc" },
   });
+  // El WhatsApp de cada partner solo viaja al cliente si el partner activó
+  // el opt-in de compartirlo con otros usuarios de la plataforma.
+  const designers = rawDesigners.map(({ shareWhatsapp, ...designer }) => ({
+    ...designer,
+    whatsapp: shareWhatsapp ? designer.whatsapp : null,
+  }));
 
   return (
     <ClientProfileView

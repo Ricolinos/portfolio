@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Accordion, Avatar, Button, Column, Icon, Line, RevealFx, Row, SmartLink } from "@once-ui-system/core";
+import { Accordion, Button, Column, Icon, Line, RevealFx, Row, SmartLink } from "@once-ui-system/core";
 import { FEED_CATEGORY_SLUGS } from "./categories";
 
 const CATEGORY_LINKS = [
@@ -11,16 +11,6 @@ const CATEGORY_LINKS = [
     label,
     href: `/explorar/${slug}`,
   })),
-];
-
-// Datos ilustrativos: miembros de la comunidad Designerds.
-const DESIG_NERDS = [
-  { name: "Julián", avatar: "/images/projects/project-nba-cup-2025/Julian-01.jpg" },
-  { name: "Rodrigo", avatar: "/images/projects/project-nba-style/Rodrigo-01.jpg" },
-  { name: "Armando", avatar: "/images/projects/project-nba-cup-2025/Armando-01.png" },
-  { name: "Andrés", avatar: "/images/projects/project-nba-cup-2025/Andres-01.jpg" },
-  { name: "MC" },
-  { name: "SG" },
 ];
 
 export function Sidebar() {
@@ -70,11 +60,6 @@ export function Sidebar() {
               <Icon name="arrowUpRightFromSquare" size="s" onBackground="neutral-weak" />
             </Row>
           </SmartLink>
-          <Row wrap gap="8" paddingX="16" paddingTop="8" paddingBottom="16">
-            {DESIG_NERDS.map((nerd) => (
-              <Avatar key={nerd.name} src={nerd.avatar} value={!nerd.avatar ? nerd.name : undefined} size="m" />
-            ))}
-          </Row>
         </Column>
       </RevealFx>
     </Column>

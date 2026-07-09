@@ -4,7 +4,11 @@ import { Button, Column, Feedback, Modal, Row, Slider, Switch, Text } from "@onc
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { updateCoverImage, updatePartnerVisibility } from "@/app/actions/updateProfile";
+import {
+  updateCoverImage,
+  updatePartnerContactSharing,
+  updatePartnerVisibility,
+} from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 
 const MAX_COVER_BYTES = 4 * 1024 * 1024;
@@ -305,26 +309,35 @@ export function PartnerSettingsDialog({
   isOpen,
   onClose,
   initialIsPublic,
+  initialShareWhatsapp,
 }: {
   isOpen: boolean;
   onClose: () => void;
   initialIsPublic: boolean;
+  initialShareWhatsapp: boolean;
 }) {
   const router = useRouter();
   const [isPublic, setIsPublic] = useState(initialIsPublic);
+  const [shareWhatsapp, setShareWhatsapp] = useState(initialShareWhatsapp);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Reabrir el modal debe partir del valor guardado, no del último toggle sin guardar.
   useEffect(() => {
-    if (isOpen) setIsPublic(initialIsPublic);
-  }, [isOpen, initialIsPublic]);
+    if (isOpen) {
+      setIsPublic(initialIsPublic);
+      setShareWhatsapp(initialShareWhatsapp);
+    }
+  }, [isOpen, initialIsPublic, initialShareWhatsapp]);
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
-      await updatePartnerVisibility(isPublic);
+      await Promise.all([
+        updatePartnerVisibility(isPublic),
+        updatePartnerContactSharing(shareWhatsapp),
+      ]);
       onClose();
       router.refresh();
     } catch (err) {
@@ -363,6 +376,30 @@ export function PartnerSettingsDialog({
             isChecked={isPublic}
             onToggle={() => setIsPublic((v) => !v)}
             ariaLabel="Mantener mi perfil público en Explorar"
+          />
+        </Row>
+
+        <Row
+          fillWidth
+          horizontal="between"
+          vertical="center"
+          gap="16"
+          padding="16"
+          radius="m"
+          border="neutral-alpha-weak"
+          background="neutral-alpha-weak"
+        >
+          <Column gap="4">
+            <Text variant="label-strong-s">Compartir mi WhatsApp</Text>
+            <Text variant="body-default-s" onBackground="neutral-weak">
+              Solo lo verán usuarios registrados de la plataforma que visiten tu perfil. Nunca se
+              muestra a visitantes anónimos. Apagado por defecto.
+            </Text>
+          </Column>
+          <Switch
+            isChecked={shareWhatsapp}
+            onToggle={() => setShareWhatsapp((v) => !v)}
+            ariaLabel="Compartir mi WhatsApp con otros usuarios de la plataforma"
           />
         </Row>
 
