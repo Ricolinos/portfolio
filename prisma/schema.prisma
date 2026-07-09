@@ -61,6 +61,11 @@ model PortfolioPiece {
   // Fuente Markdown del editor propio del Partner (texto plano). Distinta del
   // caso de estudio MDX por archivo en src/content/portfolio.
   markdownContent  String? @db.Text
+  // Bloques estructurados del Canvas (ContentBlock[]), tal cual los arma el
+  // editor. blocksToMarkdown() no tiene inversa: sin esto, reabrir una pieza
+  // para editarla no podría reconstruir sus secciones desde el Markdown ya
+  // serializado.
+  contentBlocks    Json?
   downloadUrl      String?
   resourcePassword String?
   // Panel "Editar proyecto": máx. 5, validado en la server action
