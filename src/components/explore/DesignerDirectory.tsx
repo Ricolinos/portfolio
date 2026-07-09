@@ -1,18 +1,20 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Avatar,
   BlobFx,
   Button,
   Column,
+  Fade,
   FlipFx,
   Grid,
   Heading,
-  Line,
+  InfiniteScroll,
+  Media,
   RevealFx,
-  Tag,
   Text,
   TiltFx,
 } from "@once-ui-system/core";
@@ -24,6 +26,10 @@ export type PlatformDesigner = {
   name: string | null;
   username: string | null;
   imageUrl: string | null;
+  featuredImageUrl: string | null;
+  cardQuote: string | null;
+  headline: string | null;
+  bio: string | null;
 };
 
 type Designer = {
@@ -33,48 +39,91 @@ type Designer = {
   avatar: string;
   projectHref: string;
   projectTitle: string;
+  featuredImageUrl: string | null;
+  cardQuote: string | null;
+  headline: string;
+  bio: string | null;
 };
 
-const CARD_MIN_HEIGHT = 18;
+// Proporción vertical fija de la tarjeta (frente y reverso miden lo mismo:
+// FlipFx ajusta su alto al mayor de los dos, así que ambas caras comparten
+// este aspect ratio para no "saltar" al voltear).
+const CARD_ASPECT = "3 / 4";
 
 function DesignerFront({ designer, seed }: { designer: Designer; seed: number }) {
+  const imageSrc = designer.featuredImageUrl || designer.avatar || null;
+
   return (
-    <Column
-      fillWidth
-      minHeight={CARD_MIN_HEIGHT}
-      radius="l"
-      overflow="hidden"
-      background="neutral-alpha-weak"
-      style={{ position: "relative" }}
-    >
-      <BlobFx seed={seed} position="absolute" top="0" left="0" opacity={40} />
-      <Column
+    <Column fillWidth aspectRatio={CARD_ASPECT} radius="l" overflow="hidden" background="neutral-alpha-weak">
+      {imageSrc ? (
+        <Media
+          src={imageSrc}
+          alt={designer.name}
+          fill
+          fillHeight
+          objectFit="cover"
+          position="absolute"
+          top="0"
+          left="0"
+          sizes="(max-width: 1024px) 100vw, 33vw"
+        />
+      ) : (
+        <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
+      )}
+
+      {/* Franja de degradado (con patrón de puntos) que hace legible la cita
+          sobre la imagen, ancla abajo y se desvanece hacia arriba. */}
+      <Fade
+        to="top"
+        base="page"
+        pattern={{ display: true, size: "8" }}
+        position="absolute"
+        bottom="0"
+        left="0"
         fillWidth
-        fillHeight
-        gap="12"
-        padding="24"
-        horizontal="center"
-        align="center"
-        vertical="center"
-        style={{ position: "relative", zIndex: 1 }}
-      >
-        <Avatar src={designer.avatar} size="xl" />
-        <Column gap="4" horizontal="center" align="center">
-          <Text variant="heading-strong-m" onBackground="neutral-strong">
-            {designer.name}
+        zIndex={1}
+        style={{ height: "65%" }}
+      />
+
+      <Column position="absolute" bottom="0" left="0" fillWidth padding="20" zIndex={2}>
+        {designer.cardQuote ? (
+          <Text
+            as="blockquote"
+            variant="heading-default-s"
+            onBackground="neutral-strong"
+            wrap="balance"
+            style={{ fontStyle: "italic" }}
+          >
+            “{designer.cardQuote}”
           </Text>
-          <Tag size="s" variant="brand" label={designer.specialty} />
-        </Column>
+        ) : (
+          <Text variant="label-default-s" onBackground="neutral-weak">
+            {designer.name || "Diseñador de la plataforma"}
+          </Text>
+        )}
       </Column>
     </Column>
   );
 }
 
 function DesignerBack({ designer }: { designer: Designer }) {
+  const router = useRouter();
+
+  // El tap/click en el reverso navega al perfil; stopPropagation evita que
+  // el mismo click burbujee hasta el onClick de FlipFx y vuelva a voltear.
+  const goToProfile = (event: MouseEvent) => {
+    event.stopPropagation();
+    router.push(designer.projectHref);
+  };
+
+  const avatarProps = designer.avatar
+    ? { src: designer.avatar }
+    : { value: (designer.name[0] ?? "D").toUpperCase() };
+
   return (
     <Column
       fillWidth
-      minHeight={CARD_MIN_HEIGHT}
+      aspectRatio={CARD_ASPECT}
       radius="l"
       border="neutral-alpha-weak"
       background="neutral-alpha-weak"
@@ -84,14 +133,23 @@ function DesignerBack({ designer }: { designer: Designer }) {
       align="center"
       vertical="center"
       overflow="auto"
+      cursor="interactive"
+      onClick={goToProfile}
     >
-      <Text variant="body-default-s" onBackground="neutral-weak" align="center">
-        {designer.role}
-      </Text>
-      <Line background="neutral-alpha-medium" />
-      <Text variant="label-default-s" onBackground="neutral-medium" align="center">
-        {designer.projectTitle}
-      </Text>
+      <Avatar {...avatarProps} size="l" />
+      <Column gap="4" horizontal="center" align="center">
+        <Text variant="heading-strong-s" onBackground="neutral-strong" align="center">
+          {designer.name}
+        </Text>
+        <Text variant="label-default-s" onBackground="neutral-medium" align="center">
+          {designer.headline}
+        </Text>
+      </Column>
+      {designer.bio && (
+        <Text variant="body-default-s" onBackground="neutral-weak" align="center" wrap="balance">
+          {designer.bio}
+        </Text>
+      )}
       <Button
         href={designer.projectHref}
         variant="secondary"
@@ -99,12 +157,14 @@ function DesignerBack({ designer }: { designer: Designer }) {
         suffixIcon="arrowUpRight"
         onClick={(event: MouseEvent) => event.stopPropagation()}
       >
-        Ver proyecto
+        Ver perfil
       </Button>
     </Column>
   );
 }
 
+// TiltFx se autodesactiva en dispositivos táctiles (detecta "ontouchstart" y
+// no aplica el efecto), así que convive sin estorbar con el tap-to-flip.
 function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) {
   return (
     <TiltFx fillWidth radius="l">
@@ -118,6 +178,10 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
   );
 }
 
+// Mismo lote que ExploreFeed: sin paginación de servidor, InfiniteScroll solo
+// revela progresivamente el array "filtered" ya cargado en el cliente.
+const BATCH_SIZE = 8;
+
 export function DesignerDirectory({ platformDesigners = [] }: { platformDesigners?: PlatformDesigner[] }) {
   const { query, specialty } = useExploreSearch();
 
@@ -125,10 +189,14 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
     return platformDesigners.map((user) => ({
       name: user.name ?? user.username ?? "Colaborador",
       specialty: "Diseñador de Marca",
-      role: "Colaborador de la plataforma Designerds",
+      role: user.headline ?? "Colaborador de la plataforma Designerds",
       avatar: user.imageUrl ?? "",
       projectHref: user.username ? `/${user.username}` : "/explorar",
       projectTitle: "Perfil de colaborador",
+      featuredImageUrl: user.featuredImageUrl,
+      cardQuote: user.cardQuote,
+      headline: user.headline ?? "Diseñador de Marca",
+      bio: user.bio,
     }));
   }, [platformDesigners]);
 
@@ -140,6 +208,20 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
       return true;
     });
   }, [designers, query, specialty]);
+
+  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+
+  useEffect(() => {
+    setVisibleCount(BATCH_SIZE);
+  }, [filtered]);
+
+  const visible = filtered.slice(0, visibleCount);
+
+  const loadMore = async () => {
+    const next = visibleCount + BATCH_SIZE;
+    setVisibleCount(next);
+    return next < filtered.length;
+  };
 
   return (
     <RevealFx fillWidth direction="column" gap="24" translateY="8" speed="fast">
@@ -155,10 +237,15 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
           No encontramos diseñadores que coincidan con tu búsqueda.
         </Text>
       ) : (
-        <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
-          {filtered.map((designer) => (
-            <DesignerCard key={designer.name} designer={designer} seed={designers.indexOf(designer)} />
-          ))}
+        <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="24" fillWidth>
+          <InfiniteScroll
+            items={visible}
+            renderItem={(designer) => (
+              <DesignerCard key={designer.name} designer={designer} seed={designers.indexOf(designer)} />
+            )}
+            loadMore={loadMore}
+            style={{ gridColumn: "1 / -1" }}
+          />
         </Grid>
       )}
     </RevealFx>

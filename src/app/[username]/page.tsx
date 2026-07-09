@@ -111,6 +111,10 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         coverImageUrl={profileUser?.coverImageUrl}
         isPublic={profileUser?.isPublic ?? true}
         shareWhatsapp={profileUser?.shareWhatsapp ?? false}
+        featuredImageUrl={profileUser?.featuredImageUrl}
+        cardQuote={profileUser?.cardQuote}
+        headline={profileUser?.headline}
+        bio={profileUser?.bio}
         projects={projects}
         pieces={pieces}
       />

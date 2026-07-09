@@ -26,7 +26,12 @@ import {
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
-import { CoverUploadDialog, PartnerSettingsDialog } from "./PartnerProfileEditDialogs";
+import {
+  CoverUploadDialog,
+  DesignerCardDialog,
+  FeaturedImageUploadDialog,
+  PartnerSettingsDialog,
+} from "./PartnerProfileEditDialogs";
 import styles from "./ProfileView.module.scss";
 import { deletePortfolioPiece, setPieceVisibility } from "@/app/actions/portfolioPieces";
 import { CreateProjectModal } from "./CreateProjectModal";
@@ -65,6 +70,11 @@ interface ProfileViewProps {
   coverImageUrl?: string | null;
   isPublic?: boolean;
   shareWhatsapp?: boolean;
+  // Contenido de la tarjeta Designerd en Explorar (editable por el propio Partner)
+  featuredImageUrl?: string | null;
+  cardQuote?: string | null;
+  headline?: string | null;
+  bio?: string | null;
   projects: PartnerProject[];
   pieces: PartnerPiece[];
 }
@@ -251,12 +261,18 @@ export function ProfileView({
   coverImageUrl,
   isPublic = true,
   shareWhatsapp = false,
+  featuredImageUrl,
+  cardQuote,
+  headline,
+  bio,
   projects,
   pieces,
 }: ProfileViewProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
-  const [openDialog, setOpenDialog] = useState<"avatar" | "cover" | "info" | null>(null);
+  const [openDialog, setOpenDialog] = useState<
+    "avatar" | "cover" | "info" | "featured" | "card" | null
+  >(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<PartnerPiece | null>(null);
@@ -417,6 +433,32 @@ export function ProfileView({
                 )
               )}
 
+              {isOwnProfile && (
+                <Flex
+                  background="neutral-alpha-weak"
+                  padding="16"
+                  radius="m"
+                  border="neutral-alpha-weak"
+                  direction="column"
+                  gap="12"
+                >
+                  <Column gap="4">
+                    <Text variant="label-strong-s">Tarjeta de Designerd</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Así te ven en Explorar / designerds.
+                    </Text>
+                  </Column>
+                  <Row gap="8" wrap>
+                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("featured")}>
+                      Imagen destacada
+                    </Button>
+                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("card")}>
+                      Cita, puesto y descripción
+                    </Button>
+                  </Row>
+                </Flex>
+              )}
+
               <Flex
                 background="neutral-alpha-weak"
                 padding="16"
@@ -551,6 +593,20 @@ export function ProfileView({
               onClose={() => setOpenDialog(null)}
               initialIsPublic={isPublic}
               initialShareWhatsapp={shareWhatsapp}
+            />
+            <FeaturedImageUploadDialog
+              isOpen={openDialog === "featured"}
+              onClose={() => setOpenDialog(null)}
+              currentFeaturedUrl={featuredImageUrl}
+            />
+            <DesignerCardDialog
+              isOpen={openDialog === "card"}
+              onClose={() => setOpenDialog(null)}
+              initial={{
+                cardQuote: cardQuote ?? "",
+                headline: headline ?? "",
+                bio: bio ?? "",
+              }}
             />
           </>
         )}
