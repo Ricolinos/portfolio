@@ -18,42 +18,6 @@ import {
 } from "@once-ui-system/core";
 import { ALL_SPECIALTIES, useExploreSearch } from "./SearchContext";
 
-// Datos de colaboradores tomados de los créditos "team" en src/app/work/projects/*.mdx.
-const CREDITED_DESIGNERS = [
-  {
-    name: "Julián Trejo",
-    specialty: "Animador",
-    role: "Diseño de gráficos y contenidos especiales",
-    avatar: "/images/projects/project-nba-cup-2025/Julian-01.jpg",
-    projectHref: "/work/Animated-NBA-Cup-2025",
-    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
-  },
-  {
-    name: "Rodrigo Castañeda",
-    specialty: "Diseñador de Marca",
-    role: "Diseño de la paquetería gráfica",
-    avatar: "/images/projects/project-nba-style/Rodrigo-01.jpg",
-    projectHref: "/work/refresh-nba-style-2024",
-    projectTitle: "Refresh NBA Style 2024",
-  },
-  {
-    name: "Armando",
-    specialty: "Producción técnica",
-    role: "Gestión técnica de gráficos para transmisión (VMix)",
-    avatar: "/images/projects/project-nba-cup-2025/Armando-01.png",
-    projectHref: "/work/Animated-NBA-Cup-2025",
-    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
-  },
-  {
-    name: "Andrés González",
-    specialty: "Ilustrador",
-    role: "Adaptación de la paquetería gráfica en colaboración con NBA Styles",
-    avatar: "/images/projects/project-nba-cup-2025/Andres-01.jpg",
-    projectHref: "/work/Animated-NBA-Cup-2025",
-    projectTitle: "Paquetería Animada – NBA Emirates Cup 2025",
-  },
-];
-
 // Usuarios reales de la plataforma (rol "collaborator") consultados vía Prisma en el Server Component.
 export type PlatformDesigner = {
   id: string;
@@ -62,7 +26,14 @@ export type PlatformDesigner = {
   imageUrl: string | null;
 };
 
-type Designer = (typeof CREDITED_DESIGNERS)[number];
+type Designer = {
+  name: string;
+  specialty: string;
+  role: string;
+  avatar: string;
+  projectHref: string;
+  projectTitle: string;
+};
 
 const CARD_MIN_HEIGHT = 18;
 
@@ -151,7 +122,7 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
   const { query, specialty } = useExploreSearch();
 
   const designers = useMemo<Designer[]>(() => {
-    const mapped = platformDesigners.map((user) => ({
+    return platformDesigners.map((user) => ({
       name: user.name ?? user.username ?? "Colaborador",
       specialty: "Diseñador de Marca",
       role: "Colaborador de la plataforma Designerds",
@@ -159,7 +130,6 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
       projectHref: user.username ? `/${user.username}` : "/explorar",
       projectTitle: "Perfil de colaborador",
     }));
-    return [...CREDITED_DESIGNERS, ...mapped];
   }, [platformDesigners]);
 
   const filtered = useMemo(() => {
