@@ -14,6 +14,7 @@ import {
   RevealFx,
   Row,
   SegmentedControl,
+  SmartLink,
   Tag,
   Text,
 } from "@once-ui-system/core";
@@ -36,6 +37,8 @@ export type ShowcasePiece = {
   image: string;
   likes: number;
   views: number;
+  // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
+  href?: string;
 };
 
 const ALL_LOCATIONS = "Todas las ubicaciones";
@@ -171,7 +174,7 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
     ? { src: project.avatarUrl }
     : { value: (project.designer[0] ?? "P").toUpperCase() };
 
-  return (
+  const card = (
     <Card fillWidth direction="column" gap="12" padding="12" radius="l" border="neutral-alpha-weak">
       <Column fillWidth radius="m" overflow="hidden">
         <Animation triggerType="hover" scale={1.03} fade={1} reverse easing="ease" fillWidth>
@@ -214,6 +217,14 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
         </Row>
       </Column>
     </Card>
+  );
+
+  if (!project.href) return card;
+
+  return (
+    <SmartLink href={project.href} unstyled style={{ width: "100%" }}>
+      {card}
+    </SmartLink>
   );
 }
 

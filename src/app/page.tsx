@@ -1,7 +1,8 @@
 import { Column, Meta, Schema } from "@once-ui-system/core";
-import { HomeShowcase } from "@/components";
+import { HomeCreatorsCTA, HomeHero, HomeShowcase } from "@/components";
 import { about, baseURL, home, person } from "@/resources";
 import { getPortfolioFeed } from "@/lib/portfolio";
+import { caseStudyHref } from "@/lib/caseStudies";
 
 // El showcase consulta la base de datos: evita congelar el fetch en build.
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function Home() {
     image: piece.coverUrl ?? "",
     likes: piece.likes,
     views: piece.views,
+    href: piece.user.username ? caseStudyHref(piece.user.username, piece.title) : undefined,
   }));
 
   return (
@@ -46,7 +48,9 @@ export default async function Home() {
           image: `${baseURL}${person.avatar}`,
         }}
       />
+      <HomeHero />
       <HomeShowcase pieces={pieces} />
+      <HomeCreatorsCTA />
     </Column>
   );
 }
