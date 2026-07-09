@@ -213,6 +213,18 @@ function ResizableSplit({
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const [split, setSplit] = useState(defaultSplit);
+  // Debajo del breakpoint "s" (905px) el split de ancho fijo deja el panel
+  // lateral ilegible (~100px con el Canvas apretado al lado); se apilan las
+  // dos columnas a ancho completo y se oculta el divisor arrastrable.
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 904px)");
+    setIsMobile(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
@@ -235,9 +247,23 @@ function ResizableSplit({
 
   const step = 0.02;
 
+  if (isMobile) {
+    return (
+      <Column fillWidth gap="16" flex={1} overflowY="auto" style={{ minHeight: 0 }}>
+        {leftPanel}
+        {rightPanel}
+      </Column>
+    );
+  }
+
   return (
     <Row ref={containerRef} fillWidth flex={1} style={{ minHeight: 0 }}>
-      <Column fillHeight style={{ width: `${split * 100}%`, minWidth: 0 }}>
+      <Column
+        fillHeight
+        overflowY="auto"
+        paddingRight="16"
+        style={{ width: `${split * 100}%`, minWidth: 0 }}
+      >
         {leftPanel}
       </Column>
       <Row
@@ -262,7 +288,7 @@ function ResizableSplit({
       >
         <Line background="neutral-alpha-medium" style={{ width: "0.0625rem", height: "100%" }} />
       </Row>
-      <Column fillHeight flex={1} style={{ minWidth: 0 }}>
+      <Column fillHeight overflowY="auto" paddingLeft="16" flex={1} style={{ minWidth: 0 }}>
         {rightPanel}
       </Column>
     </Row>
@@ -388,10 +414,9 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
             minSplit={SPLIT_MIN}
             maxSplit={SPLIT_MAX}
             leftPanel={
-              // Lienzo: contenedor propio, separado del panel lateral por el
-              // divisor arrastrable. Scroll propio dentro de su caja exacta
-              // (fillHeight), no del diálogo completo.
-              <Column fillHeight overflowY="auto" paddingRight="16" style={{ minWidth: 0 }}>
+              // Lienzo: el scroll y el ancho los reparte ResizableSplit
+              // (columna completa en mobile, caja con scroll propio en desktop).
+              <Column style={{ minWidth: 0 }}>
                 <Card
                   fillWidth
                   padding="24"
@@ -455,7 +480,8 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
               </Column>
             }
             rightPanel={
-              <Column gap="16" fillHeight overflowY="auto" paddingLeft="16">
+              // El scroll y el ancho los reparte ResizableSplit (ver leftPanel).
+              <Column gap="16">
                 <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                   <Text variant="label-strong-s" onBackground="neutral-weak">
                     Añadir sección
