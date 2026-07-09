@@ -59,6 +59,7 @@ interface ProfileViewProps {
   memberSince?: string; // ISO string
   coverImageUrl?: string | null;
   isPublic?: boolean;
+  shareWhatsapp?: boolean;
   projects: PartnerProject[];
   pieces: PartnerPiece[];
 }
@@ -194,6 +195,7 @@ export function ProfileView({
   memberSince,
   coverImageUrl,
   isPublic = true,
+  shareWhatsapp = false,
   projects,
   pieces,
 }: ProfileViewProps) {
@@ -465,6 +467,7 @@ export function ProfileView({
               isOpen={openDialog === "info"}
               onClose={() => setOpenDialog(null)}
               initialIsPublic={isPublic}
+              initialShareWhatsapp={shareWhatsapp}
             />
           </>
         )}

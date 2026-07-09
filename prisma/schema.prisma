@@ -20,6 +20,11 @@ model User {
   imageUrl  String?
   role      String   @default("client")
   whatsapp  String?
+  // Opt-in del colaborador para exponer su WhatsApp en su perfil público.
+  // Default false: privado hasta que el propio usuario decida compartirlo, y
+  // aun así solo visible a otros usuarios logueados de la plataforma (nunca
+  // a visitantes anónimos). Ver src/app/[username]/page.tsx.
+  shareWhatsapp Boolean @default(false)
   // Perfil editable por el cliente desde /[username]
   secondaryEmail String?
   address        String?
