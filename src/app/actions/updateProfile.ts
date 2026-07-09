@@ -20,7 +20,7 @@ export interface ProfileInfoInput {
   industry?: string;
 }
 
-const MAX_MOTTO_WORDS = 15;
+const MAX_MOTTO_CHARS = 40;
 const MAX_CONTACT_HOURS_CHARS = 60;
 const MAX_INDUSTRY_CHARS = 60;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -37,8 +37,8 @@ export async function updateProfileInfo(input: ProfileInfoInput): Promise<void> 
   if (!userId) throw new Error("No autenticado");
 
   const motto = clean(input.motto);
-  if (motto && motto.split(/\s+/).length > MAX_MOTTO_WORDS) {
-    throw new Error(`El lema no puede exceder ${MAX_MOTTO_WORDS} palabras.`);
+  if (motto && motto.length > MAX_MOTTO_CHARS) {
+    throw new Error(`El lema no puede exceder los ${MAX_MOTTO_CHARS} caracteres.`);
   }
 
   const secondaryEmail = clean(input.secondaryEmail);

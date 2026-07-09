@@ -30,7 +30,7 @@ model User {
   address        String?
   company        String?
   brand          String?
-  // Lema corto (máx. 15 palabras, validado en la server action)
+  // Lema corto (máx. 40 caracteres, validado en la server action)
   motto          String?
   // Portada del perfil de Partner (data URL comprimida, validada en la server action)
   coverImageUrl  String?

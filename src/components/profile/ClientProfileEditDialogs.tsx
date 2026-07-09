@@ -34,12 +34,7 @@ const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const OUTPUT_PX = 400;
 // Lado del viewport de encuadre en pantalla.
 const CROP_VIEW = 240;
-const MAX_MOTTO_WORDS = 15;
-
-function countWords(value: string) {
-  const trimmed = value.trim();
-  return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
-}
+const MAX_MOTTO_CHARS = 40;
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -406,8 +401,6 @@ export function EditInfoDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const mottoWords = countWords(form.motto);
-  const mottoTooLong = mottoWords > MAX_MOTTO_WORDS;
 
   const set = (field: keyof EditProfileInitial) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -440,7 +433,6 @@ export function EditInfoDialog({
   };
 
   const handleSave = async () => {
-    if (mottoTooLong) return;
     if (identityChanged) {
       setError(null);
       setStep("confirm");
@@ -656,15 +648,18 @@ export function EditInfoDialog({
               {section === "perfil" && (
                 <Column gap="12" fillWidth>
                   <Input id="profile-address" label="Dirección" value={form.address} onChange={set("address")} />
-                  <Input
-                    id="profile-motto"
-                    label="Lema"
-                    value={form.motto}
-                    onChange={set("motto")}
-                    error={mottoTooLong}
-                    errorMessage={`El lema no puede exceder ${MAX_MOTTO_WORDS} palabras.`}
-                    description={`${mottoWords}/${MAX_MOTTO_WORDS} palabras`}
-                  />
+                  <Column gap="4" fillWidth>
+                    <Input
+                      id="profile-motto"
+                      label="Lema"
+                      value={form.motto}
+                      onChange={set("motto")}
+                      maxLength={MAX_MOTTO_CHARS}
+                    />
+                    <Text variant="label-default-s" onBackground="neutral-weak">
+                      * El lema no puede exceder los {MAX_MOTTO_CHARS} caracteres.
+                    </Text>
+                  </Column>
                 </Column>
               )}
 
@@ -710,7 +705,6 @@ export function EditInfoDialog({
               size="m"
               onClick={handleSave}
               loading={saving}
-              disabled={mottoTooLong}
             >
               Guardar cambios
             </Button>
