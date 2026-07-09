@@ -3,9 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useClerk, useUser } from "@clerk/nextjs";
-import { Button, Column, Feedback, Input, Modal, Row, Slider, Text } from "@once-ui-system/core";
+import {
+  Button,
+  Column,
+  Feedback,
+  Input,
+  Line,
+  Modal,
+  PasswordInput,
+  Row,
+  Select,
+  Slider,
+  Text,
+} from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
-import { updateProfileInfo, syncProfileImage, type ProfileInfoInput } from "@/app/actions/updateProfile";
+import {
+  updateProfileInfo,
+  updateClientIdentity,
+  syncProfileImage,
+  type ProfileInfoInput,
+} from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
@@ -301,7 +318,18 @@ export function AvatarUploadDialog({
   );
 }
 
-// ─── Editar información del perfil ────────────────────────────────────────────
+// ─── Editar perfil (identidad + contacto + empresa + perfil) ─────────────────
+export interface EditProfileInitial extends ProfileInfoInput {
+  firstName: string;
+  lastName: string;
+  username: string;
+}
+
+const CONTACT_PREFERENCE_OPTIONS = [
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "email", label: "Correo electrónico" },
+];
+
 export function EditInfoDialog({
   isOpen,
   onClose,
@@ -309,27 +337,95 @@ export function EditInfoDialog({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  initial: ProfileInfoInput;
+  initial: EditProfileInitial;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState<ProfileInfoInput>(initial);
+  const [form, setForm] = useState<EditProfileInitial>(initial);
+  const [step, setStep] = useState<"form" | "confirm">("form");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Reinicia el estado cada vez que el diálogo se abre: sin esto arrastraría
+  // texto sin guardar o el paso de confirmación de una apertura anterior.
+  useEffect(() => {
+    if (isOpen) {
+      setForm(initial);
+      setStep("form");
+      setPassword("");
+      setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const mottoWords = countWords(form.motto);
   const mottoTooLong = mottoWords > MAX_MOTTO_WORDS;
 
-  const set = (field: keyof ProfileInfoInput) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const set = (field: keyof EditProfileInitial) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const identityChanged =
+    form.firstName.trim() !== initial.firstName.trim() ||
+    form.lastName.trim() !== initial.lastName.trim() ||
+    form.username.trim() !== initial.username.trim();
+
+  const profileFields: ProfileInfoInput = {
+    whatsapp: form.whatsapp,
+    secondaryEmail: form.secondaryEmail,
+    address: form.address,
+    company: form.company,
+    brand: form.brand,
+    motto: form.motto,
+    contactPreference: form.contactPreference,
+    contactHours: form.contactHours,
+    website: form.website,
+    industry: form.industry,
+  };
+
+  const finishSave = (usernameForRedirect?: string) => {
+    onClose();
+    if (usernameForRedirect) {
+      router.push(`/${usernameForRedirect}`);
+    } else {
+      router.refresh();
+    }
+  };
 
   const handleSave = async () => {
     if (mottoTooLong) return;
+    if (identityChanged) {
+      setError(null);
+      setStep("confirm");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await updateProfileInfo(form);
-      onClose();
-      router.refresh();
+      await updateProfileInfo(profileFields);
+      finishSave();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar. Intenta de nuevo.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleConfirmIdentity = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await updateClientIdentity({
+        password,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        username: form.username,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      await updateProfileInfo(profileFields);
+      finishSave(result.username !== initial.username ? result.username : undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar. Intenta de nuevo.");
     } finally {
@@ -338,67 +434,151 @@ export function EditInfoDialog({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Editar información" backdrop={modalBackdrop}>
-      <Column gap="16" fillWidth paddingTop="12">
-        <Input
-          id="profile-whatsapp"
-          label="Teléfono celular"
-          type="tel"
-          value={form.whatsapp}
-          onChange={set("whatsapp")}
-        />
-        <Input
-          id="profile-secondary-email"
-          label="Segundo correo electrónico"
-          type="email"
-          value={form.secondaryEmail}
-          onChange={set("secondaryEmail")}
-        />
-        <Input
-          id="profile-address"
-          label="Dirección"
-          value={form.address}
-          onChange={set("address")}
-        />
-        <Input
-          id="profile-company"
-          label="Empresa"
-          value={form.company}
-          onChange={set("company")}
-        />
-        <Input
-          id="profile-brand"
-          label="Marca"
-          value={form.brand}
-          onChange={set("brand")}
-        />
-        <Input
-          id="profile-motto"
-          label="Lema"
-          value={form.motto}
-          onChange={set("motto")}
-          error={mottoTooLong}
-          errorMessage={`El lema no puede exceder ${MAX_MOTTO_WORDS} palabras.`}
-          description={`${mottoWords}/${MAX_MOTTO_WORDS} palabras`}
-        />
+    <Modal isOpen={isOpen} onClose={onClose} title="Editar perfil" backdrop={modalBackdrop}>
+      {step === "confirm" ? (
+        <Column gap="16" fillWidth paddingTop="12">
+          <Feedback
+            variant="info"
+            title="Confirma tu contraseña"
+            description="Cambiar tu nombre, apellido o nombre de usuario requiere confirmar tu contraseña actual."
+          />
+          <PasswordInput
+            id="profile-identity-password"
+            label="Contraseña"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
 
-        {error && <Feedback variant="danger" description={error} />}
+          {error && <Feedback variant="danger" description={error} />}
 
-        <Row fillWidth gap="8" horizontal="end">
-          <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button
-            variant="primary"
-            size="m"
-            onClick={handleSave}
-            loading={saving}
-            disabled={mottoTooLong}
-          >
-            Guardar cambios
-          </Button>
-        </Row>
-      </Column>
+          <Row fillWidth gap="8" horizontal="end">
+            <Button
+              variant="secondary"
+              size="m"
+              onClick={() => {
+                setStep("form");
+                setError(null);
+              }}
+              disabled={saving}
+            >
+              Volver
+            </Button>
+            <Button
+              variant="primary"
+              size="m"
+              onClick={handleConfirmIdentity}
+              loading={saving}
+              disabled={!password}
+            >
+              Confirmar
+            </Button>
+          </Row>
+        </Column>
+      ) : (
+        <Column gap="24" fillWidth paddingTop="12">
+          <Column gap="12" fillWidth>
+            <Text variant="label-strong-s">Identidad</Text>
+            <Input id="profile-first-name" label="Nombre" value={form.firstName} onChange={set("firstName")} />
+            <Input id="profile-last-name" label="Apellido" value={form.lastName} onChange={set("lastName")} />
+            <Input
+              id="profile-username"
+              label="Nombre de usuario"
+              value={form.username}
+              onChange={set("username")}
+              description={`Tu perfil vive en /${form.username || "usuario"}`}
+            />
+          </Column>
+
+          <Line background="neutral-alpha-weak" />
+
+          <Column gap="12" fillWidth>
+            <Text variant="label-strong-s">Contacto</Text>
+            <Input
+              id="profile-whatsapp"
+              label="Teléfono celular"
+              type="tel"
+              value={form.whatsapp}
+              onChange={set("whatsapp")}
+            />
+            <Input
+              id="profile-secondary-email"
+              label="Segundo correo electrónico"
+              type="email"
+              value={form.secondaryEmail}
+              onChange={set("secondaryEmail")}
+            />
+            <Select
+              id="profile-contact-preference"
+              label="Preferencia de contacto"
+              placeholder="Selecciona una opción"
+              options={CONTACT_PREFERENCE_OPTIONS}
+              value={form.contactPreference ?? ""}
+              onSelect={(value) => setForm((f) => ({ ...f, contactPreference: value }))}
+            />
+            <Input
+              id="profile-contact-hours"
+              label="Horario de contacto"
+              placeholder="L-V 9:00-18:00"
+              value={form.contactHours ?? ""}
+              onChange={set("contactHours")}
+            />
+          </Column>
+
+          <Line background="neutral-alpha-weak" />
+
+          <Column gap="12" fillWidth>
+            <Text variant="label-strong-s">Empresa</Text>
+            <Input id="profile-company" label="Empresa" value={form.company} onChange={set("company")} />
+            <Input id="profile-brand" label="Marca" value={form.brand} onChange={set("brand")} />
+            <Input
+              id="profile-industry"
+              label="Giro o industria"
+              value={form.industry ?? ""}
+              onChange={set("industry")}
+            />
+            <Input
+              id="profile-website"
+              label="Sitio web"
+              type="url"
+              value={form.website ?? ""}
+              onChange={set("website")}
+            />
+          </Column>
+
+          <Line background="neutral-alpha-weak" />
+
+          <Column gap="12" fillWidth>
+            <Text variant="label-strong-s">Perfil</Text>
+            <Input id="profile-address" label="Dirección" value={form.address} onChange={set("address")} />
+            <Input
+              id="profile-motto"
+              label="Lema"
+              value={form.motto}
+              onChange={set("motto")}
+              error={mottoTooLong}
+              errorMessage={`El lema no puede exceder ${MAX_MOTTO_WORDS} palabras.`}
+              description={`${mottoWords}/${MAX_MOTTO_WORDS} palabras`}
+            />
+          </Column>
+
+          {error && <Feedback variant="danger" description={error} />}
+
+          <Row fillWidth gap="8" horizontal="end">
+            <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              size="m"
+              onClick={handleSave}
+              loading={saving}
+              disabled={mottoTooLong}
+            >
+              Guardar cambios
+            </Button>
+          </Row>
+        </Column>
+      )}
     </Modal>
   );
 }

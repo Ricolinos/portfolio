@@ -27,7 +27,12 @@ import type {
   CollabPartnerSummary,
   CollabProjectData,
 } from "@/lib/collab";
-import { AvatarUploadDialog, EditInfoDialog, SecurityPrivacyDialog } from "./ClientProfileEditDialogs";
+import {
+  AvatarUploadDialog,
+  EditInfoDialog,
+  SecurityPrivacyDialog,
+  type EditProfileInitial,
+} from "./ClientProfileEditDialogs";
 import {
   AddClientResourceDialog,
   DeleteClientResourceDialog,
@@ -52,12 +57,19 @@ interface ClientProfileViewProps {
   avatarUrl?: string;
   isOwnProfile: boolean;
   email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
   whatsapp?: string | null;
   secondaryEmail?: string | null;
   address?: string | null;
   company?: string | null;
   brand?: string | null;
   motto?: string | null;
+  contactPreference?: string | null;
+  contactHours?: string | null;
+  website?: string | null;
+  industry?: string | null;
   projects: ClientProject[];
   connections?: ClientConnectionData[];
   collabProjects?: CollabProjectData[];
@@ -333,12 +345,19 @@ export function ClientProfileView({
   avatarUrl,
   isOwnProfile,
   email,
+  firstName,
+  lastName,
+  username,
   whatsapp,
   secondaryEmail,
   address,
   company,
   brand,
   motto,
+  contactPreference,
+  contactHours,
+  website,
+  industry,
   projects,
   connections = [],
   collabProjects = [],
@@ -760,12 +779,19 @@ export function ClientProfileView({
               isOpen={openDialog === "info"}
               onClose={() => setOpenDialog(null)}
               initial={{
+                firstName: firstName ?? "",
+                lastName: lastName ?? "",
+                username: username ?? "",
                 whatsapp: whatsapp ?? "",
                 secondaryEmail: secondaryEmail ?? "",
                 address: address ?? "",
                 company: company ?? "",
                 brand: brand ?? "",
                 motto: motto ?? "",
+                contactPreference: contactPreference ?? "",
+                contactHours: contactHours ?? "",
+                website: website ?? "",
+                industry: industry ?? "",
               }}
             />
             <SecurityPrivacyDialog

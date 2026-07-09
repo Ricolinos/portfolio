@@ -37,6 +37,13 @@ model User {
   // Visibilidad del Partner en Explorar/designerds; el perfil directo por
   // username sigue siendo accesible aunque sea privado
   isPublic       Boolean  @default(true)
+  // Preferencia de contacto del cliente: "whatsapp" | "email"
+  contactPreference String?
+  // Horario preferido de contacto (texto corto, ej. "L-V 9:00-18:00")
+  contactHours      String?
+  website           String?
+  // Giro o industria del negocio del cliente
+  industry          String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
