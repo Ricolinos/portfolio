@@ -13,6 +13,7 @@ import {
   Line,
   Row,
   ScrollLock,
+  Spinner,
   TagInput,
   Text,
 } from "@once-ui-system/core";
@@ -20,10 +21,14 @@ import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { createPortfolioPiece } from "@/app/actions/portfolioPieces";
+import {
+  createPortfolioPiece,
+  getPortfolioPieceForEdit,
+  updatePortfolioPiece,
+} from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { readFileAsDataUrl } from "@/lib/files";
-import { AttachFilesModal, type ProjectAttachment } from "./AttachFilesModal";
+import { AttachFilesModal, type AttachmentKind, type ProjectAttachment } from "./AttachFilesModal";
 import {
   BLOCK_TYPES,
   blocksToMarkdown,
@@ -53,6 +58,15 @@ const SPLIT_DEFAULT = 0.75;
 const SPLIT_MIN = 0.7;
 const SPLIT_MAX = 0.8;
 const MAX_TAGS = 5;
+
+// gallery solo guarda URLs (sin bucket de Storage, ver AttachFilesModal): al
+// recargar una pieza para editarla, el tipo de adjunto se infiere del prefijo
+// de la data URL, y el nombre original no sobrevive al guardado.
+function inferAttachmentKind(url: string): AttachmentKind {
+  if (url.startsWith("data:audio/")) return "audio";
+  if (url.startsWith("data:video/")) return "video";
+  return "image";
+}
 
 function hasForeignDialogOpen(ownDialog: HTMLElement | null): boolean {
   if (!ownDialog) return false;
@@ -298,9 +312,12 @@ function ResizableSplit({
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
+  // Presente → modo edición: precarga la pieza y guarda con updatePortfolioPiece
+  // en vez de crear una nueva.
+  pieceId?: string | null;
 }
 
-export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps) {
+export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreateProjectModalProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -312,11 +329,17 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined);
   const [attachments, setAttachments] = useState<ProjectAttachment[]>([]);
+  // Solo se activa cuando el usuario adjunta algo EN esta sesión del editor;
+  // los adjuntos ya guardados que llegan al precargar una edición no cuentan,
+  // o el diálogo de "se pierde tu avance" dispararía al abrir cualquier pieza
+  // que ya tuviera archivos.
+  const [attachmentsTouched, setAttachmentsTouched] = useState(false);
   const [isAttachOpen, setAttachOpen] = useState(false);
   const [isConfirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingPiece, setLoadingPiece] = useState(false);
   const [saving, setSaving] = useState<"publish" | "draft" | null>(null);
-  const disabled = saving !== null;
+  const disabled = saving !== null || loadingPiece;
 
   const reset = () => {
     setTitle("");
@@ -327,9 +350,55 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     setCollaborators([]);
     setReleaseDate(undefined);
     setAttachments([]);
+    setAttachmentsTouched(false);
     setError(null);
     setConfirmCloseOpen(false);
   };
+
+  // Al abrir en modo edición, trae la pieza completa y precarga el Canvas;
+  // al abrir en modo creación, garantiza estado limpio (por si el modal quedó
+  // con datos de una edición anterior — es una única instancia persistente).
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!pieceId) {
+      reset();
+      return;
+    }
+    let cancelled = false;
+    setLoadingPiece(true);
+    setError(null);
+    getPortfolioPieceForEdit(pieceId)
+      .then((piece) => {
+        if (cancelled) return;
+        setTitle(piece.title);
+        setCategory(piece.category === "Documento" ? "" : piece.category);
+        setCoverUrl(piece.coverUrl);
+        setBlocks(piece.contentBlocks);
+        setTags(piece.tags);
+        setCollaborators(piece.collaborators);
+        setReleaseDate(piece.releaseDate ? new Date(piece.releaseDate) : undefined);
+        setAttachments(
+          piece.gallery.map((url, index) => ({
+            id: `${pieceId}-${index}`,
+            name: `Archivo ${index + 1}`,
+            url,
+            kind: inferAttachmentKind(url),
+          })),
+        );
+        setAttachmentsTouched(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "No se pudo cargar el proyecto.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPiece(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, pieceId]);
 
   const handleCoverUpload = async (file: File) => {
     setCoverUploading(true);
@@ -362,9 +431,10 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     setError(null);
     setSaving(publish ? "publish" : "draft");
     try {
-      await createPortfolioPiece({
+      const payload = {
         title,
         content: markdown,
+        contentBlocks: blocks,
         category: category || undefined,
         coverUrl: coverUrl || undefined,
         isPublic: publish,
@@ -372,7 +442,12 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
         tags,
         collaborators,
         releaseDate,
-      });
+      };
+      if (pieceId) {
+        await updatePortfolioPiece(pieceId, payload);
+      } else {
+        await createPortfolioPiece(payload);
+      }
       reset();
       onClose();
       router.refresh();
@@ -383,11 +458,12 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     }
   };
 
-  // Ya con archivos adjuntados, cerrar por accidente (click afuera, Escape o
-  // la X) pierde ese avance: se advierte antes de salir en vez de cerrar directo.
+  // Con archivos adjuntados EN ESTA SESIÓN, cerrar por accidente (click
+  // afuera, Escape o la X) pierde ese avance: se advierte antes de salir en
+  // vez de cerrar directo. No aplica a los adjuntos que ya traía la pieza.
   const handleAttemptClose = () => {
     if (disabled) return;
-    if (attachments.length > 0) {
+    if (attachmentsTouched) {
       setConfirmCloseOpen(true);
       return;
     }
@@ -408,6 +484,11 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
           disabled={disabled}
           style={{ paddingRight: "4rem" }}
         />
+        {loadingPiece ? (
+          <Row fill horizontal="center" vertical="center" paddingY="80">
+            <Spinner size="l" ariaLabel="Cargando proyecto" />
+          </Row>
+        ) : (
         <Column fillWidth flex={1} paddingTop="16" style={{ minHeight: 0 }}>
           <ResizableSplit
             defaultSplit={SPLIT_DEFAULT}
@@ -574,7 +655,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                     loading={saving === "publish"}
                     disabled={disabled}
                   >
-                    Publicar proyecto
+                    {pieceId ? "Guardar cambios" : "Publicar proyecto"}
                   </Button>
                   <Button
                     fillWidth
@@ -590,13 +671,17 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
             }
           />
         </Column>
+        )}
       </WideDialog>
 
       <AttachFilesModal
         isOpen={isAttachOpen}
         onClose={() => setAttachOpen(false)}
         initialAttachments={attachments}
-        onConfirm={setAttachments}
+        onConfirm={(next) => {
+          setAttachments(next);
+          setAttachmentsTouched(true);
+        }}
       />
 
       <Dialog

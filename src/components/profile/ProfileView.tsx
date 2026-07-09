@@ -1,16 +1,21 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Avatar,
   Button,
   Card,
   Column,
+  ContextMenu,
+  Dialog,
+  Feedback,
   Flex,
   Grid,
   Heading,
   Icon,
   Media,
+  Option,
   RevealFx,
   Row,
   SegmentedControl,
@@ -23,7 +28,7 @@ import type { ProjectStatus } from "@/lib/projectStatus";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import { CoverUploadDialog, PartnerSettingsDialog } from "./PartnerProfileEditDialogs";
 import styles from "./ProfileView.module.scss";
-import { setPieceVisibility } from "@/app/actions/portfolioPieces";
+import { deletePortfolioPiece, setPieceVisibility } from "@/app/actions/portfolioPieces";
 import { CreateProjectModal } from "./CreateProjectModal";
 
 export interface PartnerProject {
@@ -87,8 +92,20 @@ function formatCount(value: number) {
 
 // Tarjeta de pieza publicada. Para visitantes toda la tarjeta enlaza al caso
 // de estudio; para el dueño solo la portada enlaza, dejando el switch de
-// visibilidad (público ↔ borrador) operable sin navegar.
-function PieceCard({ piece, isOwnProfile }: { piece: PartnerPiece; isOwnProfile: boolean }) {
+// visibilidad (público ↔ borrador) operable sin navegar. El dueño también
+// puede clic-derecho (o mantener presionado en táctil) para editar/ocultar/
+// eliminar vía ContextMenu.
+function PieceCard({
+  piece,
+  isOwnProfile,
+  onEdit,
+  onRequestDelete,
+}: {
+  piece: PartnerPiece;
+  isOwnProfile: boolean;
+  onEdit: () => void;
+  onRequestDelete: () => void;
+}) {
   const [isPublic, setIsPublic] = useState(piece.isPublic);
   const [saving, setSaving] = useState(false);
 
@@ -127,7 +144,7 @@ function PieceCard({ piece, isOwnProfile }: { piece: PartnerPiece; isOwnProfile:
     </Column>
   );
 
-  return (
+  const card = (
     <Card
       href={isOwnProfile ? undefined : piece.href}
       fillWidth
@@ -183,6 +200,44 @@ function PieceCard({ piece, isOwnProfile }: { piece: PartnerPiece; isOwnProfile:
       </Column>
     </Card>
   );
+
+  if (!isOwnProfile) return card;
+
+  return (
+    <ContextMenu
+      fillWidth
+      placement="bottom-start"
+      onSelect={(value) => {
+        if (value === "edit") onEdit();
+        else if (value === "toggle") toggleVisibility();
+        else if (value === "delete") onRequestDelete();
+      }}
+      dropdown={
+        <Column minWidth={14} padding="4" gap="2">
+          <Option
+            label="Editar"
+            value="edit"
+            hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
+          />
+          <Option
+            label={isPublic ? "Ocultar" : "Mostrar"}
+            value="toggle"
+            hasPrefix={
+              <Icon name={isPublic ? "eyeOff" : "eye"} size="s" onBackground="neutral-weak" />
+            }
+          />
+          <Option
+            label="Eliminar"
+            value="delete"
+            danger
+            hasPrefix={<Icon name="trash" size="s" onBackground="danger-strong" />}
+          />
+        </Column>
+      }
+    >
+      {card}
+    </ContextMenu>
+  );
 }
 
 export function ProfileView({
@@ -199,9 +254,34 @@ export function ProfileView({
   projects,
   pieces,
 }: ProfileViewProps) {
+  const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
   const [openDialog, setOpenDialog] = useState<"avatar" | "cover" | "info" | null>(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
+  const [editPieceId, setEditPieceId] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<PartnerPiece | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const closeCreateModal = () => {
+    setCreateOpen(false);
+    setEditPieceId(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteCandidate) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deletePortfolioPiece(deleteCandidate.id);
+      setDeleteCandidate(null);
+      router.refresh();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "No se pudo eliminar el proyecto.");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
@@ -387,24 +467,15 @@ export function ProfileView({
                 buttons={categories.map((c) => ({ value: c, label: c }))}
               />
 
-              {isOwnProfile && (
-                <Flex
-                  background="brand-alpha-weak"
-                  padding="20"
-                  radius="m"
-                  fillWidth
-                  vertical="center"
-                  horizontal="between"
-                  gap="16"
-                  s={{ direction: "column", horizontal: "start" }}
-                >
+              {isOwnProfile && pieces.length > 0 && (
+                <Flex background="brand-alpha-weak" padding="20" radius="m" fillWidth vertical="center" gap="16">
+                  <Icon name="edit" size="m" onBackground="brand-strong" />
                   <Column gap="4">
-                    <Text variant="heading-strong-s">Impulsa tus proyectos</Text>
+                    <Text variant="heading-strong-s">Administra tus proyectos</Text>
                     <Text variant="body-default-s" onBackground="neutral-weak">
-                      Llega a más clientes destacando tu trabajo en la portada de Explorar.
+                      Haz clic derecho sobre una tarjeta (o mantén presionado en pantallas táctiles) para editarla, ocultarla o eliminarla.
                     </Text>
                   </Column>
-                  <Button variant="primary" size="m">Probar Pro</Button>
                 </Flex>
               )}
 
@@ -418,7 +489,19 @@ export function ProfileView({
               ) : (
                 <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
                   {visiblePieces.map((piece) => (
-                    <PieceCard key={piece.id} piece={piece} isOwnProfile={isOwnProfile} />
+                    <PieceCard
+                      key={piece.id}
+                      piece={piece}
+                      isOwnProfile={isOwnProfile}
+                      onEdit={() => {
+                        setEditPieceId(piece.id);
+                        setCreateOpen(true);
+                      }}
+                      onRequestDelete={() => {
+                        setDeleteError(null);
+                        setDeleteCandidate(piece);
+                      }}
+                    />
                   ))}
 
                   {/* Tarjeta de acción "Crear un proyecto" */}
@@ -474,7 +557,49 @@ export function ProfileView({
       </Column>
 
       {isOwnProfile && (
-        <CreateProjectModal isOpen={isCreateOpen} onClose={() => setCreateOpen(false)} />
+        <>
+          <CreateProjectModal isOpen={isCreateOpen} onClose={closeCreateModal} pieceId={editPieceId} />
+
+          <Dialog
+            isOpen={deleteCandidate !== null}
+            onClose={() => !deleting && setDeleteCandidate(null)}
+            title="¿Eliminar este proyecto?"
+            footer={
+              <Row fillWidth gap="8" horizontal="end">
+                <Button
+                  variant="secondary"
+                  size="m"
+                  onClick={() => setDeleteCandidate(null)}
+                  disabled={deleting}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="danger"
+                  size="m"
+                  onClick={handleConfirmDelete}
+                  loading={deleting}
+                >
+                  Sí, eliminar
+                </Button>
+              </Row>
+            }
+          >
+            <Column gap="16" fillWidth>
+              <Feedback
+                variant="danger"
+                icon
+                description="Esta acción no se puede deshacer. El proyecto y todo su contenido se eliminarán permanentemente."
+              />
+              {deleteCandidate && (
+                <Text variant="body-default-m">
+                  Vas a eliminar <strong>{deleteCandidate.title}</strong>.
+                </Text>
+              )}
+              {deleteError && <Feedback variant="danger" description={deleteError} />}
+            </Column>
+          </Dialog>
+        </>
       )}
     </RevealFx>
   );
