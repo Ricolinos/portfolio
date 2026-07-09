@@ -12,6 +12,7 @@ import {
   FlipFx,
   Grid,
   Heading,
+  HoloFx,
   InfiniteScroll,
   Media,
   RevealFx,
@@ -63,23 +64,26 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
       style={{ alignSelf: "flex-start" }}
     >
       {imageSrc ? (
-        <Media
-          src={imageSrc}
-          alt={designer.name}
-          fill
-          fillHeight
-          objectFit="cover"
-          position="absolute"
-          top="0"
-          left="0"
-          sizes="(max-width: 1024px) 100vw, 33vw"
-        />
+        // HoloFx es el wrapper absoluto full-bleed (evita romper el aspect
+        // ratio + alignSelf de la Column padre); la Media queda dentro, sin
+        // posicionarse ella misma, rellenando el "base" de HoloFx al 100%.
+        <HoloFx position="absolute" top="0" left="0" fill radius="l">
+          <Media
+            src={imageSrc}
+            alt={designer.name}
+            fill
+            fillHeight
+            objectFit="cover"
+            sizes="(max-width: 1024px) 100vw, 33vw"
+          />
+        </HoloFx>
       ) : (
         <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
       )}
 
       {/* Franja de degradado (con patrón de puntos) que hace legible la cita
-          sobre la imagen, ancla abajo y se desvanece hacia arriba. */}
+          sobre la imagen, ancla abajo y se desvanece hacia arriba. Se mantiene
+          angosta (~30%) para no tapar demasiada imagen. */}
       <Fade
         to="top"
         base="page"
@@ -89,17 +93,25 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         left="0"
         fillWidth
         zIndex={1}
-        style={{ height: "65%" }}
+        style={{ height: "30%" }}
       />
 
-      <Column position="absolute" bottom="0" left="0" fillWidth padding="20" zIndex={2}>
+      <Column position="absolute" bottom="0" left="0" fillWidth padding="16" zIndex={2}>
         {designer.cardQuote ? (
           <Text
             as="blockquote"
             variant="heading-default-s"
             onBackground="neutral-strong"
             wrap="balance"
-            style={{ fontStyle: "italic" }}
+            style={{
+              fontStyle: "italic",
+              // Limita a 3 líneas para que la cita quede contenida dentro de
+              // la franja del Fade, incluso con el máximo de 180 caracteres.
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
           >
             “{designer.cardQuote}”
           </Text>
