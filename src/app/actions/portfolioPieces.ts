@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
 export interface CreatePortfolioPieceInput {
   title: string;
   content: string;
+  category?: string;
+  // Data URL (sin bucket de Storage todavía, igual que gallery)
+  coverUrl?: string;
   downloadUrl?: string;
   resourcePassword?: string;
   isPublic: boolean;
@@ -37,6 +40,8 @@ export async function createPortfolioPiece(input: CreatePortfolioPieceInput): Pr
     data: {
       title,
       markdownContent: content,
+      category: input.category?.trim() || undefined,
+      coverUrl: input.coverUrl || null,
       downloadUrl: input.downloadUrl?.trim() || null,
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,

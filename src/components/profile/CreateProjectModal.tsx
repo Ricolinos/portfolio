@@ -18,10 +18,10 @@ import {
   Row,
   ScrollLock,
   Select,
-  SplitView,
   TagInput,
   Text,
 } from "@once-ui-system/core";
+import { MediaUpload } from "@once-ui-system/core/modules";
 import { createPortfolioPiece } from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { AttachFilesModal, type ProjectAttachment } from "./AttachFilesModal";
@@ -43,13 +43,25 @@ const modalBackdrop = <BrandModalBackdrop />;
 // 67.5 lienzo + 2 (gap) + 25 panel = ~100.5rem; sin el margen el panel se
 // recortaba contra el borde derecho del diálogo.
 const DIALOG_MAX_WIDTH = 108; // rem (1728px)
-// SplitView reparte por proporción, no por px: ~72/28 replica el 1080/400
-// anterior sobre el ancho útil del diálogo, con límites para que ninguno
-// de los dos lados se aplaste al arrastrar el separador.
-const SPLIT_DEFAULT = 0.72;
-const SPLIT_MIN = 0.55;
-const SPLIT_MAX = 0.85;
+// El panel de herramientas es de ancho fijo (no proporcional): así el Canvas
+// siempre se queda con la mayoría del espacio. SplitView (Once UI 1.7.12) se
+// descartó a propósito: sus props defaultSplit/minSplit/maxSplit no hacen
+// nada —el hook interno los ignora y clampea 20-80% con estado inicial fijo
+// en 30%—, lo que en producción invertía la proporción (lienzo 30%, panel 70%).
+const TOOLS_PANEL_MIN_WIDTH = 20; // rem
+const TOOLS_PANEL_MAX_WIDTH = 24; // rem
 const MAX_TAGS = 5;
+
+// Sin bucket de Storage todavía: la portada se guarda como data URL en
+// PortfolioPiece.coverUrl, igual que la galería de AttachFilesModal.
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+    reader.readAsDataURL(file);
+  });
+}
 
 function hasForeignDialogOpen(ownDialog: HTMLElement | null): boolean {
   if (!ownDialog) return false;
@@ -230,7 +242,11 @@ interface CreateProjectModalProps {
 export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("");
+  const [coverUrl, setCoverUrl] = useState("");
+  const [coverUploading, setCoverUploading] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
+  const [isAddSectionOpen, setAddSectionOpen] = useState(false);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [resourcePassword, setResourcePassword] = useState("");
@@ -247,7 +263,10 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
 
   const reset = () => {
     setTitle("");
+    setCategory("");
+    setCoverUrl("");
     setBlocks([]);
+    setAddSectionOpen(false);
     setDownloadUrl("");
     setResourcePassword("");
     setVisibility("public");
@@ -257,6 +276,29 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     setAttachments([]);
     setError(null);
     setConfirmCloseOpen(false);
+  };
+
+  const handleCoverUpload = async (file: File) => {
+    setCoverUploading(true);
+    try {
+      const url = await readFileAsDataUrl(file);
+      setCoverUrl(url);
+    } catch {
+      setError("No se pudo subir la portada. Intenta de nuevo.");
+    } finally {
+      setCoverUploading(false);
+    }
+  };
+
+  const moveBlock = (id: string, direction: "up" | "down") => {
+    setBlocks((current) => {
+      const index = current.findIndex((b) => b.id === id);
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
   };
 
   const handleSave = async (publish: boolean) => {
@@ -270,6 +312,8 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
       await createPortfolioPiece({
         title,
         content: markdown,
+        category: category || undefined,
+        coverUrl: coverUrl || undefined,
         downloadUrl: downloadUrl || undefined,
         resourcePassword: resourcePassword || undefined,
         isPublic: publish && visibility === "public",
@@ -313,50 +357,115 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
           disabled={disabled}
           style={{ paddingRight: "4rem" }}
         />
-        <SplitView
-          fillWidth
-          paddingTop="16"
-          style={{ height: "44rem" }}
-          defaultSplit={SPLIT_DEFAULT}
-          minSplit={SPLIT_MIN}
-          maxSplit={SPLIT_MAX}
-          leftPanel={
-            // Lienzo: contenedor propio, separado del panel lateral por el
-            // divisor arrastrable de SplitView.
+        <Row fillWidth paddingTop="16" gap="16" style={{ height: "44rem" }}>
+          {/* Lienzo: se queda con todo el espacio restante junto al panel de
+              herramientas, que ahora es de ancho fijo (ver TOOLS_PANEL_*). */}
+          <Column flex={1} fillHeight overflowY="auto" style={{ minWidth: 0 }}>
             <Card
               fillWidth
               padding="24"
               radius="l"
               direction="column"
-              gap="12"
+              gap="16"
               border="neutral-alpha-weak"
               style={{ minHeight: "100%" }}
             >
-              {blocks.length === 0 ? (
-                <Column fillWidth fillHeight horizontal="center" vertical="center" gap="8">
-                  <Text variant="body-default-s" onBackground="neutral-weak" align="center">
-                    Usa los botones de &quot;Añadir contenido&quot; para construir tu proyecto.
+              <Feedback
+                variant="info"
+                description="Arma tu caso de estudio por secciones con el botón «Añadir sección»; el orden en que las acomodes será el orden final de la publicación."
+              />
+
+              <Input
+                id="project-category"
+                placeholder="Categoría (Branding, Motion, Web…)"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={disabled}
+              />
+
+              <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
+                <Row gap="8" vertical="center">
+                  <Icon name="images" size="s" onBackground="neutral-weak" />
+                  <Text variant="label-strong-s" onBackground="neutral-weak">
+                    Portada
                   </Text>
+                </Row>
+                <MediaUpload
+                  aspectRatio="16 / 9"
+                  accept="image/*"
+                  compress
+                  resizeMaxWidth={1600}
+                  resizeMaxHeight={1600}
+                  initialPreviewImage={coverUrl || null}
+                  emptyState="Subir"
+                  loading={coverUploading}
+                  onFileUpload={handleCoverUpload}
+                />
+              </Column>
+
+              {blocks.map((block, index) => (
+                <ContentBlockCard
+                  key={block.id}
+                  block={block}
+                  disabled={disabled}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < blocks.length - 1}
+                  onMoveUp={() => moveBlock(block.id, "up")}
+                  onMoveDown={() => moveBlock(block.id, "down")}
+                  onChange={(next) =>
+                    setBlocks((current) => current.map((b) => (b.id === next.id ? next : b)))
+                  }
+                  onRemove={() =>
+                    setBlocks((current) => current.filter((b) => b.id !== block.id))
+                  }
+                />
+              ))}
+
+              {isAddSectionOpen && (
+                <Column fillWidth gap="8" padding="16" radius="m" border="neutral-alpha-weak">
+                  <Text variant="label-strong-s" onBackground="neutral-weak">
+                    Añadir sección
+                  </Text>
+                  <Grid columns={2} gap="8">
+                    {BLOCK_TYPES.map(({ type, label, icon }) => (
+                      <ContentTypeTile
+                        key={type}
+                        icon={icon}
+                        label={label}
+                        disabled={disabled}
+                        onClick={() => {
+                          setBlocks((current) => [...current, createBlock(type)]);
+                          setAddSectionOpen(false);
+                        }}
+                      />
+                    ))}
+                  </Grid>
                 </Column>
-              ) : (
-                blocks.map((block) => (
-                  <ContentBlockCard
-                    key={block.id}
-                    block={block}
-                    disabled={disabled}
-                    onChange={(next) =>
-                      setBlocks((current) => current.map((b) => (b.id === next.id ? next : b)))
-                    }
-                    onRemove={() =>
-                      setBlocks((current) => current.filter((b) => b.id !== block.id))
-                    }
-                  />
-                ))
               )}
+
+              <Button
+                variant="secondary"
+                prefixIcon="plus"
+                onClick={() => setAddSectionOpen((open) => !open)}
+                disabled={disabled}
+              >
+                Añadir sección
+              </Button>
             </Card>
-          }
-          rightPanel={
-            <Column gap="16" paddingLeft="16">
+          </Column>
+
+          {/* Panel de herramientas: ancho acotado (no proporcional) para que
+              el Canvas siempre tenga buena visibilidad. */}
+          <Column
+            gap="16"
+            fillHeight
+            overflowY="auto"
+            style={{
+              width: "100%",
+              minWidth: `${TOOLS_PANEL_MIN_WIDTH}rem`,
+              maxWidth: `${TOOLS_PANEL_MAX_WIDTH}rem`,
+            }}
+          >
             <Card fillWidth padding="16" radius="l" direction="column" gap="12">
               <Text variant="label-strong-s" onBackground="neutral-weak">
                 Adjuntar archivos
@@ -374,23 +483,6 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
               <Text variant="body-default-xs" onBackground="neutral-weak">
                 Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
               </Text>
-            </Card>
-
-            <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-              <Text variant="label-strong-s" onBackground="neutral-weak">
-                Añadir contenido
-              </Text>
-              <Grid columns={2} gap="8">
-                {BLOCK_TYPES.map(({ type, label, icon }) => (
-                  <ContentTypeTile
-                    key={type}
-                    icon={icon}
-                    label={label}
-                    disabled={disabled}
-                    onClick={() => setBlocks((current) => [...current, createBlock(type)])}
-                  />
-                ))}
-              </Grid>
             </Card>
 
             <Card fillWidth padding="16" radius="l" direction="column" gap="12">
@@ -497,9 +589,8 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                 Guardar como borrador
               </Button>
             </Column>
-            </Column>
-          }
-        />
+          </Column>
+        </Row>
       </WideDialog>
 
       <AttachFilesModal
