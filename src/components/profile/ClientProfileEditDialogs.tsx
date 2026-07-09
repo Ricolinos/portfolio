@@ -517,8 +517,12 @@ export function EditInfoDialog({
       ) : (
         <Column gap="16" fillWidth paddingTop="12">
           <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
-            {/* ── Navegación lateral ── */}
-            <Column gap="4" minWidth={14} maxWidth={14} s={{ style: { maxWidth: "100%", width: "100%" } }}>
+            {/* ── Navegación lateral (escritorio): máx. 30% del ancho ── */}
+            <Column
+              gap="4"
+              style={{ flex: "0 0 30%", maxWidth: "30%", minWidth: 0 }}
+              s={{ hide: true }}
+            >
               {EDIT_SECTIONS.map((s) => (
                 <ToggleButton
                   key={s.key}
@@ -531,6 +535,25 @@ export function EditInfoDialog({
                 />
               ))}
             </Column>
+
+            {/* ── Navegación móvil: solo iconos arriba, con indicador de activa ── */}
+            <Row fillWidth gap="8" horizontal="center" hide s={{ hide: false }}>
+              {EDIT_SECTIONS.map((s) => (
+                <Column key={s.key} gap="4" horizontal="center">
+                  <ToggleButton
+                    prefixIcon={s.icon}
+                    selected={section === s.key}
+                    onClick={() => setSection(s.key)}
+                    aria-label={s.label}
+                  />
+                  {/* Indicador de sección activa */}
+                  <Line
+                    background={section === s.key ? "brand-strong" : "transparent"}
+                    style={{ width: 16, height: 2 }}
+                  />
+                </Column>
+              ))}
+            </Row>
 
             <Line vert background="neutral-alpha-weak" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
 
@@ -599,9 +622,10 @@ export function EditInfoDialog({
                       value={form.whatsapp}
                       onChange={set("whatsapp")}
                     />
+                    {/* Label corto: los labels a dos líneas se enciman con el valor */}
                     <Input
                       id="profile-secondary-email"
-                      label="Segundo correo electrónico"
+                      label="Segundo correo"
                       type="email"
                       value={form.secondaryEmail}
                       onChange={set("secondaryEmail")}
