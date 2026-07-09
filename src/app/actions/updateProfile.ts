@@ -101,6 +101,18 @@ export async function updatePartnerVisibility(isPublic: boolean): Promise<void> 
   revalidatePath("/explorar/designerds");
 }
 
+// Opt-in del Partner para exponer su WhatsApp en su perfil. Aun activado,
+// solo lo ven usuarios logueados de la plataforma, nunca visitantes anónimos
+// (el filtro por sesión vive en src/app/[username]/page.tsx).
+export async function updatePartnerContactSharing(shareWhatsapp: boolean): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("No autenticado");
+  const partner = await requirePartner(userId);
+
+  await prisma.user.update({ where: { id: userId }, data: { shareWhatsapp } });
+  if (partner.username) revalidatePath(`/${partner.username}`);
+}
+
 // Tras user.setProfileImage() en el cliente, Clerk ya tiene la imagen nueva;
 // esto copia la URL resultante a la BD para que el perfil no quede desfasado.
 export async function syncProfileImage(): Promise<void> {
