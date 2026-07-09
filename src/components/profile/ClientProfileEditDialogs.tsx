@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useClerk, useUser } from "@clerk/nextjs";
 import { Button, Column, Feedback, Input, Modal, Row, Slider, Text } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { updateProfileInfo, syncProfileImage, type ProfileInfoInput } from "@/app/actions/updateProfile";
@@ -396,6 +396,52 @@ export function EditInfoDialog({
             disabled={mottoTooLong}
           >
             Guardar cambios
+          </Button>
+        </Row>
+      </Column>
+    </Modal>
+  );
+}
+
+// ─── Seguridad y privacidad ───────────────────────────────────────────────────
+// Las herramientas de protección de la cuenta (contraseña, verificación en dos
+// pasos, sesiones activas) viven en el panel de cuenta de Clerk; este diálogo
+// explica la privacidad del perfil y abre ese panel.
+export function SecurityPrivacyDialog({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const { openUserProfile } = useClerk();
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Seguridad y privacidad" backdrop={modalBackdrop}>
+      <Column gap="16" fillWidth paddingTop="12">
+        <Feedback
+          variant="info"
+          title="Tu perfil es privado"
+          description="Nadie más puede ver tu perfil de cliente, ni siquiera con el enlace directo. Tus diseñadores solo ven los proyectos y recursos que tú decidas compartir con ellos."
+        />
+        <Text variant="body-default-s" onBackground="neutral-weak">
+          Protege tu cuenta desde el panel de seguridad: ahí puedes cambiar tu contraseña, activar la
+          verificación en dos pasos y cerrar sesiones abiertas en otros dispositivos.
+        </Text>
+        <Row fillWidth gap="8" horizontal="end">
+          <Button variant="secondary" size="m" onClick={onClose}>
+            Cerrar
+          </Button>
+          <Button
+            variant="primary"
+            size="m"
+            prefixIcon="shield"
+            onClick={() => {
+              onClose();
+              openUserProfile();
+            }}
+          >
+            Abrir panel de seguridad
           </Button>
         </Row>
       </Column>

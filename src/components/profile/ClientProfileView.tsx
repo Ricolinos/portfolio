@@ -27,7 +27,7 @@ import type {
   CollabPartnerSummary,
   CollabProjectData,
 } from "@/lib/collab";
-import { AvatarUploadDialog, EditInfoDialog } from "./ClientProfileEditDialogs";
+import { AvatarUploadDialog, EditInfoDialog, SecurityPrivacyDialog } from "./ClientProfileEditDialogs";
 import {
   AddClientResourceDialog,
   DeleteClientResourceDialog,
@@ -95,24 +95,20 @@ const STATUS_VARIANTS: Record<ProjectStatus, "neutral" | "info" | "warning" | "s
 
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
 
+// href null = acceso aún sin destino (pendiente definir la página de nuevo
+// proyecto); se pinta como panel estático, no como tarjeta clicable.
 const QUICK_ACCESS = [
   {
     icon: "search",
     title: "Buscar talento",
     description: "Encuentra diseñadores para tu próximo proyecto.",
-    href: "/explorar",
+    href: "/explorar/designerds",
   },
   {
     icon: "plus",
     title: "Nuevo proyecto",
-    description: "Cotiza una nueva idea en minutos.",
-    href: "/servicios/cotizador",
-  },
-  {
-    icon: "download",
-    title: "Recursos",
-    description: "Materiales compartidos por tus diseñadores.",
-    href: "/recursos",
+    description: "Muy pronto podrás iniciar proyectos desde aquí.",
+    href: null,
   },
 ] as const;
 
@@ -348,7 +344,7 @@ export function ClientProfileView({
   collabProjects = [],
   resources = [],
 }: ClientProfileViewProps) {
-  const [openDialog, setOpenDialog] = useState<"avatar" | "info" | null>(null);
+  const [openDialog, setOpenDialog] = useState<"avatar" | "info" | "security" | null>(null);
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
   const [resourceDialog, setResourceDialog] = useState<"add" | null>(null);
   const [shareCandidate, setShareCandidate] = useState<ClientResourceData | null>(null);
@@ -433,66 +429,90 @@ export function ClientProfileView({
         <Column fillWidth paddingX="32" paddingTop="40" gap="24">
 
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
-          <Card fillWidth padding="24" radius="l">
-            <Row fillWidth gap="20" vertical="center" horizontal="between" wrap>
-              {isOwnProfile ? (
-                <ContextMenu
-                  placement="bottom-start"
-                  onSelect={(value) => setOpenDialog(value as "avatar" | "info")}
-                  style={{ cursor: "pointer" }}
-                  dropdown={
-                    <Column minWidth={14} padding="4" gap="2">
-                      <Option
-                        label="Cambiar imagen de perfil"
-                        value="avatar"
-                        hasPrefix={<Icon name="camera" size="s" onBackground="neutral-weak" />}
-                      />
-                      <Option
-                        label="Editar información"
-                        value="info"
-                        hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
-                      />
-                    </Column>
-                  }
-                >
-                  {identity}
-                </ContextMenu>
-              ) : (
-                identity
-              )}
-
-              <Row gap="8" vertical="center">
-                <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
-                <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
-                {isOwnProfile && whatsapp && (
-                  <IconButton
-                    icon="whatsapp"
-                    size="m"
-                    variant="tertiary"
-                    tooltip={`Tu WhatsApp: ${whatsapp}`}
-                    tooltipPosition="bottom"
-                  />
-                )}
+          {(() => {
+            const headerContent = (
+              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap>
+                {identity}
+                <Row gap="8" vertical="center">
+                  <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
+                  <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
+                  {isOwnProfile && whatsapp && (
+                    <IconButton
+                      icon="whatsapp"
+                      size="m"
+                      variant="tertiary"
+                      tooltip={`Tu WhatsApp: ${whatsapp}`}
+                      tooltipPosition="bottom"
+                    />
+                  )}
+                </Row>
               </Row>
-            </Row>
-          </Card>
+            );
+            return (
+              <Card fillWidth padding="24" radius="l">
+                {isOwnProfile ? (
+                  // El menú cubre toda la cabecera, no solo la zona de identidad
+                  <ContextMenu
+                    fillWidth
+                    placement="bottom-start"
+                    onSelect={(value) => setOpenDialog(value as "avatar" | "info" | "security")}
+                    style={{ cursor: "pointer" }}
+                    dropdown={
+                      <Column minWidth={14} padding="4" gap="2">
+                        <Option
+                          label="Cambiar imagen de perfil"
+                          value="avatar"
+                          hasPrefix={<Icon name="camera" size="s" onBackground="neutral-weak" />}
+                        />
+                        <Option
+                          label="Editar perfil"
+                          value="info"
+                          hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
+                        />
+                        <Option
+                          label="Seguridad y privacidad"
+                          value="security"
+                          hasPrefix={<Icon name="shield" size="s" onBackground="neutral-weak" />}
+                        />
+                      </Column>
+                    }
+                  >
+                    {headerContent}
+                  </ContextMenu>
+                ) : (
+                  headerContent
+                )}
+              </Card>
+            );
+          })()}
 
           {/* ── Accesos rápidos ────────────────────────────────────────────── */}
-          <Grid columns={3} s={{ columns: 1 }} gap="16" fillWidth>
-            {QUICK_ACCESS.map((item) => (
-              <Card key={item.href} fillWidth padding="20" radius="l" href={item.href} direction="column" gap="12">
-                <Row fillWidth horizontal="between" vertical="center">
-                  <Icon name={item.icon} size="m" onBackground="brand-weak" />
-                  <Icon name="arrowUpRight" size="s" onBackground="neutral-weak" />
-                </Row>
-                <Column gap="4">
-                  <Text variant="heading-strong-s">{item.title}</Text>
-                  <Text variant="body-default-s" onBackground="neutral-weak">
-                    {item.description}
-                  </Text>
+          <Grid columns={2} s={{ columns: 1 }} gap="16" fillWidth>
+            {QUICK_ACCESS.map((item) => {
+              const inner = (
+                <>
+                  <Row fillWidth horizontal="between" vertical="center">
+                    <Icon name={item.icon} size="m" onBackground="brand-weak" />
+                    {item.href && <Icon name="arrowUpRight" size="s" onBackground="neutral-weak" />}
+                  </Row>
+                  <Column gap="4">
+                    <Text variant="heading-strong-s">{item.title}</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      {item.description}
+                    </Text>
+                  </Column>
+                </>
+              );
+              return item.href ? (
+                <Card key={item.title} fillWidth padding="20" radius="l" href={item.href} direction="column" gap="12">
+                  {inner}
+                </Card>
+              ) : (
+                <Column key={item.title} fillWidth padding="20" radius="l" background="surface" border="neutral-alpha-weak" gap="12">
+                  {inner}
                 </Column>
-              </Card>
-            ))}
+              );
+            })}
           </Grid>
 
           {/* ── Tablero de proyectos + paneles laterales ───────────────────── */}
@@ -673,7 +693,7 @@ export function ClientProfileView({
                   </>
                 )}
                 <Line background="neutral-alpha-weak" />
-                <Button href="/explorar" variant="secondary" size="s" fillWidth prefixIcon="search">
+                <Button href="/explorar/designerds" variant="secondary" size="s" fillWidth prefixIcon="search">
                   Buscar más talento
                 </Button>
               </Column>
@@ -718,6 +738,10 @@ export function ClientProfileView({
                 brand: brand ?? "",
                 motto: motto ?? "",
               }}
+            />
+            <SecurityPrivacyDialog
+              isOpen={openDialog === "security"}
+              onClose={() => setOpenDialog(null)}
             />
             <NewCollabProjectDialog
               isOpen={collabDialogOpen}
