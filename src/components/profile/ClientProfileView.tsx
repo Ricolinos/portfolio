@@ -433,19 +433,32 @@ export function ClientProfileView({
             const headerContent = (
               <Row fillWidth gap="20" vertical="center" horizontal="between" wrap>
                 {identity}
-                <Row gap="8" vertical="center">
-                  <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
-                  <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
-                  {isOwnProfile && whatsapp && (
-                    <IconButton
-                      icon="whatsapp"
-                      size="m"
-                      variant="tertiary"
-                      tooltip={`Tu WhatsApp: ${whatsapp}`}
-                      tooltipPosition="bottom"
-                    />
+                <Column gap="8" horizontal="end" style={{ minWidth: 0 }}>
+                  <Row gap="8" vertical="center">
+                    <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
+                    <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
+                    {isOwnProfile && whatsapp && (
+                      <IconButton
+                        icon="whatsapp"
+                        size="m"
+                        variant="tertiary"
+                        tooltip={`Tu WhatsApp: ${whatsapp}`}
+                        tooltipPosition="bottom"
+                      />
+                    )}
+                  </Row>
+                  {isOwnProfile && (
+                    <Text
+                      variant="label-default-s"
+                      onBackground="neutral-weak"
+                      align="right"
+                      style={{ maxWidth: 260, overflowWrap: "anywhere" }}
+                    >
+                      Haz click derecho sobre la zona izquierda (en computadora) o tap con dos dedos
+                      (en dispositivos touch) para acceder a la configuración de tu cuenta.
+                    </Text>
                   )}
-                </Row>
+                </Column>
               </Row>
             );
             return (
