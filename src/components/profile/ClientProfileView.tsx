@@ -436,7 +436,7 @@ export function ClientProfileView({
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
           {(() => {
             const headerContent = (
-              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column" }}>
+              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column", horizontal: "start" }}>
                 {identity}
                 <Row gap="20" vertical="center" wrap s={{ direction: "column", style: { width: "100%" } }}>
                   {isOwnProfile && (
@@ -476,7 +476,9 @@ export function ClientProfileView({
                     fillWidth
                     placement="bottom-start"
                     onSelect={(value) => setOpenDialog(value as "avatar" | "info" | "security")}
-                    style={{ cursor: "pointer" }}
+                    // fillWidth del ContextMenu no estira su wrapper interno: sin
+                    // width explícito el contenido no alcanza el borde derecho del card
+                    style={{ cursor: "pointer", width: "100%" }}
                     dropdown={
                       <Column minWidth={14} padding="4" gap="2">
                         <Option
