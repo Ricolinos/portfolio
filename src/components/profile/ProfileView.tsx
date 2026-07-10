@@ -202,6 +202,7 @@ function PieceCard({
     <Card
       href={isOwnProfile ? undefined : piece.href}
       fillWidth
+      minWidth={0}
       direction="column"
       gap="12"
       padding="12"
@@ -266,6 +267,7 @@ function PieceCard({
   return (
     <ContextMenu
       fillWidth
+      style={{ minWidth: 0 }}
       placement="bottom-start"
       onSelect={(value) => {
         if (value === "edit") onEdit();
@@ -603,7 +605,13 @@ export function ProfileView({
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
           {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
-          <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start" transition="macro-medium">
+          <Row
+            fillWidth
+            gap="32"
+            s={{ direction: "column", horizontal: "center" }}
+            vertical="start"
+            transition="macro-medium"
+          >
 
             {/* Columna izquierda — identidad, contacto y métricas */}
             <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
@@ -873,8 +881,7 @@ export function ProfileView({
                 </Column>
               ) : (
                 <Grid
-                  columns={4}
-                  l={{ columns: 3 }}
+                  columns={3}
                   m={{ columns: 2 }}
                   s={{ columns: 1 }}
                   gap="20"
@@ -890,6 +897,8 @@ export function ProfileView({
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") setCreateOpen(true);
                       }}
+                      fillWidth
+                      minWidth={0}
                       border="neutral-medium"
                       radius="l"
                       style={{ borderStyle: "dashed", cursor: "pointer" }}
