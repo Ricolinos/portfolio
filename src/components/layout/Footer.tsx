@@ -17,8 +17,9 @@ const serviceLinks: FooterLink[] = [
 ];
 
 const accountLinks: FooterLink[] = [
-  { label: "Perfil", href: "/dashboard/client/perfil" },
-  { label: "Proyectos", href: "/dashboard/client/projects" },
+  // "Proyectos" apunta al router universal (src/app/dashboard/page.tsx), que
+  // redirige por rol (client|collaborator); el Footer no tiene noción de rol.
+  { label: "Panel de proyectos", href: "/dashboard" },
   { label: "Configuración", href: "/dashboard/client/settings" },
 ];
 
