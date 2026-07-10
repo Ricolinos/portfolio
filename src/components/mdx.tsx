@@ -561,10 +561,38 @@ const components = {
   MasonryGrid: createMasonryGridElement as any,
 };
 
+// GOTCHA (case study de "3 negocios ideas" 2026-07-10): el bloque "text" del
+// editor (ver ContentBlocks.tsx) guarda el `innerHTML` crudo del
+// contentEditable tal cual, sin sanitizar — cuando el usuario pega contenido
+// desde Word/Google Docs, el navegador inserta HTML válido para el DOM pero
+// con tags vacíos SIN autocerrar (ej. `<br>` en vez de `<br/>`), porque el
+// parser HTML del navegador infiere ese cierre implícitamente. El parser de
+// MDX (micromark, vía next-mdx-remote) NO hace esa inferencia: exige que todo
+// tag vacío venga autocerrado, y si no, interpreta el siguiente `</tag>` que
+// encuentra (ej. `</span>`) como cierre del tag vacío mal anidado y truena
+// con "Unexpected closing tag". Normalizar aquí (en vez de solo al guardar)
+// sana también el Markdown YA guardado en BD sin requerir reeditar/reguardar
+// la pieza — mismo criterio que el resto de los wrappers de este archivo.
+const VOID_HTML_TAG_RE =
+  /<(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)((?:\s+[^<>]*)?)>/gi;
+
+function selfCloseVoidHtmlTags(source: string): string {
+  return source.replace(VOID_HTML_TAG_RE, (_match, tag: string, attrs: string) => {
+    const cleanedAttrs = attrs.replace(/\/\s*$/, "").trim();
+    return cleanedAttrs ? `<${tag} ${cleanedAttrs} />` : `<${tag} />`;
+  });
+}
+
 type CustomMDXProps = MDXRemoteProps & {
   components?: typeof components;
 };
 
-export function CustomMDX(props: CustomMDXProps) {
-  return <MDXRemote {...props} components={{ ...components, ...(props.components || {}) }} />;
+export function CustomMDX({ source, ...props }: CustomMDXProps) {
+  return (
+    <MDXRemote
+      {...props}
+      source={typeof source === "string" ? selfCloseVoidHtmlTags(source) : source}
+      components={{ ...components, ...(props.components || {}) }}
+    />
+  );
 }
