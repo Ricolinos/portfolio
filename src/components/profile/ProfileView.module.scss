@@ -26,8 +26,8 @@
   opacity: 1;
 }
 
-/* Portada editable: mismo patrón que el avatar, en formato panorámico */
-.coverButton {
+/* Tarjeta Designerd editable (cabecera del perfil): mismo patrón que el avatar */
+.cardButton {
   position: relative;
   display: flex;
   width: 100%;
@@ -38,7 +38,7 @@
   cursor: pointer;
 }
 
-.coverEdit {
+.cardEdit {
   position: absolute;
   inset: 0;
   display: flex;
@@ -51,7 +51,7 @@
   transition: opacity 0.2s ease;
 }
 
-.coverButton:hover .coverEdit,
-.coverButton:focus-visible .coverEdit {
+.cardButton:hover .cardEdit,
+.cardButton:focus-visible .cardEdit {
   opacity: 1;
 }

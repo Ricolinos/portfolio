@@ -130,7 +130,6 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         whatsapp={canSeeWhatsapp ? profileUser?.whatsapp : undefined}
         email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
         memberSince={profileUser?.createdAt.toISOString()}
-        coverImageUrl={profileUser?.coverImageUrl}
         isPublic={profileUser?.isPublic ?? true}
         shareWhatsapp={profileUser?.shareWhatsapp ?? false}
         featuredImageUrl={profileUser?.featuredImageUrl}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Avatar,
+  BlobFx,
   Button,
   Card,
   Column,
@@ -13,6 +14,7 @@ import {
   Flex,
   Grid,
   Heading,
+  HoloFx,
   Icon,
   IconButton,
   Line,
@@ -31,7 +33,6 @@ import type { CollabProjectData, PartnerConnectionData, SharedResourceData } fro
 import { respondContactRequest } from "@/app/actions/collab";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import {
-  CoverUploadDialog,
   DesignerCardDialog,
   FeaturedImageUploadDialog,
   PartnerSettingsDialog,
@@ -73,7 +74,6 @@ interface ProfileViewProps {
   whatsapp?: string | null;
   email?: string | null;
   memberSince?: string; // ISO string
-  coverImageUrl?: string | null;
   isPublic?: boolean;
   shareWhatsapp?: boolean;
   // Contenido de la tarjeta Designerd en Explorar (editable por el propio Partner)
@@ -434,6 +434,65 @@ function SharedResourceRow({ resource }: { resource: SharedResourceData }) {
   );
 }
 
+// Versión reducida (sin tilt/flip/cita) de la tarjeta Designerd de Explorar,
+// usada como cabecera del perfil en vez de la portada de ancho completo. El
+// avatar se superpone sobre su borde inferior (ver marginTop: -48px debajo).
+function ProfileDesignerCard({
+  featuredImageUrl,
+  avatarUrl,
+  isOwnProfile,
+  onEditClick,
+}: {
+  featuredImageUrl?: string | null;
+  avatarUrl?: string;
+  isOwnProfile: boolean;
+  onEditClick: () => void;
+}) {
+  const imageSrc = featuredImageUrl || avatarUrl || null;
+
+  const card = (
+    <Column
+      fillWidth
+      radius="l"
+      overflow="hidden"
+      background="neutral-alpha-weak"
+      style={{ aspectRatio: "3 / 4" }}
+    >
+      {imageSrc ? (
+        <HoloFx position="absolute" top="0" left="0" fill radius="l">
+          <Media
+            src={imageSrc}
+            alt=""
+            fill
+            fillHeight
+            objectFit="cover"
+            sizes="(max-width: 768px) 100vw, 320px"
+          />
+        </HoloFx>
+      ) : (
+        <BlobFx seed={0} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
+      )}
+    </Column>
+  );
+
+  if (!isOwnProfile) return card;
+
+  return (
+    <button
+      type="button"
+      className={styles.cardButton}
+      aria-label="Cambiar imagen de la tarjeta"
+      onClick={onEditClick}
+    >
+      {card}
+      <span className={styles.cardEdit}>
+        <Icon name="camera" size="s" />
+        <Text variant="label-strong-s">Cambiar imagen</Text>
+      </span>
+    </button>
+  );
+}
+
 export function ProfileView({
   displayName,
   avatarUrl,
@@ -442,7 +501,6 @@ export function ProfileView({
   whatsapp,
   email,
   memberSince,
-  coverImageUrl,
   isPublic = true,
   shareWhatsapp = false,
   featuredImageUrl,
@@ -462,7 +520,7 @@ export function ProfileView({
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
   const [openDialog, setOpenDialog] = useState<
-    "avatar" | "cover" | "info" | "featured" | "card" | null
+    "avatar" | "info" | "featured" | "card" | null
   >(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
@@ -524,65 +582,37 @@ export function ProfileView({
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
-          {/* ── Banner de cobertura ─────────────────────────────────────────── */}
-          {(() => {
-            const banner = (
-              <Flex
-                fillWidth
-                height="160"
-                radius="l"
-                background="brand-alpha-weak"
-                style={
-                  coverImageUrl
-                    ? {
-                        backgroundImage: `url(${coverImageUrl})`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                      }
-                    : undefined
-                }
-              />
-            );
-            return isOwnProfile ? (
-              <button
-                type="button"
-                className={styles.coverButton}
-                aria-label="Cambiar imagen de portada"
-                onClick={() => setOpenDialog("cover")}
-              >
-                {banner}
-                <span className={styles.coverEdit}>
-                  <Icon name="camera" size="s" />
-                  <Text variant="label-strong-s">Cambiar portada</Text>
-                </span>
-              </button>
-            ) : (
-              banner
-            );
-          })()}
-
           {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
           <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start">
 
             {/* Columna izquierda — identidad, contacto y métricas */}
             <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
-              <Flex style={{ marginTop: "-48px" }}>
-                {isOwnProfile ? (
-                  <button
-                    type="button"
-                    className={styles.avatarButton}
-                    aria-label="Cambiar imagen de perfil"
-                    onClick={() => setOpenDialog("avatar")}
-                  >
+              <Column gap="0" fillWidth>
+                <ProfileDesignerCard
+                  featuredImageUrl={featuredImageUrl}
+                  avatarUrl={avatarUrl}
+                  isOwnProfile={isOwnProfile}
+                  onEditClick={() => setOpenDialog("featured")}
+                />
+
+                <Flex style={{ marginTop: "-48px" }}>
+                  {isOwnProfile ? (
+                    <button
+                      type="button"
+                      className={styles.avatarButton}
+                      aria-label="Cambiar imagen de perfil"
+                      onClick={() => setOpenDialog("avatar")}
+                    >
+                      <Avatar {...avatarProps} size="xl" />
+                      <span className={styles.avatarEdit}>
+                        <Icon name="edit" size="s" />
+                      </span>
+                    </button>
+                  ) : (
                     <Avatar {...avatarProps} size="xl" />
-                    <span className={styles.avatarEdit}>
-                      <Icon name="edit" size="s" />
-                    </span>
-                  </button>
-                ) : (
-                  <Avatar {...avatarProps} size="xl" />
-                )}
-              </Flex>
+                  )}
+                </Flex>
+              </Column>
 
               <Column gap="8">
                 <Heading variant="heading-strong-l">{displayName}</Heading>
@@ -670,9 +700,6 @@ export function ProfileView({
                     </Text>
                   </Column>
                   <Row gap="8" wrap>
-                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("featured")}>
-                      Imagen destacada
-                    </Button>
                     <Button variant="secondary" size="s" onClick={() => setOpenDialog("card")}>
                       Cita, puesto y descripción
                     </Button>
@@ -889,11 +916,6 @@ export function ProfileView({
               isOpen={openDialog === "avatar"}
               onClose={() => setOpenDialog(null)}
               currentImageUrl={avatarUrl}
-            />
-            <CoverUploadDialog
-              isOpen={openDialog === "cover"}
-              onClose={() => setOpenDialog(null)}
-              currentCoverUrl={coverImageUrl}
             />
             <PartnerSettingsDialog
               isOpen={openDialog === "info"}
