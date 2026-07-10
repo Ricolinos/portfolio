@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { detectProvider, validateExternalUrl } from "@/lib/externalLink";
+import { sendCollabNotification } from "@/lib/collabNotify";
 import type { ConnectionStatus } from "@/generated/prisma/client";
 
 /* ══ Colaboración cliente ↔ partner: solicitudes de contacto, proyectos ══
@@ -30,6 +31,60 @@ function revalidateUsernames(...usernames: (string | null | undefined)[]): void 
   }
 }
 
+/* ══ Autorización multi-colaborador ═══════════════════════════════════
+   Con ProjectCollaborator, "el partner" de un proyecto ya no es solo el
+   partnerId de la Connection: es ese partnerId MÁS cualquier fila en
+   ProjectCollaborator para ese proyecto. Este helper centraliza esa unión
+   para no repetir la query en cada server action (también usado por
+   src/app/actions/projectAssets.ts). ══════════════════════════════════ */
+export interface ProjectAuthResult {
+  ok: boolean;
+  error?: string;
+  isClient?: boolean;
+  isPartner?: boolean;
+  clientId?: string;
+  clientUsername?: string | null;
+  partnerUsername?: string | null;
+  partnerIds?: Set<string>;
+}
+
+export async function getProjectAuth(projectId: string, userId: string): Promise<ProjectAuthResult> {
+  const project = await prisma.collabProject.findUnique({
+    where: { id: projectId },
+    select: {
+      connection: {
+        select: {
+          clientId: true,
+          partnerId: true,
+          client: { select: { username: true } },
+          partner: { select: { username: true } },
+        },
+      },
+      collaborators: { select: { userId: true } },
+    },
+  });
+  if (!project) return { ok: false, error: "Proyecto no encontrado." };
+
+  const isClient = project.connection.clientId === userId;
+  const partnerIds = new Set([
+    project.connection.partnerId,
+    ...project.collaborators.map((collaborator) => collaborator.userId),
+  ]);
+  const isPartner = partnerIds.has(userId);
+
+  if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
+
+  return {
+    ok: true,
+    isClient,
+    isPartner,
+    clientId: project.connection.clientId,
+    clientUsername: project.connection.client.username,
+    partnerUsername: project.connection.partner.username,
+    partnerIds,
+  };
+}
+
 /* ══ Solicitudes de contacto ══════════════════════════════════════════ */
 
 // Solo un cliente puede iniciar contacto; el destino debe ser un partner
@@ -44,8 +99,11 @@ export async function sendContactRequest(
   if (userId === partnerId) return { ok: false, error: "No puedes contactarte a ti mismo." };
 
   const [client, partner] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { role: true, username: true } }),
-    prisma.user.findUnique({ where: { id: partnerId }, select: { role: true, username: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { role: true, username: true, name: true } }),
+    prisma.user.findUnique({
+      where: { id: partnerId },
+      select: { role: true, username: true, name: true, email: true },
+    }),
   ]);
   if (!client || client.role !== "client") {
     return { ok: false, error: "Solo un cliente puede enviar solicitudes de contacto." };
@@ -84,6 +142,18 @@ export async function sendContactRequest(
     };
   }
 
+  void sendCollabNotification({
+    to: partner.email,
+    recipientName: partner.name,
+    subject: `Nueva solicitud de contacto de ${client.name ?? "un cliente"}`,
+    heading: "Tienes una nueva solicitud de contacto",
+    body: `${client.name ?? "Un cliente"} quiere colaborar contigo en la plataforma.${
+      trimmedMessage ? ` Mensaje: "${trimmedMessage}"` : ""
+    }`,
+    ctaUrl: partner.username ? `/${partner.username}` : undefined,
+    ctaLabel: "Ver solicitud",
+  });
+
   revalidateUsernames(client.username, partner.username);
   return { ok: true, connectionId };
 }
@@ -101,8 +171,8 @@ export async function respondContactRequest(
     select: {
       partnerId: true,
       status: true,
-      client: { select: { username: true } },
-      partner: { select: { username: true } },
+      client: { select: { username: true, name: true, email: true } },
+      partner: { select: { username: true, name: true } },
     },
   });
   if (!connection || connection.partnerId !== userId) {
@@ -114,6 +184,18 @@ export async function respondContactRequest(
 
   const status: ConnectionStatus = accept ? "ACCEPTED" : "REJECTED";
   await prisma.connection.update({ where: { id: connectionId }, data: { status } });
+
+  if (accept) {
+    void sendCollabNotification({
+      to: connection.client.email,
+      recipientName: connection.client.name,
+      subject: `${connection.partner.name ?? "Un partner"} aceptó tu solicitud de contacto`,
+      heading: "Tu solicitud de contacto fue aceptada",
+      body: `${connection.partner.name ?? "El partner"} aceptó tu solicitud. Ya pueden colaborar en un proyecto conjunto.`,
+      ctaUrl: connection.partner.username ? `/${connection.partner.username}` : undefined,
+      ctaLabel: "Ver perfil",
+    });
+  }
 
   revalidateUsernames(connection.client.username, connection.partner.username);
   return { ok: true, status };
@@ -140,8 +222,8 @@ export async function createCollabProject(
       clientId: true,
       partnerId: true,
       status: true,
-      client: { select: { username: true } },
-      partner: { select: { username: true } },
+      client: { select: { username: true, name: true, email: true } },
+      partner: { select: { username: true, name: true, email: true } },
     },
   });
   if (!connection || (connection.clientId !== userId && connection.partnerId !== userId)) {
@@ -156,8 +238,93 @@ export async function createCollabProject(
     select: { id: true },
   });
 
+  // Notifica a la otra parte (no a quien creó el proyecto).
+  const isClient = connection.clientId === userId;
+  const creatorName = (isClient ? connection.client.name : connection.partner.name) ?? "Tu colaborador";
+  const recipient = isClient ? connection.partner : connection.client;
+  const recipientProfileUsername = isClient ? connection.client.username : connection.partner.username;
+  void sendCollabNotification({
+    to: recipient.email,
+    recipientName: recipient.name,
+    subject: `${creatorName} creó un proyecto conjunto: ${trimmedTitle}`,
+    heading: "Nuevo proyecto conjunto",
+    body: `${creatorName} creó el borrador "${trimmedTitle}" para trabajar juntos.`,
+    ctaUrl: recipientProfileUsername ? `/${recipientProfileUsername}` : undefined,
+    ctaLabel: "Ver proyecto",
+  });
+
   revalidateUsernames(connection.client.username, connection.partner.username);
   return { ok: true, projectId: project.id };
+}
+
+/* ══ Colaboradores adicionales del proyecto ═══════════════════════════ */
+
+// Agrega un partner adicional (además del partner "fundador" de la
+// Connection) a un proyecto ya existente. Requiere que ese partner tenga su
+// propia Connection ACCEPTED con el cliente del proyecto.
+export async function addProjectCollaborator(
+  projectId: string,
+  partnerUserId: string,
+): Promise<Result<{ collaboratorId: string }>> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const auth = await getProjectAuth(projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient, isPartner } = auth;
+  if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
+
+  const collaboratorConnection = await prisma.connection.findUnique({
+    where: {
+      clientId_partnerId: { clientId: auth.clientId!, partnerId: partnerUserId },
+    },
+    select: { id: true, status: true },
+  });
+  if (!collaboratorConnection || collaboratorConnection.status !== "ACCEPTED") {
+    return { ok: false, error: "Ese partner no tiene una conexión aceptada con el cliente." };
+  }
+
+  try {
+    const collaborator = await prisma.projectCollaborator.create({
+      data: {
+        projectId,
+        userId: partnerUserId,
+        connectionId: collaboratorConnection.id,
+      },
+      select: { id: true },
+    });
+
+    revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+    return { ok: true, collaboratorId: collaborator.id };
+  } catch {
+    return { ok: false, error: "Ese partner ya es colaborador de este proyecto." };
+  }
+}
+
+// Solo el cliente del proyecto, o el propio colaborador (self-remove),
+// pueden quitar a un colaborador adicional. El partner "fundador" de la
+// Connection no es un ProjectCollaborator y no se puede quitar aquí.
+export async function removeProjectCollaborator(
+  projectId: string,
+  collaboratorUserId: string,
+): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const auth = await getProjectAuth(projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient } = auth;
+
+  if (!isClient && userId !== collaboratorUserId) {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  await prisma.projectCollaborator.deleteMany({
+    where: { projectId, userId: collaboratorUserId },
+  });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
 }
 
 export interface UpdateCollabProjectInput {
@@ -165,11 +332,16 @@ export interface UpdateCollabProjectInput {
   description?: string;
   status?: string;
   clientNotes?: string;
+  quoteAmount?: number;
+  quoteCurrency?: string;
+  quoteNotes?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
 }
 
 // El cliente puede editar todos los campos; el partner solo title,
-// description y status (clientNotes se ignora silenciosamente si no es el
-// cliente quien edita).
+// description, status y los campos de cotización/calendario (clientNotes se
+// ignora silenciosamente si no es el cliente quien edita).
 export async function updateCollabProject(
   projectId: string,
   data: UpdateCollabProjectInput,
@@ -181,23 +353,9 @@ export async function updateCollabProject(
     return { ok: false, error: "Estatus de proyecto inválido." };
   }
 
-  const project = await prisma.collabProject.findUnique({
-    where: { id: projectId },
-    select: {
-      connection: {
-        select: {
-          clientId: true,
-          partnerId: true,
-          client: { select: { username: true } },
-          partner: { select: { username: true } },
-        },
-      },
-    },
-  });
-  if (!project) return { ok: false, error: "Proyecto no encontrado." };
-
-  const isClient = project.connection.clientId === userId;
-  const isPartner = project.connection.partnerId === userId;
+  const auth = await getProjectAuth(projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
 
   await prisma.collabProject.update({
@@ -207,10 +365,15 @@ export async function updateCollabProject(
       description: data.description !== undefined ? data.description.trim() || null : undefined,
       status: data.status !== undefined ? data.status : undefined,
       clientNotes: isClient && data.clientNotes !== undefined ? data.clientNotes.trim() || null : undefined,
+      quoteAmount: data.quoteAmount !== undefined ? data.quoteAmount : undefined,
+      quoteCurrency: data.quoteCurrency !== undefined ? data.quoteCurrency.trim() || undefined : undefined,
+      quoteNotes: data.quoteNotes !== undefined ? data.quoteNotes.trim() || null : undefined,
+      startDate: data.startDate !== undefined ? (data.startDate === null ? null : new Date(data.startDate)) : undefined,
+      dueDate: data.dueDate !== undefined ? (data.dueDate === null ? null : new Date(data.dueDate)) : undefined,
     },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -224,30 +387,21 @@ export async function addProjectTask(projectId: string, title: string): Promise<
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return { ok: false, error: "El título de la tarea es obligatorio." };
 
-  const project = await prisma.collabProject.findUnique({
-    where: { id: projectId },
-    select: {
-      connection: {
-        select: {
-          partnerId: true,
-          client: { select: { username: true } },
-          partner: { select: { username: true } },
-        },
-      },
-      _count: { select: { tasks: true } },
-    },
-  });
-  if (!project) return { ok: false, error: "Proyecto no encontrado." };
-  if (project.connection.partnerId !== userId) {
+  const auth = await getProjectAuth(projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isPartner } = auth;
+  if (!isPartner) {
     return { ok: false, error: "Solo el partner puede agregar tareas." };
   }
 
+  const taskCount = await prisma.projectTask.count({ where: { projectId } });
+
   const task = await prisma.projectTask.create({
-    data: { projectId, title: trimmedTitle, order: project._count.tasks },
+    data: { projectId, title: trimmedTitle, order: taskCount },
     select: { id: true },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true, taskId: task.id };
 }
 
@@ -264,27 +418,13 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
 
   const task = await prisma.projectTask.findUnique({
     where: { id: taskId },
-    select: {
-      status: true,
-      project: {
-        select: {
-          connection: {
-            select: {
-              clientId: true,
-              partnerId: true,
-              client: { select: { username: true } },
-              partner: { select: { username: true } },
-            },
-          },
-        },
-      },
-    },
+    select: { status: true, projectId: true },
   });
   if (!task) return { ok: false, error: "Tarea no encontrada." };
 
-  const { connection } = task.project;
-  const isClient = connection.clientId === userId;
-  const isPartner = connection.partnerId === userId;
+  const auth = await getProjectAuth(task.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
 
   if (task.status === "approved") {
@@ -303,7 +443,7 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
 
   await prisma.projectTask.update({ where: { id: taskId }, data: { status: next } });
 
-  revalidateUsernames(connection.client.username, connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -314,23 +454,14 @@ export async function deleteProjectTask(taskId: string): Promise<Result> {
 
   const task = await prisma.projectTask.findUnique({
     where: { id: taskId },
-    select: {
-      status: true,
-      project: {
-        select: {
-          connection: {
-            select: {
-              partnerId: true,
-              client: { select: { username: true } },
-              partner: { select: { username: true } },
-            },
-          },
-        },
-      },
-    },
+    select: { status: true, projectId: true },
   });
   if (!task) return { ok: false, error: "Tarea no encontrada." };
-  if (task.project.connection.partnerId !== userId) {
+
+  const auth = await getProjectAuth(task.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  const { isPartner } = auth;
+  if (!isPartner) {
     return { ok: false, error: "Solo el partner puede eliminar tareas." };
   }
   if (task.status === "approved") {
@@ -339,7 +470,7 @@ export async function deleteProjectTask(taskId: string): Promise<Result> {
 
   await prisma.projectTask.delete({ where: { id: taskId } });
 
-  revalidateUsernames(task.project.connection.client.username, task.project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -361,24 +492,16 @@ export async function addProjectLink(
   const validUrl = validateExternalUrl(url);
   if (!validUrl) return { ok: false, error: "La URL no es válida." };
 
-  const project = await prisma.collabProject.findUnique({
-    where: { id: projectId },
-    select: {
-      connection: {
-        select: {
-          clientId: true,
-          partnerId: true,
-          client: { select: { username: true } },
-          partner: { select: { username: true } },
-        },
-      },
-    },
-  });
-  if (!project) return { ok: false, error: "Proyecto no encontrado." };
-  if (project.connection.clientId !== userId && project.connection.partnerId !== userId) {
+  const auth = await getProjectAuth(projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient, isPartner } = auth;
+  if (!isClient && !isPartner) {
     return { ok: false, error: "No autorizado" };
   }
 
+  // El tipo se infiere del rol de quien sube el link, nunca se recibe como
+  // input del cliente: brand = assets de marca (sube el cliente), final =
+  // activos finales (sube cualquier partner/colaborador).
   const link = await prisma.projectLink.create({
     data: {
       projectId,
@@ -386,11 +509,12 @@ export async function addProjectLink(
       url: validUrl,
       provider: detectProvider(validUrl),
       addedById: userId,
+      type: isClient ? "brand" : "final",
     },
     select: { id: true },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true, linkId: link.id };
 }
 
@@ -401,31 +525,21 @@ export async function deleteProjectLink(linkId: string): Promise<Result> {
 
   const link = await prisma.projectLink.findUnique({
     where: { id: linkId },
-    select: {
-      addedById: true,
-      project: {
-        select: {
-          connection: {
-            select: {
-              clientId: true,
-              client: { select: { username: true } },
-              partner: { select: { username: true } },
-            },
-          },
-        },
-      },
-    },
+    select: { addedById: true, projectId: true },
   });
   if (!link) return { ok: false, error: "Link no encontrado." };
 
-  const isOwnerClient = link.project.connection.clientId === userId;
-  if (link.addedById !== userId && !isOwnerClient) {
+  const auth = await getProjectAuth(link.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Link no encontrado." };
+  const { isClient } = auth;
+
+  if (link.addedById !== userId && !isClient) {
     return { ok: false, error: "No autorizado" };
   }
 
   await prisma.projectLink.delete({ where: { id: linkId } });
 
-  revalidateUsernames(link.project.connection.client.username, link.project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 

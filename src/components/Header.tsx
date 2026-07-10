@@ -65,36 +65,33 @@ const menuGroups: MenuGroup[] = [
   },
 ];
 
-const signedInMenuGroups: MenuGroup[] = [
-  {
-    id: "mis-proyectos",
-    label: "Mis proyectos",
-    suffixIcon: "chevronDown",
-    sections: [
-      {
-        links: [
-          { label: "Nuevo",                   href: "/dashboard/client/projects/new",     icon: "plus"       },
-          { label: "Últimas actualizaciones",  href: "/dashboard/client/projects/updates", icon: "refreshCw"  },
-          { label: "Contactar a soporte",      href: "/dashboard/client/support",          icon: "helpCircle" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "panel-clientes",
-    label: "Panel de clientes",
-    suffixIcon: "chevronDown",
-    sections: [
-      {
-        links: [
-          { label: "Facturación y Contratos", href: "/dashboard/client/billing",  icon: "creditCard" },
-          { label: "Biblioteca de Recursos",  href: "/dashboard/client/assets",   icon: "folder"     },
-          { label: "Agendar Reunión",         href: "/dashboard/client/schedule", icon: "calendar"   },
-        ],
-      },
-    ],
-  },
-];
+// Grupo "Panel de proyectos": contenido depende del rol (client|collaborator)
+// leído de user.publicMetadata.role (mismo patrón que src/app/dashboard/**).
+function getSignedInMenuGroups(role: string | undefined, username: string | null | undefined): MenuGroup[] {
+  const base = role === "collaborator" ? "/dashboard/collaborator" : "/dashboard/client";
+  const items: NonNullable<MenuGroup["sections"]>[number]["links"] = [
+    { label: "Crear nuevo proyecto",  href: base,                         icon: "plus"   },
+    { label: "Proyectos en curso",    href: `${base}/projects`,          icon: "folder" },
+    { label: "Proyectos finalizados", href: `${base}/projects/finished`, icon: "check"  },
+  ];
+
+  if (role === "collaborator") {
+    items.push(
+      { divider: true },
+      { label: "Publicar un proyecto", href: username ? `/${username}` : base, icon: "plus" },
+    );
+  }
+
+  return [
+    {
+      id: "panel-proyectos",
+      label: "Panel de proyectos",
+      href: base,
+      suffixIcon: "chevronDown",
+      sections: [{ links: items }],
+    },
+  ];
+}
 
 const spring = { type: "spring", stiffness: 320, damping: 32 } as const;
 
@@ -331,11 +328,13 @@ export const Header = () => {
   const isHome     = pathname === "/";
   const isRecursos = pathname.startsWith("/recursos");
   const isExplorar = pathname.startsWith("/explorar");
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
+  const role = user?.publicMetadata?.role as string | undefined;
+  const username = user?.username;
 
   const allMenuGroups = useMemo(
-    () => isLoaded && isSignedIn ? [...menuGroups, ...signedInMenuGroups] : menuGroups,
-    [isLoaded, isSignedIn],
+    () => isLoaded && isSignedIn ? [...menuGroups, ...getSignedInMenuGroups(role, username)] : menuGroups,
+    [isLoaded, isSignedIn, role, username],
   );
 
   // Detectar breakpoint móvil via matchMedia (905px = breakpoint "s" de Once UI)

@@ -4,7 +4,7 @@ import { Column, Heading, Text } from "@once-ui-system/core";
 import { getClientCollabData } from "@/lib/collab";
 import { ProjectListWidget } from "@/components/dashboard/ProjectListWidget";
 
-export default async function ClientActiveProjectsPage() {
+export default async function ClientFinishedProjectsPage() {
   const { userId } = await auth();
   if (!userId) redirect("/");
 
@@ -12,20 +12,20 @@ export default async function ClientActiveProjectsPage() {
   if (user?.publicMetadata?.role === "collaborator") redirect("/dashboard/collaborator");
 
   const { projects } = await getClientCollabData(userId);
-  const activeProjects = projects.filter((project) => project.status === "active");
+  const finishedProjects = projects.filter((project) => project.status !== "active");
 
   return (
     <Column fillWidth paddingY="80" paddingX="24" gap="24" maxWidth="l" horizontal="center">
       <Column gap="4" fillWidth>
-        <Heading variant="heading-strong-l">Proyectos en curso</Heading>
+        <Heading variant="heading-strong-l">Proyectos finalizados</Heading>
         <Text onBackground="neutral-weak" variant="body-default-m">
-          Todos tus proyectos conjuntos activos.
+          Todos tus proyectos conjuntos ya completados o archivados.
         </Text>
       </Column>
 
       <ProjectListWidget
-        projects={activeProjects}
-        emptyMessage="Aún no tienes proyectos activos."
+        projects={finishedProjects}
+        emptyMessage="Todavía no tienes proyectos finalizados."
       />
     </Column>
   );
