@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Avatar,
@@ -34,6 +34,8 @@ import {
   removeProjectCollaborator,
   updateCollabProject,
 } from "@/app/actions/collab";
+import { getMessages, markMessagesRead, sendMessage } from "@/app/actions/messages";
+import type { MessageData } from "@/app/actions/messages";
 import type { CollabCollaboratorSummary } from "@/lib/collab";
 import type { AssetCategoryData } from "@/app/actions/projectAssets";
 import {
@@ -1038,6 +1040,148 @@ function AddAssetSearch({
   );
 }
 
+// Hilo de mensajes de la Connection (cliente ↔ partner), compartido entre
+// todos los CollabProject de ese par. Polling client-side cada 4s; el
+// estado vive solo aquí para no disparar router.refresh() en el resto de
+// la página (Activos/Archivos) cada vez que llegan mensajes nuevos.
+const MESSAGE_POLL_INTERVAL_MS = 4000;
+
+function MessageBubble({ message, own }: { message: MessageData; own: boolean }) {
+  const senderLabel = message.sender.name ?? message.sender.username ?? "Usuario";
+  const time = new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <Row fillWidth horizontal={own ? "end" : "start"}>
+      <Column
+        gap="4"
+        paddingX="12"
+        paddingY="8"
+        radius="m"
+        background={own ? "brand-alpha-weak" : "neutral-alpha-weak"}
+        style={{ maxWidth: "80%", minWidth: 0 }}
+      >
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          {senderLabel}
+        </Text>
+        <Text
+          variant="body-default-s"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {message.body}
+        </Text>
+        <Text variant="label-default-s" onBackground="neutral-weak" align={own ? "right" : "left"}>
+          {time}
+        </Text>
+      </Column>
+    </Row>
+  );
+}
+
+function MessageThread({ connectionId, viewerId }: { connectionId: string; viewerId: string }) {
+  const [messages, setMessages] = useState<MessageData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refetch = async () => {
+      const result = await getMessages(connectionId);
+      if (!cancelled && result.ok) setMessages(result.messages);
+    };
+
+    (async () => {
+      const result = await getMessages(connectionId);
+      if (cancelled) return;
+      if (result.ok) {
+        setMessages(result.messages);
+        markMessagesRead(connectionId);
+      }
+      setLoading(false);
+    })();
+
+    const interval = setInterval(refetch, MESSAGE_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [connectionId]);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [messages.length]);
+
+  const handleSend = async () => {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
+    setSending(true);
+    setError(null);
+    const result = await sendMessage(connectionId, trimmed);
+    if (!result.ok) {
+      setError(result.error);
+      setSending(false);
+      return;
+    }
+    setText("");
+    const refreshed = await getMessages(connectionId);
+    if (refreshed.ok) setMessages(refreshed.messages);
+    setSending(false);
+  };
+
+  return (
+    <Column fillWidth border="neutral-alpha-weak" radius="l" background="surface" padding="16" gap="12">
+      <Column ref={scrollRef} fillWidth gap="8" overflowY="auto" style={{ maxHeight: 320 }}>
+        {!loading && messages.length === 0 ? (
+          <Row fillWidth center paddingY="32">
+            <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+              Aún no hay mensajes. Escribe el primero.
+            </Text>
+          </Row>
+        ) : (
+          messages.map((message) => (
+            <MessageBubble key={message.id} message={message} own={message.senderId === viewerId} />
+          ))
+        )}
+      </Column>
+
+      {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
+
+      <Row fillWidth gap="8" vertical="end">
+        <Column style={{ flex: 1, minWidth: 0 }}>
+          <Input
+            id="collab-message-input"
+            placeholder="Escribe un mensaje..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+          />
+        </Column>
+        <Button
+          variant="primary"
+          size="m"
+          prefixIcon="arrowUpRight"
+          onClick={handleSend}
+          loading={sending}
+          disabled={!text.trim() || sending}
+        >
+          Enviar
+        </Button>
+      </Row>
+    </Column>
+  );
+}
+
 export function CollabProjectView({
   project,
   client,
@@ -1210,6 +1354,12 @@ export function CollabProjectView({
       </Column>
 
       {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
+
+      {/* ── Mensajes ─────────────────────────────────────────────────────── */}
+      <Column gap="16" fillWidth>
+        <Heading variant="heading-strong-m">Mensajes</Heading>
+        <MessageThread connectionId={project.connectionId} viewerId={viewerId} />
+      </Column>
 
       {/* ── Activos del proyecto ─────────────────────────────────────────── */}
       <Column gap="16" fillWidth>
