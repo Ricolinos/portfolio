@@ -853,7 +853,7 @@ export function ProfileView({
                     />
                   ))}
 
-                  {/* Tarjeta de acción "Crear un proyecto" */}
+                  {/* Tarjeta de acción "Publicar proyecto" */}
                   {isOwnProfile && (
                     <Flex
                       role="button"
@@ -872,7 +872,7 @@ export function ProfileView({
                     >
                       <Icon name="plus" size="l" onBackground="neutral-weak" />
                       <Text variant="label-default-s" onBackground="neutral-weak">
-                        Crear un proyecto
+                        Publicar proyecto
                       </Text>
                     </Flex>
                   )}

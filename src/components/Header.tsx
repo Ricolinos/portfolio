@@ -78,7 +78,7 @@ function getSignedInMenuGroups(role: string | undefined, username: string | null
   if (role === "collaborator") {
     items.push(
       { divider: true },
-      { label: "Agregar proyecto", href: username ? `/${username}` : base, icon: "plus" },
+      { label: "Publicar un proyecto", href: username ? `/${username}` : base, icon: "plus" },
     );
   }
 
