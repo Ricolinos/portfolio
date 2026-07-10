@@ -8,7 +8,7 @@ export type ExternalLinkProvider = "drive" | "dropbox" | "onedrive" | "wetransfe
 
 // Dominio propio de la plataforma (ver src/resources/once-ui.config.ts).
 // Cualquier URL que resuelva a este host se rechaza en validateExternalUrl.
-const PLATFORM_HOSTNAMES = new Set(["ricolinos.com", "www.ricolinos.com"]);
+const PLATFORM_HOSTNAMES = new Set(["hub-nerds.com", "www.hub-nerds.com"]);
 
 function getHostname(url: string): string | null {
   try {

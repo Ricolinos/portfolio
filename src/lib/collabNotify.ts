@@ -23,7 +23,7 @@ const esc = (s: string) =>
 // el dominio de producción salvo que se configure NEXT_PUBLIC_APP_URL.
 function absoluteUrl(url: string): string {
   if (/^https?:\/\//.test(url)) return url;
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://ricolinos.com";
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://hub-nerds.com";
   return `${base.replace(/\/$/, "")}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
@@ -42,7 +42,7 @@ function plantilla({ recipientName, heading, body, ctaUrl, ctaLabel }: CollabNot
     <p style="margin:0 0 16px;color:#666;font-size:14px;">${saludo}</p>
     <p style="margin:0 0 8px;font-size:14px;color:#333;white-space:pre-wrap;">${esc(body)}</p>
     ${boton}
-    <p style="margin:24px 0 0;color:#999;font-size:12px;">Enviado desde ricolinos.com</p>
+    <p style="margin:24px 0 0;color:#999;font-size:12px;">Enviado desde hub-nerds.com</p>
   </div>`;
 }
 
