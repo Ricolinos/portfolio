@@ -28,6 +28,7 @@ import {
   type ProfileInfoInput,
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { AppearancePanel } from "./AppearancePanel";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 // Salida final del recorte: la restricción de 400×400 se garantiza aquí.
@@ -715,6 +716,10 @@ export function EditInfoDialog({
               )}
             </Column>
           </Row>
+
+          {/* Personalización de apariencia en el espacio inferior del modal */}
+          <Line background="neutral-alpha-weak" />
+          <AppearancePanel />
 
           {error && <Feedback variant="danger" description={error} />}
 
