@@ -178,6 +178,18 @@ export async function updateClientIdentity(
 // Sin bucket de Storage disponible: la portada viaja como data URL JPEG ya
 // comprimida en el cliente. El límite protege el peso de la fila en BD.
 const MAX_COVER_DATA_URL_CHARS = 700_000; // ≈ 500KB de imagen
+const MAX_CARD_QUOTE_CHARS = 180;
+const MAX_HEADLINE_CHARS = 60;
+const MAX_BIO_CHARS = 280;
+
+function validateDataUrl(dataUrl: string) {
+  if (!dataUrl.startsWith("data:image/jpeg;base64,")) {
+    throw new Error("Formato de imagen no válido.");
+  }
+  if (dataUrl.length > MAX_COVER_DATA_URL_CHARS) {
+    throw new Error("La imagen es demasiado pesada.");
+  }
+}
 
 async function requirePartner(userId: string) {
   const user = await prisma.user.findUnique({
@@ -229,6 +241,56 @@ export async function updatePartnerContactSharing(shareWhatsapp: boolean): Promi
 
   await prisma.user.update({ where: { id: userId }, data: { shareWhatsapp } });
   if (partner.username) revalidatePath(`/${partner.username}`);
+}
+
+// Actualiza (o quita, con null) la imagen destacada de la tarjeta Designerd
+// en Explorar. Mismo mecanismo de data URL que la portada del perfil.
+export async function updateFeaturedImage(dataUrl: string | null): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("No autenticado");
+  const partner = await requirePartner(userId);
+
+  if (dataUrl !== null) validateDataUrl(dataUrl);
+
+  await prisma.user.update({ where: { id: userId }, data: { featuredImageUrl: dataUrl } });
+  if (partner.username) revalidatePath(`/${partner.username}`);
+  revalidatePath("/explorar/designerds");
+}
+
+export interface DesignerCardInput {
+  cardQuote: string;
+  headline: string;
+  bio: string;
+}
+
+// Actualiza el contenido editorial de la tarjeta Designerd (cita, puesto y
+// bio breve del reverso) del propio Partner.
+export async function updateDesignerCard(input: DesignerCardInput): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("No autenticado");
+  const partner = await requirePartner(userId);
+
+  const cardQuote = clean(input.cardQuote);
+  if (cardQuote && cardQuote.length > MAX_CARD_QUOTE_CHARS) {
+    throw new Error(`La cita no puede exceder ${MAX_CARD_QUOTE_CHARS} caracteres.`);
+  }
+
+  const headline = clean(input.headline);
+  if (headline && headline.length > MAX_HEADLINE_CHARS) {
+    throw new Error(`El puesto no puede exceder ${MAX_HEADLINE_CHARS} caracteres.`);
+  }
+
+  const bio = clean(input.bio);
+  if (bio && bio.length > MAX_BIO_CHARS) {
+    throw new Error(`La biografía no puede exceder ${MAX_BIO_CHARS} caracteres.`);
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { cardQuote, headline, bio },
+  });
+  if (partner.username) revalidatePath(`/${partner.username}`);
+  revalidatePath("/explorar/designerds");
 }
 
 // Tras user.setProfileImage() en el cliente, Clerk ya tiene la imagen nueva;
