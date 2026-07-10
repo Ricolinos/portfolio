@@ -1,17 +1,26 @@
 "use client";
 
 import {
+  AvatarGroup,
+  Badge,
   Carousel,
   Column,
-  CompareImage,
   EmojiPickerDropdown,
   Feedback,
   Icon,
   IconButton,
   Input,
   Line,
+  LogoCloud,
+  MasonryGrid,
+  Media,
+  ProgressBar,
   Row,
+  Scroller,
   Select,
+  StatusIndicator,
+  Switch,
+  Tag,
   Text,
   Textarea,
 } from "@once-ui-system/core";
@@ -23,17 +32,61 @@ import { readFileAsDataUrl } from "@/lib/files";
 // estos se serializan a Markdown/MDX (texto plano) tras bambalinas al
 // guardar. El visualizador de proyectos (src/components/mdx.tsx) resuelve
 // ese texto con el mismo sistema de componentes Once UI, así que los
-// bloques que generan JSX (Carousel, CompareImage) deben tener su
-// contraparte registrada ahí.
+// bloques que generan JSX (ej. Carousel) deben tener su contraparte
+// registrada ahí.
+// Tokens tal cual los expone Once UI (ver ai/components/*.json del harness):
+// no son libres, así que se restringen aquí a los valores reales de cada prop.
+export type TagVariant =
+  | "neutral"
+  | "brand"
+  | "accent"
+  | "info"
+  | "danger"
+  | "warning"
+  | "success"
+  | "gradient";
+export type TagSize = "s" | "m" | "l";
+export type StatusColor =
+  | "blue"
+  | "indigo"
+  | "violet"
+  | "magenta"
+  | "pink"
+  | "red"
+  | "orange"
+  | "yellow"
+  | "moss"
+  | "green"
+  | "emerald"
+  | "aqua"
+  | "cyan"
+  | "gray";
+
 export type ContentBlock =
   | { id: string; type: "text"; html: string }
   | { id: string; type: "image"; url: string; alt: string }
   | { id: string; type: "carousel"; images: { id: string; url: string; alt: string }[] }
-  | { id: string; type: "compare"; beforeUrl: string; afterUrl: string }
   | { id: string; type: "embed"; language: string; code: string }
   | { id: string; type: "link"; url: string; label: string }
   | { id: string; type: "video"; url: string }
-  | { id: string; type: "divider" };
+  | { id: string; type: "divider" }
+  | { id: string; type: "tag"; label: string; variant: TagVariant; size: TagSize }
+  | { id: string; type: "badge"; title: string; href: string }
+  | { id: string; type: "status"; color: StatusColor; text: string }
+  | { id: string; type: "progress"; value: number; min: number; max: number; showLabel: boolean }
+  | {
+      id: string;
+      type: "avatarGroup";
+      avatars: { id: string; url: string; initials: string }[];
+    }
+  | { id: string; type: "logoCloud"; logos: { id: string; url: string }[]; columns: number }
+  | { id: string; type: "scroller"; items: { id: string; text: string }[] }
+  | {
+      id: string;
+      type: "masonry";
+      images: { id: string; url: string; alt: string }[];
+      columns: number;
+    };
 
 export type ContentBlockType = ContentBlock["type"];
 
@@ -41,11 +94,18 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
   { type: "image", label: "Imagen", icon: "images" },
   { type: "text", label: "Texto", icon: "document" },
   { type: "carousel", label: "Carousel de fotos", icon: "carousel" },
-  { type: "compare", label: "Comparador", icon: "compare" },
   { type: "embed", label: "Incrustar", icon: "codeBracket" },
   { type: "link", label: "Links", icon: "openLink" },
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
+  { type: "tag", label: "Etiqueta", icon: "shapes" },
+  { type: "badge", label: "Insignia", icon: "sparkles" },
+  { type: "status", label: "Estado", icon: "infoCircle" },
+  { type: "progress", label: "Barra de progreso", icon: "refreshCw" },
+  { type: "avatarGroup", label: "Grupo de avatares", icon: "userGroup" },
+  { type: "logoCloud", label: "Nube de logos", icon: "grid" },
+  { type: "scroller", label: "Tira deslizable", icon: "arrowRight" },
+  { type: "masonry", label: "Cuadrícula de fotos", icon: "gallery" },
 ];
 
 const BLOCK_LABEL: Record<ContentBlockType, string> = Object.fromEntries(
@@ -60,6 +120,14 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
+// LogoCloud extiende Grid: su prop `columns` es GridSize (1–12), no un
+// `number` genérico como el resto de los bloques. Se acota aquí para la
+// vista previa en vivo del editor.
+function toGridSize(columns: number): 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 {
+  const clamped = Math.min(12, Math.max(1, Math.round(columns) || 1));
+  return clamped as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+}
+
 export function createBlock(type: ContentBlockType): ContentBlock {
   switch (type) {
     case "text":
@@ -68,8 +136,6 @@ export function createBlock(type: ContentBlockType): ContentBlock {
       return { id: newId(), type, url: "", alt: "" };
     case "carousel":
       return { id: newId(), type, images: [] };
-    case "compare":
-      return { id: newId(), type, beforeUrl: "", afterUrl: "" };
     case "embed":
       return { id: newId(), type, language: "", code: "" };
     case "link":
@@ -78,6 +144,22 @@ export function createBlock(type: ContentBlockType): ContentBlock {
       return { id: newId(), type, url: "" };
     case "divider":
       return { id: newId(), type };
+    case "tag":
+      return { id: newId(), type, label: "", variant: "neutral", size: "m" };
+    case "badge":
+      return { id: newId(), type, title: "", href: "" };
+    case "status":
+      return { id: newId(), type, color: "green", text: "" };
+    case "progress":
+      return { id: newId(), type, value: 50, min: 0, max: 100, showLabel: true };
+    case "avatarGroup":
+      return { id: newId(), type, avatars: [] };
+    case "logoCloud":
+      return { id: newId(), type, logos: [], columns: 4 };
+    case "scroller":
+      return { id: newId(), type, items: [] };
+    case "masonry":
+      return { id: newId(), type, images: [], columns: 3 };
   }
 }
 
@@ -91,6 +173,20 @@ export function extractYouTubeId(url: string): string | null {
   return match ? match[1] : null;
 }
 
+// GOTCHA CRÍTICO (descubierto al integrar los 8 bloques nuevos, aplica
+// retroactivamente a carousel/video/compare): next-mdx-remote/rsc compila
+// con blockJS=true por defecto (serialize.js → removeJavaScriptExpressions),
+// que elimina TODO atributo JSX escrito con llaves `prop={...}` —number,
+// boolean, array u objeto— y solo deja pasar strings entre comillas planas
+// o el shorthand booleano `prop` (sin valor). Verificado en pantalla:
+// `<ProgressBar value={70} .../>` llega al componente con props={} (el
+// atributo entero desaparece, no solo su valor), y `items={[...]}` en
+// Carousel dejaba el prop `items` undefined sin tronar (silencioso). Por
+// eso todos los bloques de abajo escriben SIEMPRE atributos planos con
+// comillas ("value=\"70\"") en vez de `{70}`, y usan el shorthand
+// booleano en vez de `{true}`/`{false}`.
+const escapeAttr = (value: string) => value.replace(/"/g, "%22");
+
 function blockToMarkdown(block: ContentBlock): string {
   switch (block.type) {
     case "text":
@@ -102,47 +198,141 @@ function blockToMarkdown(block: ContentBlock): string {
     case "carousel": {
       const images = block.images.filter((i) => i.url);
       if (images.length === 0) return "";
+      // Carousel real requiere `items` como array-prop: mismo bloqueo
+      // estructural que AvatarGroup.avatars/LogoCloud.logos (ver GOTCHA
+      // arriba) — imposible de pasar por este pipeline. Se sustituye por
+      // Scroller (componente real, props planas) con Media individuales:
+      // una tira horizontal deslizable, con las mismas flechas de
+      // navegación que trae Scroller de fábrica.
       const items = images
-        .map((i) => `    { slide: ${JSON.stringify(i.url)}, alt: ${JSON.stringify(i.alt)} }`)
-        .join(",\n");
-      return `<Carousel indicator="thumbnail" aspectRatio="4 / 3" items={[\n${items},\n  ]} />`;
-    }
-    case "compare": {
-      if (!block.beforeUrl || !block.afterUrl) return "";
-      // No se usa <CompareImage>: verificado en pantalla que dentro de
-      // next-mdx-remote/rsc no muestra ninguna de las dos imágenes sin
-      // importar la forma de leftContent/rightContent (string plano,
-      // objeto {src,alt} o <Media/> como expresión) —esta última incluso
-      // truena en runtime ("Cannot read properties of undefined (reading
-      // 'src')")—, aunque el objeto sí funciona en la vista previa del
-      // editor (TSX puro, sin pasar por el compilador de MDX). Se
-      // reemplaza por un side-by-side con Media, que sí renderiza.
-      const escapeAttr = (url: string) => url.replace(/"/g, "%22");
-      return [
-        `<Row gap="16" fillWidth>`,
-        `  <Column flex={1} gap="8">`,
-        `    <Text variant="label-strong-s" onBackground="neutral-weak">Antes</Text>`,
-        `    <Media src="${escapeAttr(block.beforeUrl)}" alt="Antes" aspectRatio="4 / 3" radius="m" />`,
-        `  </Column>`,
-        `  <Column flex={1} gap="8">`,
-        `    <Text variant="label-strong-s" onBackground="neutral-weak">Después</Text>`,
-        `    <Media src="${escapeAttr(block.afterUrl)}" alt="Después" aspectRatio="4 / 3" radius="m" />`,
-        `  </Column>`,
-        `</Row>`,
-      ].join("\n");
+        .map(
+          (i) =>
+            `  <Media src="${escapeAttr(i.url)}" alt="${escapeAttr(i.alt)}" aspectRatio="4 / 3" radius="m" width="160" minWidth="160" />`,
+        )
+        .join("\n");
+      return `<Scroller direction="row" fadeColor="page" gap="12">\n${items}\n</Scroller>`;
     }
     case "embed":
       return block.code.trim() ? `\`\`\`${block.language}\n${block.code}\n\`\`\`` : "";
-    case "link":
-      return block.url ? `[${block.label || block.url}](${block.url})` : "";
+    case "link": {
+      if (!block.url) return "";
+      // Antes emitía markdown plano (`[label](url)`), que remark envuelve en
+      // un `<p>` indistinguible del texto normal — no hay forma de centrar
+      // SOLO ese `<p>` sin también centrar párrafos de texto real. Usar
+      // `SmartLink` (ya registrado en el mapa de components de MDX) dentro
+      // de un `Row` explícito lo vuelve un bloque propio, centrable igual
+      // que logoCloud/avatarGroup/status (ver createRowElement en mdx.tsx).
+      const label = block.label.trim() || block.url;
+      return `<Row fillWidth horizontal="center">\n  <SmartLink href="${escapeAttr(block.url)}">${label}</SmartLink>\n</Row>`;
+    }
     case "video": {
       const youtubeId = extractYouTubeId(block.url);
       if (!youtubeId) return "";
       const embedUrl = `https://www.youtube.com/embed/${youtubeId}`;
-      return `<iframe width="100%" style={{ aspectRatio: "16 / 9", border: 0 }} src={${JSON.stringify(embedUrl)}} title="Video de YouTube" allowFullScreen></iframe>`;
+      // `src={JSON.stringify(embedUrl)}` y `style={{ aspectRatio, border }}`
+      // se eliminaban por el GOTCHA de arriba (llaves) — y aunque no fuera
+      // así, <iframe> es un elemento nativo (sin override en mdx.tsx) y
+      // React exige que `style` sea objeto, no string, así que un
+      // `style="..."` plano tampoco serviría. El aspect ratio se resuelve
+      // con el prop nativo `aspectRatio` (string) de Column, igual que en
+      // `compare`/`carousel`, en vez de un `style` de CSS.
+      return `<Column fillWidth radius="m" overflow="hidden" aspectRatio="16 / 9">\n  <iframe width="100%" height="100%" src="${embedUrl}" title="Video de YouTube" frameBorder="0" allowFullScreen></iframe>\n</Column>`;
     }
     case "divider":
       return "---";
+    case "tag":
+      // Envuelto en su propio `Row fillWidth horizontal="center"` (igual
+      // que logoCloud/avatarGroup/status/link): `Tag` es `fitWidth` en
+      // Once UI (Tag.js), así que sin este envoltorio queda pegado a la
+      // izquierda del artículo. No se centra desde el mapa de components de
+      // MDX porque `Tag` también es el chip que arma `scroller` (ver
+      // createRowElement en mdx.tsx para el detalle).
+      return block.label.trim()
+        ? `<Row fillWidth horizontal="center">\n  <Tag variant="${block.variant}" size="${block.size}" label="${escapeAttr(block.label.trim())}" />\n</Row>`
+        : "";
+    case "badge": {
+      if (!block.title.trim()) return "";
+      const href = block.href.trim();
+      // Mismo criterio que "tag" (ver comentario ahí): `Badge` es `fitWidth`
+      // en Once UI (Badge.js).
+      return `<Row fillWidth horizontal="center">\n  <Badge title="${escapeAttr(block.title.trim())}"${
+        href ? ` href="${escapeAttr(href)}"` : ""
+      } />\n</Row>`;
+    }
+    case "status": {
+      if (!block.text.trim()) return "";
+      return [
+        `<Row gap="8" vertical="center">`,
+        `  <StatusIndicator color="${block.color}" />`,
+        `  <Text variant="body-default-m" onBackground="neutral-medium">${block.text.trim()}</Text>`,
+        `</Row>`,
+      ].join("\n");
+    }
+    case "progress": {
+      // `label` es boolean: {true}/{false} se eliminan igual que cualquier
+      // otro atributo con llaves, así que se usa el shorthand JSX (mismo
+      // efecto que label={true}) o un string vacío (falsy) para false.
+      const labelAttr = block.showLabel ? " label" : ` label=""`;
+      return `<ProgressBar value="${block.value}" min="${block.min}" max="${block.max}"${labelAttr} />`;
+    }
+    case "avatarGroup": {
+      const avatars = block.avatars.filter((a) => a.url || a.initials.trim());
+      if (avatars.length === 0) return "";
+      // AvatarGroup real requiere `avatars` como array-prop: imposible de
+      // pasar por este pipeline (ver GOTCHA arriba) — verificado en
+      // pantalla que el prop llega undefined y truena en "avatars.map".
+      // Se sustituye por Avatar individuales (mismo componente real de
+      // Once UI, props planas) dentro de una Row.
+      const items = avatars
+        .map((a) =>
+          a.url
+            ? `  <Avatar src="${escapeAttr(a.url)}" size="m" />`
+            : `  <Avatar value="${escapeAttr(a.initials.trim())}" size="m" />`,
+        )
+        .join("\n");
+      return `<Row gap="8">\n${items}\n</Row>`;
+    }
+    case "logoCloud": {
+      const logos = block.logos.filter((l) => l.url);
+      if (logos.length === 0) return "";
+      // Mismo bloqueo que AvatarGroup: `logos` es un array-prop imposible
+      // de pasar por este pipeline. Se sustituye por una fila de Media
+      // (mismo tamaño de tile) — visualmente equivalente a una nube de
+      // logos, aunque no sea el componente LogoCloud en sí.
+      const items = logos
+        .map(
+          (l) =>
+            `  <Media src="${escapeAttr(l.url)}" alt="Logo" width="6" height="4" radius="m" />`,
+        )
+        .join("\n");
+      // `fitWidth` es clave: sin él, el Row hereda el ancho completo del
+      // Column padre (align-items: stretch por default) y, al quedar más
+      // ancho que sus tiles, deja un hueco final del tamaño aproximado de
+      // un tile más — verificado en pantalla, se percibe como un "5º
+      // espacio" vacío aunque el DOM solo tenga 4 <Media>. `fitWidth` hace
+      // que el Row se encoja a su contenido real (4 tiles + gaps), sin
+      // importar cuántos logos haya.
+      return `<Row gap="24" wrap fitWidth>\n${items}\n</Row>`;
+    }
+    case "scroller": {
+      const items = block.items.filter((i) => i.text.trim());
+      if (items.length === 0) return "";
+      const tags = items
+        .map((i) => `  <Tag variant="neutral" label="${escapeAttr(i.text.trim())}" />`)
+        .join("\n");
+      return `<Scroller direction="row" fadeColor="page">\n${tags}\n</Scroller>`;
+    }
+    case "masonry": {
+      const images = block.images.filter((i) => i.url);
+      if (images.length === 0) return "";
+      const items = images
+        .map(
+          (i) =>
+            `  <Media src="${escapeAttr(i.url)}" alt="${escapeAttr(i.alt)}" radius="m" />`,
+        )
+        .join("\n");
+      return `<MasonryGrid columns="${block.columns}">\n${items}\n</MasonryGrid>`;
+    }
   }
 }
 
@@ -168,6 +358,41 @@ const SIZE_OPTIONS = [
   { label: "Pequeño", value: "0.875rem" },
   { label: "Grande", value: "1.25rem" },
   { label: "Título", value: "1.75rem" },
+];
+
+// --- Opciones de los bloques nuevos -----------------------------------------
+const TAG_VARIANT_OPTIONS: { label: string; value: TagVariant }[] = [
+  { label: "Neutro", value: "neutral" },
+  { label: "Marca", value: "brand" },
+  { label: "Acento", value: "accent" },
+  { label: "Info", value: "info" },
+  { label: "Peligro", value: "danger" },
+  { label: "Advertencia", value: "warning" },
+  { label: "Éxito", value: "success" },
+  { label: "Degradado", value: "gradient" },
+];
+
+const TAG_SIZE_OPTIONS: { label: string; value: TagSize }[] = [
+  { label: "Pequeño", value: "s" },
+  { label: "Mediano", value: "m" },
+  { label: "Grande", value: "l" },
+];
+
+const STATUS_COLOR_OPTIONS: { label: string; value: StatusColor }[] = [
+  { label: "Azul", value: "blue" },
+  { label: "Índigo", value: "indigo" },
+  { label: "Violeta", value: "violet" },
+  { label: "Magenta", value: "magenta" },
+  { label: "Rosa", value: "pink" },
+  { label: "Rojo", value: "red" },
+  { label: "Naranja", value: "orange" },
+  { label: "Amarillo", value: "yellow" },
+  { label: "Musgo", value: "moss" },
+  { label: "Verde", value: "green" },
+  { label: "Esmeralda", value: "emerald" },
+  { label: "Aqua", value: "aqua" },
+  { label: "Cian", value: "cyan" },
+  { label: "Gris", value: "gray" },
 ];
 
 // Envuelve la selección actual en `tag` (con atributos opcionales, ej. href).
@@ -520,54 +745,6 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "compare" && (
-        <Column gap="12">
-          <Row fillWidth gap="12">
-            <Column fillWidth gap="8">
-              <Text variant="label-default-s" onBackground="neutral-weak">
-                Antes
-              </Text>
-              <MediaUpload
-                aspectRatio="1"
-                accept="image/*"
-                compress
-                resizeMaxWidth={1600}
-                resizeMaxHeight={1600}
-                initialPreviewImage={block.beforeUrl || null}
-                emptyState="Antes"
-                onFileUpload={async (file) =>
-                  onChange({ ...block, beforeUrl: await readFileAsDataUrl(file) })
-                }
-              />
-            </Column>
-            <Column fillWidth gap="8">
-              <Text variant="label-default-s" onBackground="neutral-weak">
-                Después
-              </Text>
-              <MediaUpload
-                aspectRatio="1"
-                accept="image/*"
-                compress
-                resizeMaxWidth={1600}
-                resizeMaxHeight={1600}
-                initialPreviewImage={block.afterUrl || null}
-                emptyState="Después"
-                onFileUpload={async (file) =>
-                  onChange({ ...block, afterUrl: await readFileAsDataUrl(file) })
-                }
-              />
-            </Column>
-          </Row>
-          {block.beforeUrl && block.afterUrl && (
-            <CompareImage
-              aspectRatio="16 / 9"
-              leftContent={{ src: block.beforeUrl, alt: "Antes" }}
-              rightContent={{ src: block.afterUrl, alt: "Después" }}
-            />
-          )}
-        </Column>
-      )}
-
       {block.type === "embed" && (
         <Column gap="8">
           <Input
@@ -658,6 +835,459 @@ export function ContentBlockCard({
           </Text>
           <Line background="neutral-alpha-medium" style={{ flex: 1 }} />
         </Row>
+      )}
+
+      {block.type === "tag" && (
+        <Column gap="12">
+          <Row gap="8" wrap>
+            <Select
+              id={`block-${block.id}-variant`}
+              label="Variante"
+              options={TAG_VARIANT_OPTIONS}
+              value={block.variant}
+              onSelect={(value) => onChange({ ...block, variant: value as TagVariant })}
+              disabled={disabled}
+              style={{ width: "10rem" }}
+            />
+            <Select
+              id={`block-${block.id}-size`}
+              label="Tamaño"
+              options={TAG_SIZE_OPTIONS}
+              value={block.size}
+              onSelect={(value) => onChange({ ...block, size: value as TagSize })}
+              disabled={disabled}
+              style={{ width: "8rem" }}
+            />
+          </Row>
+          <Input
+            id={`block-${block.id}-label`}
+            label="Texto"
+            value={block.label}
+            onChange={(e) => onChange({ ...block, label: e.target.value })}
+            disabled={disabled}
+          />
+          {block.label.trim() !== "" && (
+            <Row>
+              <Tag variant={block.variant} size={block.size} label={block.label} />
+            </Row>
+          )}
+        </Column>
+      )}
+
+      {block.type === "badge" && (
+        <Column gap="8">
+          <Input
+            id={`block-${block.id}-title`}
+            label="Título"
+            value={block.title}
+            onChange={(e) => onChange({ ...block, title: e.target.value })}
+            disabled={disabled}
+          />
+          <Input
+            id={`block-${block.id}-href`}
+            label="Link (opcional)"
+            value={block.href}
+            onChange={(e) => onChange({ ...block, href: e.target.value })}
+            disabled={disabled}
+          />
+          {block.title.trim() !== "" && (
+            <Row>
+              <Badge title={block.title} href={block.href.trim() || undefined} />
+            </Row>
+          )}
+        </Column>
+      )}
+
+      {block.type === "status" && (
+        <Column gap="8">
+          <Select
+            id={`block-${block.id}-color`}
+            label="Color"
+            options={STATUS_COLOR_OPTIONS}
+            value={block.color}
+            onSelect={(value) => onChange({ ...block, color: value as StatusColor })}
+            disabled={disabled}
+            style={{ width: "10rem" }}
+          />
+          <Input
+            id={`block-${block.id}-text`}
+            label="Texto"
+            value={block.text}
+            onChange={(e) => onChange({ ...block, text: e.target.value })}
+            disabled={disabled}
+          />
+          {block.text.trim() !== "" && (
+            <Row gap="8" vertical="center">
+              <StatusIndicator color={block.color} />
+              <Text variant="body-default-m" onBackground="neutral-medium">
+                {block.text}
+              </Text>
+            </Row>
+          )}
+        </Column>
+      )}
+
+      {block.type === "progress" && (
+        <Column gap="12">
+          <Row gap="8" wrap>
+            <Input
+              id={`block-${block.id}-value`}
+              label="Valor"
+              type="number"
+              value={String(block.value)}
+              onChange={(e) => onChange({ ...block, value: Number(e.target.value) || 0 })}
+              disabled={disabled}
+            />
+            <Input
+              id={`block-${block.id}-min`}
+              label="Mínimo"
+              type="number"
+              value={String(block.min)}
+              onChange={(e) => onChange({ ...block, min: Number(e.target.value) || 0 })}
+              disabled={disabled}
+            />
+            <Input
+              id={`block-${block.id}-max`}
+              label="Máximo"
+              type="number"
+              value={String(block.max)}
+              onChange={(e) => onChange({ ...block, max: Number(e.target.value) || 0 })}
+              disabled={disabled}
+            />
+          </Row>
+          <Row gap="8" vertical="center">
+            <Switch
+              isChecked={block.showLabel}
+              onToggle={() => onChange({ ...block, showLabel: !block.showLabel })}
+              ariaLabel="Mostrar etiqueta de porcentaje"
+              disabled={disabled}
+            />
+            <Text variant="body-default-s" onBackground="neutral-weak">
+              Mostrar etiqueta
+            </Text>
+          </Row>
+          <ProgressBar
+            value={block.value}
+            min={block.min}
+            max={block.max}
+            label={block.showLabel}
+          />
+        </Column>
+      )}
+
+      {block.type === "avatarGroup" && (
+        <Column gap="12">
+          <Row gap="12" wrap>
+            {block.avatars.map((avatar) => (
+              <Column key={avatar.id} gap="8" style={{ width: "8rem" }}>
+                <MediaUpload
+                  aspectRatio="1"
+                  accept="image/*"
+                  compress
+                  resizeMaxWidth={400}
+                  resizeMaxHeight={400}
+                  initialPreviewImage={avatar.url || null}
+                  emptyState="Foto"
+                  onFileUpload={async (file) => {
+                    const url = await readFileAsDataUrl(file);
+                    onChange({
+                      ...block,
+                      avatars: block.avatars.map((a) => (a.id === avatar.id ? { ...a, url } : a)),
+                    });
+                  }}
+                />
+                <Input
+                  id={`block-${block.id}-${avatar.id}-initials`}
+                  placeholder="Iniciales"
+                  value={avatar.initials}
+                  onChange={(e) =>
+                    onChange({
+                      ...block,
+                      avatars: block.avatars.map((a) =>
+                        a.id === avatar.id ? { ...a, initials: e.target.value } : a,
+                      ),
+                    })
+                  }
+                  disabled={disabled}
+                />
+                <IconButton
+                  icon="trash"
+                  variant="tertiary"
+                  size="s"
+                  tooltip="Quitar avatar"
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange({
+                      ...block,
+                      avatars: block.avatars.filter((a) => a.id !== avatar.id),
+                    })
+                  }
+                />
+              </Column>
+            ))}
+            {/* GOTCHA (defecto "logo duplicado" reportado por el usuario, mismo
+                patrón en avatarGroup/masonry): este tile estático de "Agregar"
+                convive en el mismo Row que los tiles de `.map()` (esos sí
+                llevan `key={item.id}`), pero al no tener `key` propio, React
+                lo reconcilia por posición: cuando el array crece, el
+                MediaUpload que YA estaba montado en el slot vacío ES el que
+                recibió el archivo (su estado interno `previewImage` ya
+                apunta al blob recién seleccionado, seteado de forma síncrona
+                antes de que `onFileUpload` complete la subida y dispare este
+                re-render) — verificado con Playwright: tras un solo upload,
+                este tile de "Agregar" sigue mostrando esa preview en vez de
+                resetear al ícono "+". Si el usuario, viendo el tile de
+                "Agregar" ya "ocupado", vuelve a seleccionar el MISMO archivo
+                pensando que no se guardó, sí crea una segunda entrada real
+                duplicada (eso es lo que terminó guardado en la pieza real).
+                `key` dependiente de la longitud del array fuerza un
+                remount limpio (estado `previewImage` en null) cada vez que
+                se agrega/quita un ítem. */}
+            <Column key={`add-${block.avatars.length}`} gap="8" style={{ width: "8rem" }}>
+              <MediaUpload
+                aspectRatio="1"
+                accept="image/*"
+                compress
+                resizeMaxWidth={400}
+                resizeMaxHeight={400}
+                emptyState="Agregar"
+                onFileUpload={async (file) => {
+                  const url = await readFileAsDataUrl(file);
+                  onChange({
+                    ...block,
+                    avatars: [...block.avatars, { id: newId(), url, initials: "" }],
+                  });
+                }}
+              />
+            </Column>
+          </Row>
+          {block.avatars.filter((a) => a.url || a.initials).length > 0 && (
+            <AvatarGroup
+              size="m"
+              avatars={block.avatars
+                .filter((a) => a.url || a.initials)
+                .map((a) => (a.url ? { src: a.url } : { value: a.initials }))}
+            />
+          )}
+        </Column>
+      )}
+
+      {block.type === "logoCloud" && (
+        <Column gap="12">
+          <Input
+            id={`block-${block.id}-columns`}
+            label="Columnas"
+            type="number"
+            value={String(block.columns)}
+            onChange={(e) => onChange({ ...block, columns: Number(e.target.value) || 1 })}
+            disabled={disabled}
+          />
+          <Row gap="12" wrap>
+            {block.logos.map((logo) => (
+              <Column key={logo.id} gap="8" style={{ width: "8rem" }}>
+                <MediaUpload
+                  aspectRatio="1"
+                  accept="image/*"
+                  compress
+                  resizeMaxWidth={800}
+                  resizeMaxHeight={800}
+                  initialPreviewImage={logo.url || null}
+                  emptyState="Logo"
+                  onFileUpload={async (file) => {
+                    const url = await readFileAsDataUrl(file);
+                    onChange({
+                      ...block,
+                      logos: block.logos.map((l) => (l.id === logo.id ? { ...l, url } : l)),
+                    });
+                  }}
+                />
+                <IconButton
+                  icon="trash"
+                  variant="tertiary"
+                  size="s"
+                  tooltip="Quitar logo"
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange({ ...block, logos: block.logos.filter((l) => l.id !== logo.id) })
+                  }
+                />
+              </Column>
+            ))}
+            {/* Ver GOTCHA junto al tile "Agregar" de avatarGroup: mismo bug de
+                reconciliación de React (tile sin `key` reutilizado por
+                posición al crecer el array), causa raíz confirmada del "logo
+                duplicado" reportado. `key` atado a la longitud del array
+                fuerza un remount limpio del MediaUpload en cada add/remove. */}
+            <Column key={`add-${block.logos.length}`} gap="8" style={{ width: "8rem" }}>
+              <MediaUpload
+                aspectRatio="1"
+                accept="image/*"
+                compress
+                resizeMaxWidth={800}
+                resizeMaxHeight={800}
+                emptyState="Agregar"
+                onFileUpload={async (file) => {
+                  const url = await readFileAsDataUrl(file);
+                  onChange({ ...block, logos: [...block.logos, { id: newId(), url }] });
+                }}
+              />
+            </Column>
+          </Row>
+          {block.logos.filter((l) => l.url).length > 0 && (
+            <LogoCloud
+              columns={toGridSize(block.columns)}
+              logos={block.logos.filter((l) => l.url).map((l) => ({ icon: l.url }))}
+            />
+          )}
+        </Column>
+      )}
+
+      {block.type === "scroller" && (
+        <Column gap="12">
+          <Column gap="8">
+            {block.items.map((item, index) => (
+              <Row key={item.id} gap="8" vertical="center">
+                <Input
+                  id={`block-${block.id}-${item.id}-text`}
+                  placeholder={`Elemento ${index + 1}`}
+                  value={item.text}
+                  onChange={(e) =>
+                    onChange({
+                      ...block,
+                      items: block.items.map((i) =>
+                        i.id === item.id ? { ...i, text: e.target.value } : i,
+                      ),
+                    })
+                  }
+                  disabled={disabled}
+                />
+                <IconButton
+                  icon="trash"
+                  variant="tertiary"
+                  size="s"
+                  tooltip="Quitar elemento"
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange({ ...block, items: block.items.filter((i) => i.id !== item.id) })
+                  }
+                />
+              </Row>
+            ))}
+            <Row>
+              <IconButton
+                icon="plus"
+                variant="secondary"
+                size="s"
+                tooltip="Agregar elemento"
+                disabled={disabled}
+                onClick={() =>
+                  onChange({ ...block, items: [...block.items, { id: newId(), text: "" }] })
+                }
+              />
+            </Row>
+          </Column>
+          {block.items.filter((i) => i.text.trim()).length > 0 && (
+            <Scroller direction="row" fadeColor="page">
+              {block.items
+                .filter((i) => i.text.trim())
+                .map((i) => (
+                  <Tag key={i.id} variant="neutral" label={i.text} />
+                ))}
+            </Scroller>
+          )}
+        </Column>
+      )}
+
+      {block.type === "masonry" && (
+        <Column gap="12">
+          <Input
+            id={`block-${block.id}-columns`}
+            label="Columnas"
+            type="number"
+            value={String(block.columns)}
+            onChange={(e) => onChange({ ...block, columns: Number(e.target.value) || 1 })}
+            disabled={disabled}
+          />
+          <Row gap="12" wrap>
+            {block.images.map((image) => (
+              <Column key={image.id} gap="8" style={{ width: "8rem" }}>
+                <MediaUpload
+                  aspectRatio="1"
+                  accept="image/*"
+                  compress
+                  resizeMaxWidth={1600}
+                  resizeMaxHeight={1600}
+                  initialPreviewImage={image.url || null}
+                  emptyState="Foto"
+                  onFileUpload={async (file) => {
+                    const url = await readFileAsDataUrl(file);
+                    onChange({
+                      ...block,
+                      images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
+                    });
+                  }}
+                />
+                <Input
+                  id={`block-${block.id}-${image.id}-alt`}
+                  placeholder="Alt"
+                  value={image.alt}
+                  onChange={(e) =>
+                    onChange({
+                      ...block,
+                      images: block.images.map((i) =>
+                        i.id === image.id ? { ...i, alt: e.target.value } : i,
+                      ),
+                    })
+                  }
+                  disabled={disabled}
+                />
+                <IconButton
+                  icon="trash"
+                  variant="tertiary"
+                  size="s"
+                  tooltip="Quitar imagen"
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange({
+                      ...block,
+                      images: block.images.filter((i) => i.id !== image.id),
+                    })
+                  }
+                />
+              </Column>
+            ))}
+            {/* Ver GOTCHA junto al tile "Agregar" de avatarGroup: mismo bug de
+                reconciliación de React, causa raíz confirmada del "logo
+                duplicado" reportado. `key` atado a la longitud del array
+                fuerza un remount limpio del MediaUpload en cada add/remove. */}
+            <Column key={`add-${block.images.length}`} gap="8" style={{ width: "8rem" }}>
+              <MediaUpload
+                aspectRatio="1"
+                accept="image/*"
+                compress
+                resizeMaxWidth={1600}
+                resizeMaxHeight={1600}
+                emptyState="Agregar"
+                onFileUpload={async (file) => {
+                  const url = await readFileAsDataUrl(file);
+                  onChange({
+                    ...block,
+                    images: [...block.images, { id: newId(), url, alt: "" }],
+                  });
+                }}
+              />
+            </Column>
+          </Row>
+          {block.images.filter((i) => i.url).length > 0 && (
+            <MasonryGrid columns={block.columns}>
+              {block.images
+                .filter((i) => i.url)
+                .map((i) => (
+                  <Media key={i.id} src={i.url} alt={i.alt} radius="m" />
+                ))}
+            </MasonryGrid>
+          )}
+        </Column>
       )}
     </Column>
   );
