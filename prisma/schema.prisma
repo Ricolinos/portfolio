@@ -66,6 +66,7 @@ model User {
   partnerConnections    Connection[]          @relation("partnerConnections")
   resources             ClientResource[]      @relation("clientResources")
   projectCollaborations ProjectCollaborator[] @relation("projectCollaborations")
+  sentMessages          Message[]             @relation("sentMessages")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -213,6 +214,7 @@ model Connection {
   // (ver ProjectCollaborator); el partner "fundador" de la Connection no
   // necesita una fila aquí, ya está implícito en Connection.partnerId.
   projectCollaborations ProjectCollaborator[]
+  messages              Message[]
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
@@ -378,4 +380,21 @@ model ClientResource {
   updatedAt   DateTime @updatedAt
 
   @@index([ownerId])
+}
+
+// Mensaje directo entre cliente y partner de una Connection. El hilo vive a
+// nivel Connection (no CollabProject): un cliente puede tener varios
+// proyectos con el mismo partner y comparten un solo chat.
+model Message {
+  id           String     @id @default(cuid())
+  connectionId String
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  senderId     String
+  sender       User       @relation("sentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  body         String     @db.Text
+  readAt       DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([connectionId])
+  @@index([senderId])
 }

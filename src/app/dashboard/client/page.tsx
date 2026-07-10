@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { Button, Column, Feedback, Heading, Row, Text } from "@once-ui-system/core";
-import { prisma } from "@/lib/prisma";
+import { getOrCreateUser } from "@/lib/syncUser";
 import { getClientCollabData } from "@/lib/collab";
 import { DashboardMetrics } from "@/components/dashboard/DashboardMetrics";
 import { ProjectListWidget } from "@/components/dashboard/ProjectListWidget";
@@ -13,10 +13,15 @@ export default async function ClientDashboardPage() {
   const user = await currentUser();
   if (user?.publicMetadata?.role === "collaborator") redirect("/dashboard/collaborator");
 
-  const [{ username }, { connections, projects }] = await Promise.all([
-    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { username: true } }),
+  // getOrCreateUser (no findUniqueOrThrow): el layout siembra el User en
+  // paralelo, sin garantía de orden frente al render de esta page (Next no
+  // secuencia layout antes que page) — llamarlo aquí también evita la
+  // condición de carrera para altas nuevas (p. ej. login con Google).
+  const [dbUser, { connections, projects }] = await Promise.all([
+    getOrCreateUser(),
     getClientCollabData(userId),
   ]);
+  const username = dbUser?.username ?? null;
 
   const activeProjects = projects.filter((project) => project.status === "active");
   const finishedProjects = projects.filter((project) => project.status !== "active");
