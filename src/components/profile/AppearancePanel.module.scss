@@ -1,0 +1,40 @@
+/* Réplica local del look de los swatches del StylePanel de Once UI
+   (el módulo del paquete no exporta sus clases ni permite filtrar secciones) */
+
+.select {
+  min-width: var(--static-space-40);
+  min-height: var(--static-space-40);
+  border-radius: var(--radius-m-nest-4);
+  border: 1px solid var(--static-transparent);
+  background: var(--static-transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--static-space-8);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--neutral-alpha-medium);
+    border-color: var(--neutral-alpha-medium);
+  }
+
+  &.selected {
+    background: var(--neutral-alpha-strong);
+    border-color: var(--neutral-alpha-strong);
+  }
+}
+
+.swatch {
+  width: var(--static-space-24);
+  height: var(--static-space-24);
+  border-radius: var(--radius-m);
+  border-width: 1px;
+  border-style: solid;
+}
+
+/* El wrapper lleva data-border, que re-mapea --radius-m: el swatch neutro
+   previsualiza la forma resultante */
+.neutralSwatch {
+  background: var(--scheme-gray-500);
+  border-color: var(--scheme-gray-700);
+}

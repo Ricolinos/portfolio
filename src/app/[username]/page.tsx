@@ -5,6 +5,7 @@ import { ClientProfileView } from "@/components/profile/ClientProfileView";
 import { getOrCreateUser } from "@/lib/syncUser";
 import { prisma } from "@/lib/prisma";
 import { caseStudyHref } from "@/lib/caseStudies";
+import { getClientCollabData, getPartnerCollabData } from "@/lib/collab";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
@@ -99,6 +100,27 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       href: caseStudyHref(username, piece.title, Boolean(markdownContent)),
     }));
 
+    // Perfil propio del partner: panel de colaboración (solicitudes,
+    // proyectos conjuntos, recursos que los clientes le compartieron).
+    const partnerCollabData = isOwnProfile && ownerId ? await getPartnerCollabData(ownerId) : null;
+
+    // Viewer ajeno logueado como cliente: se le habilita el botón de
+    // contacto y se le informa el estatus de su Connection con este partner,
+    // si existe.
+    let viewerCanContact = false;
+    let viewerConnectionStatus: "PENDING" | "ACCEPTED" | "REJECTED" | null = null;
+    if (!isOwnProfile && viewer && ownerId) {
+      const viewerUser = await prisma.user.findUnique({ where: { id: viewer.id }, select: { role: true } });
+      if (viewerUser?.role === "client") {
+        viewerCanContact = true;
+        const existingConnection = await prisma.connection.findUnique({
+          where: { clientId_partnerId: { clientId: viewer.id, partnerId: ownerId } },
+          select: { status: true },
+        });
+        viewerConnectionStatus = existingConnection?.status ?? null;
+      }
+    }
+
     return (
       <ProfileView
         displayName={displayName}
@@ -117,6 +139,13 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         bio={profileUser?.bio}
         projects={projects}
         pieces={pieces}
+        partnerId={ownerId}
+        pendingRequests={partnerCollabData?.pendingRequests}
+        partnerConnections={partnerCollabData?.connections}
+        collabProjects={partnerCollabData?.projects}
+        sharedResources={partnerCollabData?.sharedResources}
+        viewerCanContact={viewerCanContact}
+        viewerConnectionStatus={viewerConnectionStatus}
       />
     );
   }
@@ -125,17 +154,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   // (Este bloque solo corre para isOwnProfile: los perfiles de cliente ajenos
   // ya fueron bloqueados arriba, así que el cliente que llega aquí siempre
   // está logueado como sí mismo.)
-  const rawDesigners = await prisma.user.findMany({
-    where: { role: "collaborator" },
-    select: { username: true, name: true, imageUrl: true, whatsapp: true, shareWhatsapp: true },
-    orderBy: { createdAt: "asc" },
-  });
-  // El WhatsApp de cada partner solo viaja al cliente si el partner activó
-  // el opt-in de compartirlo con otros usuarios de la plataforma.
-  const designers = rawDesigners.map(({ shareWhatsapp, ...designer }) => ({
-    ...designer,
-    whatsapp: shareWhatsapp ? designer.whatsapp : null,
-  }));
+  const clientCollabData = ownerId ? await getClientCollabData(ownerId) : null;
 
   return (
     <ClientProfileView
@@ -143,14 +162,23 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       avatarUrl={avatarUrl}
       isOwnProfile={isOwnProfile}
       email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
+      firstName={isOwnProfile ? viewer?.firstName : undefined}
+      lastName={isOwnProfile ? viewer?.lastName : undefined}
+      username={isOwnProfile ? viewer?.username : undefined}
       whatsapp={isOwnProfile ? profileUser?.whatsapp : undefined}
       secondaryEmail={isOwnProfile ? profileUser?.secondaryEmail : undefined}
       address={isOwnProfile ? profileUser?.address : undefined}
       company={profileUser?.company}
       brand={profileUser?.brand}
       motto={profileUser?.motto}
+      contactPreference={isOwnProfile ? profileUser?.contactPreference : undefined}
+      contactHours={isOwnProfile ? profileUser?.contactHours : undefined}
+      website={profileUser?.website}
+      industry={profileUser?.industry}
       projects={projects}
-      designers={designers}
+      connections={clientCollabData?.connections}
+      collabProjects={clientCollabData?.projects}
+      resources={clientCollabData?.resources}
     />
   );
 }

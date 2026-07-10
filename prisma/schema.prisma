@@ -30,7 +30,7 @@ model User {
   address        String?
   company        String?
   brand          String?
-  // Lema corto (máx. 15 palabras, validado en la server action)
+  // Lema corto (máx. 40 caracteres, validado en la server action)
   motto          String?
   // Portada del perfil de Partner (data URL comprimida, validada en la server action)
   coverImageUrl  String?
@@ -46,6 +46,13 @@ model User {
   headline          String?
   // Breve descripción para el reverso de la tarjeta Designerd
   bio               String?
+  // Preferencia de contacto del cliente: "whatsapp" | "email"
+  contactPreference String?
+  // Horario preferido de contacto (texto corto, ej. "L-V 9:00-18:00")
+  contactHours      String?
+  website           String?
+  // Giro o industria del negocio del cliente
+  industry          String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -54,6 +61,10 @@ model User {
   integrations CloudIntegration[]
   exercises    MarkdownExercise[]
   portfolio    PortfolioPiece[]
+
+  clientConnections  Connection[]     @relation("clientConnections")
+  partnerConnections Connection[]     @relation("partnerConnections")
+  resources          ClientResource[] @relation("clientResources")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -179,4 +190,91 @@ model CloudIntegration {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+enum ConnectionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// Solicitud de contacto cliente → partner; al aceptarse habilita proyectos conjuntos
+model Connection {
+  id        String           @id @default(cuid())
+  status    ConnectionStatus @default(PENDING)
+  message   String?          @db.Text
+  clientId  String
+  client    User             @relation("clientConnections", fields: [clientId], references: [id], onDelete: Cascade)
+  partnerId String
+  partner   User             @relation("partnerConnections", fields: [partnerId], references: [id], onDelete: Cascade)
+  projects  CollabProject[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([clientId, partnerId])
+  @@index([partnerId])
+}
+
+// Proyecto conjunto entre el cliente y el partner de una Connection aceptada
+model CollabProject {
+  id           String        @id @default(cuid())
+  title        String
+  description  String?       @db.Text
+  status       String        @default("active") // active | completed | archived
+  // Notas/configuración editables por el cliente
+  clientNotes  String?       @db.Text
+  connectionId String
+  connection   Connection    @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  tasks        ProjectTask[]
+  links        ProjectLink[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([connectionId])
+}
+
+// Tarea del proyecto; el partner la marca in_review para pedir aprobación del cliente
+model ProjectTask {
+  id        String        @id @default(cuid())
+  title     String
+  status    String        @default("pending") // pending | in_review | approved
+  order     Int           @default(0)
+  projectId String
+  project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([projectId])
+}
+
+// Archivo del proyecto como link externo (la plataforma solo guarda URLs)
+model ProjectLink {
+  id        String        @id @default(cuid())
+  label     String
+  url       String
+  // Detectado del hostname: drive | dropbox | onedrive | wetransfer | other
+  provider  String        @default("other")
+  addedById String
+  projectId String
+  project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@index([projectId])
+}
+
+// Asset del cliente ("Mis recursos"): link a su nube, compartible con partners elegidos
+model ClientResource {
+  id          String   @id @default(cuid())
+  label       String
+  url         String
+  provider    String   @default("other")
+  description String?
+  // userIds (Clerk) de colaboradores con acceso (mismo patrón array que PortfolioPiece.collaborators)
+  sharedWith  String[] @default([])
+  ownerId     String
+  owner       User     @relation("clientResources", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ownerId])
 }
