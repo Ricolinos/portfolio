@@ -86,6 +86,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
             views: true,
             likes: true,
             isPublic: true,
+            createdAt: true,
             markdownContent: true,
           },
         })
@@ -97,6 +98,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     const pieces = rawPieces.map(({ markdownContent, ...piece }) => ({
       ...piece,
       coverUrl: piece.coverUrl ?? "",
+      createdAt: piece.createdAt.toISOString(),
       href: caseStudyHref(username, piece.title, Boolean(markdownContent)),
     }));
 
@@ -130,7 +132,6 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         whatsapp={canSeeWhatsapp ? profileUser?.whatsapp : undefined}
         email={isOwnProfile ? viewer?.emailAddresses[0]?.emailAddress : undefined}
         memberSince={profileUser?.createdAt.toISOString()}
-        coverImageUrl={profileUser?.coverImageUrl}
         isPublic={profileUser?.isPublic ?? true}
         shareWhatsapp={profileUser?.shareWhatsapp ?? false}
         featuredImageUrl={profileUser?.featuredImageUrl}
