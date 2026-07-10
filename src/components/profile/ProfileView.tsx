@@ -232,7 +232,7 @@ function PieceCard({
           <Tag size="s" label={piece.category} variant="neutral" />
         </Row>
         <Row fillWidth horizontal="between" vertical="center" gap="12">
-          <Row gap="12" vertical="center">
+          <Row gap="12" vertical="center" minWidth={0}>
             <Row gap="4" vertical="center">
               <Icon name="eye" size="xs" onBackground="neutral-weak" />
               <Text variant="label-default-s" onBackground="neutral-weak">
@@ -247,7 +247,7 @@ function PieceCard({
             </Row>
           </Row>
           {isOwnProfile && (
-            <Row gap="8" vertical="center">
+            <Row gap="8" vertical="center" minWidth={0}>
               <Text variant="label-default-s" onBackground="neutral-weak" style={{ minWidth: 0 }}>
                 {isPublic ? "Público" : "Borrador"}
               </Text>
@@ -256,6 +256,7 @@ function PieceCard({
                 onToggle={toggleVisibility}
                 loading={saving}
                 ariaLabel={`Visibilidad de ${piece.title}`}
+                style={{ flexShrink: 0 }}
               />
             </Row>
           )}
@@ -649,14 +650,14 @@ export function ProfileView({
                 <Heading variant="heading-strong-l" align="center">
                   {displayName}
                 </Heading>
-                <Row gap="8" vertical="center" horizontal="center">
+                <Row fillWidth gap="8" vertical="center" horizontal="center">
                   <Tag size="s" variant="brand" label="Partner" />
                   <Text variant="body-default-m" onBackground="neutral-weak">
                     @{username}
                   </Text>
                 </Row>
                 {memberSince && (
-                  <Row gap="8" vertical="center" horizontal="center">
+                  <Row fillWidth gap="8" vertical="center" horizontal="center">
                     <Icon name="calendar" size="s" onBackground="neutral-weak" />
                     <Text variant="body-default-m" onBackground="neutral-weak">
                       Partner desde {formatMemberSince(memberSince)}
@@ -664,7 +665,7 @@ export function ProfileView({
                   </Row>
                 )}
                 {isOwnProfile && email && (
-                  <Row gap="8" vertical="center" horizontal="center" style={{ minWidth: 0 }}>
+                  <Row fillWidth gap="8" vertical="center" horizontal="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
                     {/* Ellipsis en vez de quiebre a media palabra ("hubnerds.co m") */}
                     <Text
