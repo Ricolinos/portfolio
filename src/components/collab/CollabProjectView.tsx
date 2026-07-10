@@ -11,6 +11,7 @@ import {
   Icon,
   IconButton,
   Input,
+  Kbar,
   Line,
   Modal,
   Row,
@@ -187,64 +188,61 @@ function CollaboratorBadge({
   );
 }
 
-function AddCollaboratorModal({
-  isOpen,
-  onClose,
+// Command-palette estilo Kbar para elegir un colaborador entre los partners
+// aceptados por el cliente, agrupados visualmente por su puesto (headline).
+// `Kbar` (el único miembro del módulo que expone el paquete) envuelve su
+// propio trigger: le pasamos el botón "Agregar colaborador" como children y
+// el propio componente abre/cierra el buscador al hacer click en él.
+function AddCollaboratorSearch({
   projectId,
   availablePartners,
+  onError,
 }: {
-  isOpen: boolean;
-  onClose: () => void;
   projectId: string;
   availablePartners: CollabCollaboratorSummary[];
+  onError: (message: string | null) => void;
 }) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
-  const options = availablePartners.map((partner) => ({
-    value: partner.id,
-    label: partner.name ?? partner.username ?? "Sin nombre",
-  }));
-
-  const handleAdd = async () => {
-    if (!selectedId) return;
-    setSaving(true);
-    setError(null);
-    const result = await addProjectCollaborator(projectId, selectedId);
+  const handleSelect = async (partnerId: string) => {
+    onError(null);
+    const result = await addProjectCollaborator(projectId, partnerId);
     if (!result.ok) {
-      setError(result.error);
-      setSaving(false);
+      onError(result.error);
       return;
     }
-    setSaving(false);
-    setSelectedId("");
-    onClose();
     router.refresh();
   };
 
+  if (availablePartners.length === 0) {
+    return (
+      <>
+        <Button variant="tertiary" size="s" prefixIcon="plus" disabled>
+          Agregar colaborador
+        </Button>
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          El cliente no tiene otros colaboradores aceptados.
+        </Text>
+      </>
+    );
+  }
+
+  const items = availablePartners.map((partner) => ({
+    id: partner.id,
+    name: partner.name ?? partner.username ?? "Sin nombre",
+    section: partner.headline ?? "Sin puesto",
+    shortcut: [] as string[],
+    keywords: [partner.username, partner.headline].filter(Boolean).join(" "),
+    icon: "person",
+    perform: () => handleSelect(partner.id),
+  }));
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Agregar colaborador" backdrop={modalBackdrop}>
-      <Column gap="16" fillWidth paddingTop="12">
-        <Select
-          id="collab-add-collaborator"
-          label="Partner"
-          value={selectedId}
-          onSelect={(value) => setSelectedId(value as string)}
-          options={options}
-        />
-        {error && <Feedback variant="danger" description={error} />}
-        <Row fillWidth gap="8" horizontal="end">
-          <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button variant="primary" size="m" onClick={handleAdd} loading={saving} disabled={!selectedId}>
-            Agregar
-          </Button>
-        </Row>
-      </Column>
-    </Modal>
+    <Kbar items={items} inputSize="s">
+      <Button variant="tertiary" size="s" prefixIcon="plus">
+        Agregar colaborador
+      </Button>
+    </Kbar>
   );
 }
 
@@ -501,7 +499,6 @@ export function CollabProjectView({
   const [addingTask, setAddingTask] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
 
-  const [collaboratorModalOpen, setCollaboratorModalOpen] = useState(false);
   const [busyCollaboratorId, setBusyCollaboratorId] = useState<string | null>(null);
 
   const [brandLinkLabel, setBrandLinkLabel] = useState("");
@@ -666,20 +663,11 @@ export function CollabProjectView({
                 onRemove={() => handleRemoveCollaborator(collaborator.id)}
               />
             ))}
-            <Button
-              variant="tertiary"
-              size="s"
-              prefixIcon="plus"
-              onClick={() => setCollaboratorModalOpen(true)}
-              disabled={availablePartners.length === 0}
-            >
-              Agregar colaborador
-            </Button>
-            {availablePartners.length === 0 && (
-              <Text variant="label-default-s" onBackground="neutral-weak">
-                El cliente no tiene otros colaboradores aceptados.
-              </Text>
-            )}
+            <AddCollaboratorSearch
+              projectId={project.id}
+              availablePartners={availablePartners}
+              onError={setError}
+            />
           </Row>
         </Column>
 
@@ -911,12 +899,6 @@ export function CollabProjectView({
         viewerRole={viewerRole}
       />
 
-      <AddCollaboratorModal
-        isOpen={collaboratorModalOpen}
-        onClose={() => setCollaboratorModalOpen(false)}
-        projectId={project.id}
-        availablePartners={availablePartners}
-      />
     </Column>
   );
 }
