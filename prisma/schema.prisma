@@ -37,6 +37,15 @@ model User {
   // Visibilidad del Partner en Explorar/designerds; el perfil directo por
   // username sigue siendo accesible aunque sea privado
   isPublic       Boolean  @default(true)
+  // Imagen destacada de la tarjeta Designerd en Explorar (data URL comprimida,
+  // mismo patrón que coverImageUrl)
+  featuredImageUrl String?
+  // Cita/blockquote mostrada sobre la imagen de la tarjeta Designerd
+  cardQuote         String?
+  // Puesto/título profesional del Partner (ej. "Diseñador de Marca")
+  headline          String?
+  // Breve descripción para el reverso de la tarjeta Designerd
+  bio               String?
   // Preferencia de contacto del cliente: "whatsapp" | "email"
   contactPreference String?
   // Horario preferido de contacto (texto corto, ej. "L-V 9:00-18:00")

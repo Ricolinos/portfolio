@@ -1,10 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Avatar, Button, Card, Column, Grid, Media, RevealFx, Row, SmartLink, Tag, Text, TiltFx } from "@once-ui-system/core";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Avatar,
+  Button,
+  Card,
+  Column,
+  Grid,
+  InfiniteScroll,
+  Media,
+  RevealFx,
+  Row,
+  SmartLink,
+  Tag,
+  Text,
+  TiltFx,
+} from "@once-ui-system/core";
 import { useExploreSearch } from "./SearchContext";
 
 const ALL = "Todos";
+// Lote de tarjetas que se agrega cada vez que el sentinel de InfiniteScroll
+// entra en el viewport. No hay paginación de servidor: "filtered" ya vive
+// completo en el cliente, solo se revela progresivamente.
+const BATCH_SIZE = 8;
 
 export interface Shout {
   id: string;
@@ -111,6 +129,21 @@ export function ExploreFeed({ initialCategory, shouts }: ExploreFeedProps) {
     [shouts, selected, query],
   );
 
+  const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+
+  // Cualquier cambio de categoría o búsqueda reinicia el primer lote.
+  useEffect(() => {
+    setVisibleCount(BATCH_SIZE);
+  }, [filtered]);
+
+  const visible = filtered.slice(0, visibleCount);
+
+  const loadMore = async () => {
+    const next = visibleCount + BATCH_SIZE;
+    setVisibleCount(next);
+    return next < filtered.length;
+  };
+
   return (
     <RevealFx key={selected} fillWidth direction="column" gap="24" translateY="8" speed="fast">
       {filtered.length === 0 ? (
@@ -119,9 +152,12 @@ export function ExploreFeed({ initialCategory, shouts }: ExploreFeedProps) {
         </Text>
       ) : (
         <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
-          {filtered.map((shout) => (
-            <ShoutCard key={shout.id} shout={shout} />
-          ))}
+          <InfiniteScroll
+            items={visible}
+            renderItem={(shout) => <ShoutCard key={shout.id} shout={shout} />}
+            loadMore={loadMore}
+            style={{ gridColumn: "1 / -1" }}
+          />
         </Grid>
       )}
     </RevealFx>
