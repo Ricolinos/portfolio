@@ -45,6 +45,16 @@ export default async function RootLayout({
       as="html"
       lang="en"
       fillWidth
+      data-brand={style.brand}
+      data-accent={style.accent}
+      data-neutral={style.neutral}
+      data-solid={style.solid}
+      data-solid-style={style.solidStyle}
+      data-border={style.border}
+      data-surface={style.surface}
+      data-transition={style.transition}
+      data-scaling={style.scaling}
+      data-viz-style={dataStyle.variant}
       className={classNames(
         fonts.heading.variable,
         fonts.body.variable,
@@ -53,64 +63,12 @@ export default async function RootLayout({
       )}
     >
       <head>
-        <Script
-          id="theme-init"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                try {
-                  const root = document.documentElement;
-                  const defaultTheme = 'system';
-                  
-                  // Set defaults from config
-                  const config = ${JSON.stringify({
-                    brand: style.brand,
-                    accent: style.accent,
-                    neutral: style.neutral,
-                    solid: style.solid,
-                    "solid-style": style.solidStyle,
-                    border: style.border,
-                    surface: style.surface,
-                    transition: style.transition,
-                    scaling: style.scaling,
-                    "viz-style": dataStyle.variant,
-                  })};
-                  
-                  // Apply default values
-                  Object.entries(config).forEach(([key, value]) => {
-                    root.setAttribute('data-' + key, value);
-                  });
-                  
-                  // Resolve theme
-                  const resolveTheme = (themeValue) => {
-                    if (!themeValue || themeValue === 'system') {
-                      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-                    }
-                    return themeValue;
-                  };
-                  
-                  // Apply saved theme
-                  const savedTheme = localStorage.getItem('data-theme');
-                  const resolvedTheme = resolveTheme(savedTheme);
-                  root.setAttribute('data-theme', resolvedTheme);
-                  
-                  // Apply any saved style overrides
-                  const styleKeys = Object.keys(config);
-                  styleKeys.forEach(key => {
-                    const value = localStorage.getItem('data-' + key);
-                    if (value) {
-                      root.setAttribute('data-' + key, value);
-                    }
-                  });
-                } catch (e) {
-                  console.error('Failed to initialize theme:', e);
-                  document.documentElement.setAttribute('data-theme', 'dark');
-                }
-              })();
-            `,
-          }}
-        />
+        {/* Defaults van como data-* en el propio <html> (SSR, sin FOUC).
+            El script solo resuelve overrides en localStorage antes de hydration.
+            src= en vez de dangerouslySetInnerHTML: React 19 emite
+            "Encountered a script tag while rendering React component" para
+            cualquier <script> con contenido inline, incluso vía next/script. */}
+        <Script id="theme-init" src="/theme-init.js" strategy="beforeInteractive" />
       </head>
       <Providers>
         <Column
