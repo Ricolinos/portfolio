@@ -23,6 +23,7 @@ import {
   RevealFx,
   Row,
   SegmentedControl,
+  Select,
   SmartLink,
   Switch,
   Tag,
@@ -61,6 +62,8 @@ export interface PartnerPiece {
   views: number;
   likes: number;
   isPublic: boolean;
+  // ISO string; usado para ordenar por "más recientes"
+  createdAt: string;
   // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
   href?: string;
 }
@@ -118,6 +121,11 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 const ALL_CATEGORIES = "Todos";
+
+const SORT_OPTIONS = [
+  { value: "recent", label: "Más recientes" },
+  { value: "popular", label: "Más populares" },
+];
 
 function waLink(whatsapp: string) {
   return `https://wa.me/${whatsapp.replace(/\D/g, "")}`;
@@ -210,7 +218,12 @@ function PieceCard({
       )}
       <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
         <Row fillWidth horizontal="between" vertical="start" gap="8">
-          <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
+          <Text
+            variant="heading-strong-s"
+            onBackground="neutral-strong"
+            wrap="balance"
+            style={{ minWidth: 0 }}
+          >
             {piece.title}
           </Text>
           <Tag size="s" label={piece.category} variant="neutral" />
@@ -519,6 +532,7 @@ export function ProfileView({
 }: ProfileViewProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
+  const [sortBy, setSortBy] = useState<"recent" | "popular">("recent");
   const [openDialog, setOpenDialog] = useState<
     "avatar" | "info" | "featured" | null
   >(null);
@@ -566,6 +580,12 @@ export function ProfileView({
   const categories = [ALL_CATEGORIES, ...new Set(pieces.map((p) => p.category))];
   const visiblePieces =
     filter === ALL_CATEGORIES ? pieces : pieces.filter((p) => p.category === filter);
+  const sortedPieces =
+    sortBy === "popular"
+      ? [...visiblePieces].sort((a, b) => b.likes - a.likes)
+      : [...visiblePieces].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
 
   const metrics = [
     { label: "En curso", value: String(inProgress.length) },
@@ -816,11 +836,21 @@ export function ProfileView({
 
             {/* Columna derecha — showcase de proyectos reales */}
             <Column gap="24" fillWidth paddingTop="24">
-              <SegmentedControl
-                selected={filter}
-                onToggle={setFilter}
-                buttons={categories.map((c) => ({ value: c, label: c }))}
-              />
+              <Row fillWidth gap="12" wrap horizontal="between" vertical="center">
+                <SegmentedControl
+                  selected={filter}
+                  onToggle={setFilter}
+                  buttons={categories.map((c) => ({ value: c, label: c }))}
+                />
+                <Select
+                  id="pieces-sort"
+                  options={SORT_OPTIONS}
+                  value={sortBy}
+                  onSelect={(value) => setSortBy(value as "recent" | "popular")}
+                  height="s"
+                  maxWidth={12}
+                />
+              </Row>
 
               {isOwnProfile && pieces.length > 0 && (
                 <Flex background="brand-alpha-weak" padding="20" radius="m" fillWidth vertical="center" gap="16">
@@ -851,7 +881,31 @@ export function ProfileView({
                   fillWidth
                   transition="macro-medium"
                 >
-                  {visiblePieces.map((piece) => (
+                  {/* Tarjeta de acción "Publicar proyecto" */}
+                  {isOwnProfile && (
+                    <Flex
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setCreateOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setCreateOpen(true);
+                      }}
+                      border="neutral-medium"
+                      radius="l"
+                      style={{ borderStyle: "dashed", cursor: "pointer" }}
+                      center
+                      padding="32"
+                      direction="column"
+                      gap="12"
+                    >
+                      <Icon name="plus" size="l" onBackground="neutral-weak" />
+                      <Text variant="label-default-s" onBackground="neutral-weak">
+                        Publicar proyecto
+                      </Text>
+                    </Flex>
+                  )}
+
+                  {sortedPieces.map((piece) => (
                     <PieceCard
                       key={piece.id}
                       piece={piece}
@@ -866,30 +920,6 @@ export function ProfileView({
                       }}
                     />
                   ))}
-
-                  {/* Tarjeta de acción "Crear un proyecto" */}
-                  {isOwnProfile && (
-                    <Flex
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setCreateOpen(true)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") setCreateOpen(true);
-                      }}
-                      border="neutral-medium"
-                      radius="l"
-                      style={{ borderStyle: "dashed", cursor: "pointer" }}
-                      center
-                      padding="40"
-                      direction="column"
-                      gap="12"
-                    >
-                      <Icon name="plus" size="l" onBackground="neutral-weak" />
-                      <Text variant="label-default-s" onBackground="neutral-weak">
-                        Crear un proyecto
-                      </Text>
-                    </Flex>
-                  )}
                 </Grid>
               )}
             </Column>
