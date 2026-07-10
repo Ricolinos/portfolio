@@ -1,6 +1,23 @@
 "use client";
 
-import { Button, Column, Feedback, Input, Modal, Row, Slider, Switch, Text, Textarea } from "@once-ui-system/core";
+import { useClerk } from "@clerk/nextjs";
+import {
+  Avatar,
+  Button,
+  Column,
+  Feedback,
+  Heading,
+  Icon,
+  Input,
+  Line,
+  Modal,
+  Row,
+  Slider,
+  Switch,
+  Text,
+  Textarea,
+  ToggleButton,
+} from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +29,7 @@ import {
   type DesignerCardInput,
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { AppearancePanel } from "./AppearancePanel";
 
 const JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
 const MIN_ZOOM = 1;
@@ -303,24 +321,80 @@ export function FeaturedImageUploadDialog({
   );
 }
 
-// ─── Editar el contenido de la tarjeta Designerd (cita, puesto, bio) ─────────
-export function DesignerCardDialog({
+// ─── Editar información de perfil (Partner): general, tarjeta, visibilidad, seguridad ──
+const PARTNER_EDIT_SECTIONS = [
+  {
+    key: "general",
+    label: "General",
+    icon: "infoCircle",
+    description: "Tu identidad en la plataforma: imagen de perfil, nombre y usuario.",
+  },
+  {
+    key: "tarjeta",
+    label: "Tarjeta Designerd",
+    icon: "gallery",
+    description: "El contenido de tu tarjeta en Explorar / designerds.",
+  },
+  {
+    key: "visibilidad",
+    label: "Visibilidad",
+    icon: "eye",
+    description: "Quién puede ver tu perfil y tus datos de contacto.",
+  },
+  {
+    key: "seguridad",
+    label: "Seguridad",
+    icon: "shield",
+    description: "Protección de tu cuenta.",
+  },
+] as const;
+
+type PartnerEditSectionKey = (typeof PARTNER_EDIT_SECTIONS)[number]["key"];
+
+export function PartnerEditInfoDialog({
   isOpen,
   onClose,
+  initialIsPublic,
+  initialShareWhatsapp,
   initial,
+  avatarUrl,
+  displayName,
+  username,
+  featuredImageUrl,
+  onOpenAvatar,
+  onOpenFeatured,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  initialIsPublic: boolean;
+  initialShareWhatsapp: boolean;
   initial: DesignerCardInput;
+  avatarUrl?: string;
+  displayName: string;
+  username: string;
+  featuredImageUrl?: string | null;
+  // Cierran este modal y abren el diálogo de recorte correspondiente.
+  onOpenAvatar: () => void;
+  onOpenFeatured: () => void;
 }) {
   const router = useRouter();
+  const { openUserProfile } = useClerk();
+  const [section, setSection] = useState<PartnerEditSectionKey>("general");
+  const [isPublic, setIsPublic] = useState(initialIsPublic);
+  const [shareWhatsapp, setShareWhatsapp] = useState(initialShareWhatsapp);
   const [form, setForm] = useState<DesignerCardInput>(initial);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Reabrir el modal debe partir del valor guardado, no de un borrador previo sin guardar.
   useEffect(() => {
-    if (isOpen) setForm(initial);
+    if (isOpen) {
+      setSection("general");
+      setIsPublic(initialIsPublic);
+      setShareWhatsapp(initialShareWhatsapp);
+      setForm(initial);
+      setError(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -334,102 +408,10 @@ export function DesignerCardDialog({
     setSaving(true);
     setError(null);
     try {
-      await updateDesignerCard(form);
-      onClose();
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar. Intenta de nuevo.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Tarjeta de Designerd" backdrop={modalBackdrop}>
-      <Column gap="16" fillWidth paddingTop="12">
-        <Feedback
-          variant="info"
-          description="Este contenido aparece en tu tarjeta de Explorar / designerds: la cita sobre tu imagen destacada y el puesto/descripción al voltearla."
-        />
-
-        <Input
-          id="designer-headline"
-          label="Puesto"
-          placeholder="Ej. Diseñador de marca"
-          value={form.headline}
-          maxLength={MAX_HEADLINE_CHARS}
-          characterCount
-          onChange={(e) => setForm((f) => ({ ...f, headline: e.target.value }))}
-        />
-        <Textarea
-          id="designer-quote"
-          label="Cita"
-          placeholder="Una frase corta que te represente"
-          lines={2}
-          value={form.cardQuote}
-          maxLength={MAX_CARD_QUOTE_CHARS}
-          characterCount
-          onChange={(e) => setForm((f) => ({ ...f, cardQuote: e.target.value }))}
-        />
-        <Textarea
-          id="designer-bio"
-          label="Descripción breve"
-          placeholder="Cuéntanos brevemente quién eres y qué haces"
-          lines={4}
-          value={form.bio}
-          maxLength={MAX_BIO_CHARS}
-          characterCount
-          onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
-        />
-
-        {error && <Feedback variant="danger" description={error} />}
-
-        <Row fillWidth gap="8" horizontal="end">
-          <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button variant="primary" size="m" onClick={handleSave} loading={saving} disabled={tooLong}>
-            Guardar cambios
-          </Button>
-        </Row>
-      </Column>
-    </Modal>
-  );
-}
-
-// ─── Editar información de perfil (visibilidad) ──────────────────────────────
-export function PartnerSettingsDialog({
-  isOpen,
-  onClose,
-  initialIsPublic,
-  initialShareWhatsapp,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  initialIsPublic: boolean;
-  initialShareWhatsapp: boolean;
-}) {
-  const router = useRouter();
-  const [isPublic, setIsPublic] = useState(initialIsPublic);
-  const [shareWhatsapp, setShareWhatsapp] = useState(initialShareWhatsapp);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  // Reabrir el modal debe partir del valor guardado, no del último toggle sin guardar.
-  useEffect(() => {
-    if (isOpen) {
-      setIsPublic(initialIsPublic);
-      setShareWhatsapp(initialShareWhatsapp);
-    }
-  }, [isOpen, initialIsPublic, initialShareWhatsapp]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
       await Promise.all([
         updatePartnerVisibility(isPublic),
         updatePartnerContactSharing(shareWhatsapp),
+        updateDesignerCard(form),
       ]);
       onClose();
       router.refresh();
@@ -448,61 +430,227 @@ export function PartnerSettingsDialog({
       backdrop={modalBackdrop}
     >
       <Column gap="16" fillWidth paddingTop="12">
-        <Row
-          fillWidth
-          horizontal="between"
-          vertical="center"
-          gap="16"
-          padding="16"
-          radius="m"
-          border="neutral-alpha-weak"
-          background="neutral-alpha-weak"
-        >
-          <Column gap="4">
-            <Text variant="label-strong-s">Perfil público</Text>
-            <Text variant="body-default-s" onBackground="neutral-weak">
-              Tu tarjeta aparece en Explorar / designerds. Si lo desactivas, tu perfil seguirá
-              disponible buscándolo por nombre de usuario.
-            </Text>
+        <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
+          {/* ── Navegación lateral (escritorio): máx. 30% del ancho ── */}
+          <Column
+            gap="4"
+            style={{ flex: "0 0 30%", maxWidth: "30%", minWidth: 0 }}
+            s={{ hide: true }}
+          >
+            {PARTNER_EDIT_SECTIONS.map((s) => (
+              <ToggleButton
+                key={s.key}
+                fillWidth
+                horizontal="start"
+                prefixIcon={s.icon}
+                label={s.label}
+                selected={section === s.key}
+                onClick={() => setSection(s.key)}
+              />
+            ))}
           </Column>
-          <Switch
-            isChecked={isPublic}
-            onToggle={() => setIsPublic((v) => !v)}
-            ariaLabel="Mantener mi perfil público en Explorar"
-          />
+
+          {/* ── Navegación móvil: solo iconos arriba, con indicador de activa ── */}
+          <Row fillWidth gap="8" horizontal="center" hide s={{ hide: false }}>
+            {PARTNER_EDIT_SECTIONS.map((s) => (
+              <Column key={s.key} gap="4" horizontal="center">
+                <ToggleButton
+                  prefixIcon={s.icon}
+                  selected={section === s.key}
+                  onClick={() => setSection(s.key)}
+                  aria-label={s.label}
+                />
+                {/* Indicador de sección activa */}
+                <Line
+                  background={section === s.key ? "brand-strong" : "transparent"}
+                  style={{ width: 16, height: 2 }}
+                />
+              </Column>
+            ))}
+          </Row>
+
+          <Line vert background="neutral-alpha-weak" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
+
+          {/* ── Contenido de la sección activa ── */}
+          <Column gap="20" fillWidth style={{ minWidth: 0 }}>
+            {(() => {
+              const active = PARTNER_EDIT_SECTIONS.find((s) => s.key === section)!;
+              return (
+                <Column gap="4" fillWidth>
+                  <Heading variant="heading-strong-m">{active.label}</Heading>
+                  <Text variant="body-default-s" onBackground="neutral-weak">
+                    {active.description}
+                  </Text>
+                </Column>
+              );
+            })()}
+            <Line background="neutral-alpha-weak" />
+
+            {section === "general" && (
+              <Column gap="12" fillWidth>
+                <Row gap="16" vertical="center" wrap>
+                  <Avatar size="l" {...(avatarUrl ? { src: avatarUrl } : { value: (displayName[0] ?? "U").toUpperCase() })} />
+                  <Column gap="2" style={{ minWidth: 0 }}>
+                    <Text variant="label-strong-s">{displayName}</Text>
+                    <Text variant="label-default-s" onBackground="neutral-weak">
+                      @{username}
+                    </Text>
+                  </Column>
+                  <Button size="s" variant="secondary" prefixIcon="camera" onClick={onOpenAvatar}>
+                    Cambiar imagen
+                  </Button>
+                </Row>
+              </Column>
+            )}
+
+            {section === "tarjeta" && (
+              <Column gap="16" fillWidth>
+                <Row gap="16" vertical="center" wrap>
+                  <Column
+                    radius="m"
+                    overflow="hidden"
+                    background="neutral-alpha-weak"
+                    style={{ width: 56, height: 56, flexShrink: 0 }}
+                    horizontal="center"
+                    vertical="center"
+                  >
+                    {featuredImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- miniatura de vista previa
+                      <img
+                        src={featuredImageUrl}
+                        alt=""
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <Icon name="gallery" size="m" onBackground="neutral-weak" />
+                    )}
+                  </Column>
+                  <Button size="s" variant="secondary" prefixIcon="camera" onClick={onOpenFeatured}>
+                    Cambiar imagen
+                  </Button>
+                </Row>
+
+                <Input
+                  id="designer-headline"
+                  label="Puesto"
+                  placeholder="Ej. Diseñador de marca"
+                  value={form.headline}
+                  maxLength={MAX_HEADLINE_CHARS}
+                  characterCount
+                  onChange={(e) => setForm((f) => ({ ...f, headline: e.target.value }))}
+                />
+                <Textarea
+                  id="designer-quote"
+                  label="Cita"
+                  placeholder="Una frase corta que te represente"
+                  lines={2}
+                  value={form.cardQuote}
+                  maxLength={MAX_CARD_QUOTE_CHARS}
+                  characterCount
+                  onChange={(e) => setForm((f) => ({ ...f, cardQuote: e.target.value }))}
+                />
+                <Textarea
+                  id="designer-bio"
+                  label="Descripción breve"
+                  placeholder="Cuéntanos brevemente quién eres y qué haces"
+                  lines={4}
+                  value={form.bio}
+                  maxLength={MAX_BIO_CHARS}
+                  characterCount
+                  onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
+                />
+              </Column>
+            )}
+
+            {section === "visibilidad" && (
+              <Column gap="12" fillWidth>
+                <Row
+                  fillWidth
+                  horizontal="between"
+                  vertical="center"
+                  gap="16"
+                  padding="16"
+                  radius="m"
+                  border="neutral-alpha-weak"
+                  background="neutral-alpha-weak"
+                >
+                  <Column gap="4">
+                    <Text variant="label-strong-s">Perfil público</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Tu tarjeta aparece en Explorar / designerds. Si lo desactivas, tu perfil
+                      seguirá disponible buscándolo por nombre de usuario.
+                    </Text>
+                  </Column>
+                  <Switch
+                    isChecked={isPublic}
+                    onToggle={() => setIsPublic((v) => !v)}
+                    ariaLabel="Mantener mi perfil público en Explorar"
+                  />
+                </Row>
+
+                <Row
+                  fillWidth
+                  horizontal="between"
+                  vertical="center"
+                  gap="16"
+                  padding="16"
+                  radius="m"
+                  border="neutral-alpha-weak"
+                  background="neutral-alpha-weak"
+                >
+                  <Column gap="4">
+                    <Text variant="label-strong-s">Compartir mi WhatsApp</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Solo lo verán usuarios registrados de la plataforma que visiten tu perfil.
+                      Nunca se muestra a visitantes anónimos. Apagado por defecto.
+                    </Text>
+                  </Column>
+                  <Switch
+                    isChecked={shareWhatsapp}
+                    onToggle={() => setShareWhatsapp((v) => !v)}
+                    ariaLabel="Compartir mi WhatsApp con otros usuarios de la plataforma"
+                  />
+                </Row>
+              </Column>
+            )}
+
+            {section === "seguridad" && (
+              <Column gap="16" fillWidth>
+                <Feedback
+                  variant="info"
+                  description="Tu perfil es público en Explorar / designerds salvo que lo desactives en la sección Visibilidad. Protege tu cuenta desde el panel de seguridad: ahí puedes cambiar tu contraseña, activar la verificación en dos pasos y cerrar sesiones abiertas en otros dispositivos."
+                />
+                <Row fillWidth>
+                  <Button
+                    variant="secondary"
+                    size="m"
+                    prefixIcon="shield"
+                    onClick={() => {
+                      onClose();
+                      openUserProfile();
+                    }}
+                  >
+                    Abrir panel de seguridad
+                  </Button>
+                </Row>
+              </Column>
+            )}
+          </Column>
         </Row>
 
-        <Row
-          fillWidth
-          horizontal="between"
-          vertical="center"
-          gap="16"
-          padding="16"
-          radius="m"
-          border="neutral-alpha-weak"
-          background="neutral-alpha-weak"
-        >
-          <Column gap="4">
-            <Text variant="label-strong-s">Compartir mi WhatsApp</Text>
-            <Text variant="body-default-s" onBackground="neutral-weak">
-              Solo lo verán usuarios registrados de la plataforma que visiten tu perfil. Nunca se
-              muestra a visitantes anónimos. Apagado por defecto.
-            </Text>
-          </Column>
-          <Switch
-            isChecked={shareWhatsapp}
-            onToggle={() => setShareWhatsapp((v) => !v)}
-            ariaLabel="Compartir mi WhatsApp con otros usuarios de la plataforma"
-          />
-        </Row>
+        {/* Personalización de apariencia en el espacio inferior del modal */}
+        <Line background="neutral-alpha-weak" />
+        <AppearancePanel />
 
         {error && <Feedback variant="danger" description={error} />}
+
+        <Line background="neutral-alpha-weak" />
 
         <Row fillWidth gap="8" horizontal="end">
           <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button variant="primary" size="m" onClick={handleSave} loading={saving}>
+          <Button variant="primary" size="m" onClick={handleSave} loading={saving} disabled={tooLong}>
             Guardar cambios
           </Button>
         </Row>

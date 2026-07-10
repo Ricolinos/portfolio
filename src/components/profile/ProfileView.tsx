@@ -33,9 +33,8 @@ import type { CollabProjectData, PartnerConnectionData, SharedResourceData } fro
 import { respondContactRequest } from "@/app/actions/collab";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import {
-  DesignerCardDialog,
   FeaturedImageUploadDialog,
-  PartnerSettingsDialog,
+  PartnerEditInfoDialog,
 } from "./PartnerProfileEditDialogs";
 import { NewCollabProjectDialog, type ConnectionOption } from "./ClientCollabDialogs";
 import { ContactPartnerDialog } from "./PartnerCollabDialogs";
@@ -200,6 +199,7 @@ function PieceCard({
       padding="12"
       radius="l"
       border="neutral-alpha-weak"
+      transition="macro-medium"
     >
       {isOwnProfile && piece.href ? (
         <SmartLink unstyled fillWidth href={piece.href}>
@@ -520,7 +520,7 @@ export function ProfileView({
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
   const [openDialog, setOpenDialog] = useState<
-    "avatar" | "info" | "featured" | "card" | null
+    "avatar" | "info" | "featured" | null
   >(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
@@ -583,7 +583,7 @@ export function ProfileView({
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
           {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
-          <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start">
+          <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start" transition="macro-medium">
 
             {/* Columna izquierda — identidad, contacto y métricas */}
             <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
@@ -595,7 +595,7 @@ export function ProfileView({
                   onEditClick={() => setOpenDialog("featured")}
                 />
 
-                <Flex style={{ marginTop: "-48px" }}>
+                <Flex fillWidth horizontal="center" style={{ marginTop: "-48px" }}>
                   {isOwnProfile ? (
                     <button
                       type="button"
@@ -614,16 +614,18 @@ export function ProfileView({
                 </Flex>
               </Column>
 
-              <Column gap="8">
-                <Heading variant="heading-strong-l">{displayName}</Heading>
-                <Row gap="8" vertical="center">
+              <Column gap="8" fillWidth horizontal="center">
+                <Heading variant="heading-strong-l" align="center">
+                  {displayName}
+                </Heading>
+                <Row gap="8" vertical="center" horizontal="center">
                   <Tag size="s" variant="brand" label="Partner" />
                   <Text variant="body-default-m" onBackground="neutral-weak">
                     @{username}
                   </Text>
                 </Row>
                 {memberSince && (
-                  <Row gap="8" vertical="center">
+                  <Row gap="8" vertical="center" horizontal="center">
                     <Icon name="calendar" size="s" onBackground="neutral-weak" />
                     <Text variant="body-default-m" onBackground="neutral-weak">
                       Partner desde {formatMemberSince(memberSince)}
@@ -631,7 +633,7 @@ export function ProfileView({
                   </Row>
                 )}
                 {isOwnProfile && email && (
-                  <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
+                  <Row gap="8" vertical="center" horizontal="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
                     {/* Ellipsis en vez de quiebre a media palabra ("hubnerds.co m") */}
                     <Text
@@ -682,29 +684,6 @@ export function ProfileView({
                       </Button>
                     )}
                 </Column>
-              )}
-
-              {isOwnProfile && (
-                <Flex
-                  background="neutral-alpha-weak"
-                  padding="16"
-                  radius="m"
-                  border="neutral-alpha-weak"
-                  direction="column"
-                  gap="12"
-                >
-                  <Column gap="4">
-                    <Text variant="label-strong-s">Tarjeta de Designerd</Text>
-                    <Text variant="body-default-s" onBackground="neutral-weak">
-                      Así te ven en Explorar / designerds.
-                    </Text>
-                  </Column>
-                  <Row gap="8" wrap>
-                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("card")}>
-                      Cita, puesto y descripción
-                    </Button>
-                  </Row>
-                </Flex>
               )}
 
               <Flex
@@ -863,7 +842,15 @@ export function ProfileView({
                   </Text>
                 </Column>
               ) : (
-                <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
+                <Grid
+                  columns={4}
+                  l={{ columns: 3 }}
+                  m={{ columns: 2 }}
+                  s={{ columns: 1 }}
+                  gap="20"
+                  fillWidth
+                  transition="macro-medium"
+                >
                   {visiblePieces.map((piece) => (
                     <PieceCard
                       key={piece.id}
@@ -917,25 +904,27 @@ export function ProfileView({
               onClose={() => setOpenDialog(null)}
               currentImageUrl={avatarUrl}
             />
-            <PartnerSettingsDialog
+            <PartnerEditInfoDialog
               isOpen={openDialog === "info"}
               onClose={() => setOpenDialog(null)}
               initialIsPublic={isPublic}
               initialShareWhatsapp={shareWhatsapp}
-            />
-            <FeaturedImageUploadDialog
-              isOpen={openDialog === "featured"}
-              onClose={() => setOpenDialog(null)}
-              currentFeaturedUrl={featuredImageUrl}
-            />
-            <DesignerCardDialog
-              isOpen={openDialog === "card"}
-              onClose={() => setOpenDialog(null)}
               initial={{
                 cardQuote: cardQuote ?? "",
                 headline: headline ?? "",
                 bio: bio ?? "",
               }}
+              avatarUrl={avatarUrl}
+              displayName={displayName}
+              username={username}
+              featuredImageUrl={featuredImageUrl}
+              onOpenAvatar={() => setOpenDialog("avatar")}
+              onOpenFeatured={() => setOpenDialog("featured")}
+            />
+            <FeaturedImageUploadDialog
+              isOpen={openDialog === "featured"}
+              onClose={() => setOpenDialog(null)}
+              currentFeaturedUrl={featuredImageUrl}
             />
             <NewCollabProjectDialog
               isOpen={collabDialogOpen}
