@@ -228,6 +228,12 @@ model CollabProject {
   status        String                @default("active") // active | completed | archived
   // Notas/configuración editables por el cliente
   clientNotes   String?               @db.Text
+  // Cotización y calendario del borrador; editables por ambas partes
+  quoteAmount   Decimal?              @db.Decimal(12, 2)
+  quoteCurrency String                @default("MXN")
+  quoteNotes    String?               @db.Text
+  startDate     DateTime?
+  dueDate       DateTime?
   connectionId  String
   connection    Connection            @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   tasks         ProjectTask[]

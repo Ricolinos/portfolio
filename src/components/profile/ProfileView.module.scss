@@ -26,32 +26,19 @@
   opacity: 1;
 }
 
-/* Portada editable: mismo patrón que el avatar, en formato panorámico */
-.coverButton {
-  position: relative;
-  display: flex;
-  width: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-l);
-  cursor: pointer;
-}
+/* Sección de proyectos dentro de la grilla de perfil (identidad + proyectos):
+   ocupa los tracks restantes del Grid exterior (4 → 3, luego m: 3 → 2).
+   Breakpoints alineados con node_modules/@once-ui-system/core/dist/styles/breakpoints.scss
+   ($breakpoint-m: 1024px, $breakpoint-s: 768px) para que coincidan exactamente
+   con los props m={{ columns }} / s={{ columns }} del Grid interior de proyectos. */
+.projectsSpan {
+  grid-column: span 3;
 
-.coverEdit {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--static-space-8);
-  border-radius: var(--radius-l);
-  background: color-mix(in srgb, var(--page-background) 65%, transparent);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
+  @media (max-width: 1024px) {
+    grid-column: span 2;
+  }
 
-.coverButton:hover .coverEdit,
-.coverButton:focus-visible .coverEdit {
-  opacity: 1;
+  @media (max-width: 768px) {
+    grid-column: auto;
+  }
 }
