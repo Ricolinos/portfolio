@@ -583,15 +583,40 @@ function selfCloseVoidHtmlTags(source: string): string {
   });
 }
 
+// GOTCHA (mismo caso "prueba-1-again" 2026-07-10, segundo hallazgo tras
+// autocerrar <br> arriba): el HTML pegado de Word/Docs también trae
+// `style="a: b; c: d"` en tags como `<p>`/`<span>`/`<div>`. MDX compila HTML
+// embebido literal (no generado por sintaxis Markdown pura) como JSX real,
+// SIN pasarlo por el mapa de `components` de este archivo — verificado
+// inspeccionando el output de `@mdx-js/mdx`: un `<p style="...">` escrito a
+// mano se compila a `_jsx("p", { style: "...", ... })` (string literal
+// "p"), no a `_jsx(_components.p, ...)`, así que un wrapper en `components`
+// (como `p`/`span`/`div`) nunca se invoca para HTML tecleado/pegado por el
+// usuario — solo aplica a lo que produce la sintaxis Markdown pura (#, listas,
+// etc). Por eso este bug no se puede arreglar por componente: hay que
+// limpiar el atributo en el propio texto MDX antes de compilar. Tampoco se
+// puede reescribir a `style={{...}}` porque next-mdx-remote elimina TODO
+// atributo JSX con llaves (ver remove-javascript-expressions.js, medida de
+// seguridad contra inyección de JS) — el string simplemente se quita, que es
+// exactamente lo que se busca aquí. El único lugar del código que emite
+// `style=` en el Markdown guardado es el bloque "text" del editor (HTML
+// crudo del contentEditable, ver ContentBlocks.tsx); ningún otro bloque lo
+// usa, así que este strip es seguro de forma global.
+function stripInlineStyleAttrs(source: string): string {
+  return source.replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*')/gi, "");
+}
+
 type CustomMDXProps = MDXRemoteProps & {
   components?: typeof components;
 };
 
 export function CustomMDX({ source, ...props }: CustomMDXProps) {
+  const normalizedSource =
+    typeof source === "string" ? selfCloseVoidHtmlTags(stripInlineStyleAttrs(source)) : source;
   return (
     <MDXRemote
       {...props}
-      source={typeof source === "string" ? selfCloseVoidHtmlTags(source) : source}
+      source={normalizedSource}
       components={{ ...components, ...(props.components || {}) }}
     />
   );
