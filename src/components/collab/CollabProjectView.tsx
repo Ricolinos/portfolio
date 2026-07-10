@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Avatar,
@@ -33,6 +33,7 @@ import {
   deleteProjectAsset,
   deleteProjectAssetTask,
   renameProjectAsset,
+  renameProjectAssetTask,
   toggleProjectAssetTask,
 } from "@/app/actions/projectAssets";
 
@@ -262,6 +263,9 @@ function AssetTaskRow({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [savingTitle, setSavingTitle] = useState(false);
 
   const handleToggle = async () => {
     setBusy(true);
@@ -277,33 +281,103 @@ function AssetTaskRow({
     if (result.ok) router.refresh();
   };
 
+  const handleSaveTitle = async () => {
+    if (!titleDraft.trim() || titleDraft === task.title) {
+      setEditingTitle(false);
+      setTitleDraft(task.title);
+      return;
+    }
+    setSavingTitle(true);
+    const result = await renameProjectAssetTask(task.id, titleDraft);
+    setSavingTitle(false);
+    if (!result.ok) return;
+    setEditingTitle(false);
+    router.refresh();
+  };
+
   return (
     <Row fillWidth paddingX="16" paddingY="8" horizontal="between" vertical="center" gap="12" wrap>
-      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+      <Row gap="12" vertical="center" style={{ minWidth: 0, flex: 1 }}>
         <Checkbox isChecked={task.done} onToggle={handleToggle} disabled={busy} />
-        <Text
-          variant="label-default-s"
-          onBackground={task.done ? "neutral-weak" : "neutral-strong"}
-          style={{
-            minWidth: 0,
-            overflowWrap: "anywhere",
-            textDecoration: task.done ? "line-through" : undefined,
-          }}
-        >
-          {task.title}
-        </Text>
+        {editingTitle ? (
+          <Column style={{ flex: 1, minWidth: 160 }}>
+            <Input
+              id={`asset-task-title-${task.id}`}
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveTitle();
+                if (e.key === "Escape") {
+                  setEditingTitle(false);
+                  setTitleDraft(task.title);
+                }
+              }}
+            />
+          </Column>
+        ) : (
+          <Text
+            variant="label-default-s"
+            onBackground={task.done ? "neutral-weak" : "neutral-strong"}
+            style={{
+              minWidth: 0,
+              overflowWrap: "anywhere",
+              textDecoration: task.done ? "line-through" : undefined,
+            }}
+          >
+            {task.title}
+          </Text>
+        )}
       </Row>
       {canEdit && (
-        <IconButton
-          icon="trash"
-          size="s"
-          variant="tertiary"
-          tooltip="Eliminar tarea"
-          tooltipPosition="top"
-          loading={busy}
-          disabled={busy}
-          onClick={handleDelete}
-        />
+        <Row gap="4" vertical="center">
+          {editingTitle ? (
+            <>
+              <IconButton
+                icon="check"
+                size="s"
+                variant="tertiary"
+                tooltip="Guardar"
+                tooltipPosition="top"
+                loading={savingTitle}
+                disabled={savingTitle}
+                onClick={handleSaveTitle}
+              />
+              <IconButton
+                icon="xCircle"
+                size="s"
+                variant="tertiary"
+                tooltip="Cancelar"
+                tooltipPosition="top"
+                disabled={savingTitle}
+                onClick={() => {
+                  setEditingTitle(false);
+                  setTitleDraft(task.title);
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <IconButton
+                icon="edit"
+                size="s"
+                variant="tertiary"
+                tooltip="Editar tarea"
+                tooltipPosition="top"
+                onClick={() => setEditingTitle(true)}
+              />
+              <IconButton
+                icon="trash"
+                size="s"
+                variant="tertiary"
+                tooltip="Eliminar tarea"
+                tooltipPosition="top"
+                loading={busy}
+                disabled={busy}
+                onClick={handleDelete}
+              />
+            </>
+          )}
+        </Row>
       )}
     </Row>
   );
@@ -512,7 +586,9 @@ function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole:
   );
 }
 
-function AddAssetModal({
+// Diálogo de dos columnas (categorías a la izquierda, búsqueda de activos a
+// la derecha) para agregar un Activo desde el catálogo o uno personalizado.
+function AddAssetSearch({
   isOpen,
   onClose,
   projectId,
@@ -524,27 +600,40 @@ function AddAssetModal({
   assetCatalog: AssetCategoryData[];
 }) {
   const router = useRouter();
-  const [mode, setMode] = useState<"template" | "custom">("template");
-  const [categoryId, setCategoryId] = useState<string>("");
-  const [templateId, setTemplateId] = useState<string>("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
+  const [query, setQuery] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
   const [customTitle, setCustomTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedCategory = assetCatalog.find((category) => category.id === categoryId);
+  const selectedCategory = assetCatalog.find((category) => category.id === selectedCategoryId);
+  const filteredTemplates =
+    selectedCategory?.templates.filter((template) =>
+      template.name.toLowerCase().includes(query.toLowerCase()),
+    ) ?? [];
 
   const handleClose = () => {
     if (saving) return;
-    setMode("template");
-    setCategoryId("");
-    setTemplateId("");
+    setSelectedCategoryId("");
+    setQuery("");
+    setShowCustom(false);
     setCustomTitle("");
     setError(null);
     onClose();
   };
 
-  const handleAddFromTemplate = async () => {
-    if (!templateId) return;
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscapeKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    document.addEventListener("keydown", handleEscapeKey);
+    return () => document.removeEventListener("keydown", handleEscapeKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, saving]);
+
+  const handleAddFromTemplate = async (templateId: string) => {
     setSaving(true);
     setError(null);
     const result = await addProjectAsset(projectId, templateId);
@@ -571,77 +660,179 @@ function AddAssetModal({
     handleClose();
   };
 
+  if (!isOpen) return null;
+
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Agregar activo" backdrop={modalBackdrop}>
-      <Column gap="16" fillWidth paddingTop="12">
-        <Row gap="8">
-          <Button
-            variant={mode === "template" ? "primary" : "secondary"}
-            size="s"
-            onClick={() => setMode("template")}
-          >
-            Desde catálogo
-          </Button>
-          <Button
-            variant={mode === "custom" ? "primary" : "secondary"}
-            size="s"
-            onClick={() => setMode("custom")}
-          >
-            Activo personalizado
-          </Button>
-        </Row>
+    <Row
+      position="fixed"
+      top="0"
+      left="0"
+      right="0"
+      bottom="0"
+      zIndex={10}
+      center
+      background="overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
+      <Row
+        maxWidth="s"
+        fillWidth
+        background="surface"
+        radius="l-4"
+        border="neutral-alpha-medium"
+        shadow="l"
+        overflow="hidden"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: "70vh" }}
+      >
+        {/* Columna izquierda: categorías del catálogo */}
+        <Column
+          gap="2"
+          padding="8"
+          background="surface"
+          overflowY="auto"
+          style={{ minWidth: 160, flexShrink: 0 }}
+        >
+          <Row paddingX="12" paddingTop="8" paddingBottom="4">
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              Categorías
+            </Text>
+          </Row>
+          {assetCatalog.map((category) => {
+            const active = category.id === selectedCategoryId;
+            return (
+              <Row
+                key={category.id}
+                paddingX="12"
+                paddingY="8"
+                radius="m"
+                cursor="pointer"
+                background={active ? "neutral-alpha-weak" : undefined}
+                onClick={() => {
+                  setSelectedCategoryId(category.id);
+                  setQuery("");
+                  setShowCustom(false);
+                }}
+              >
+                <Text
+                  variant="label-default-s"
+                  onBackground={active ? "neutral-strong" : "neutral-weak"}
+                >
+                  {category.name}
+                </Text>
+              </Row>
+            );
+          })}
+        </Column>
 
-        {mode === "template" ? (
-          <>
-            <Select
-              id="asset-category"
-              label="Categoría"
-              value={categoryId}
-              onSelect={(value) => {
-                setCategoryId(value as string);
-                setTemplateId("");
-              }}
-              options={assetCatalog.map((category) => ({ value: category.id, label: category.name }))}
+        <Line background="neutral-alpha-weak" vert />
+
+        {/* Columna derecha: búsqueda de activos de la categoría elegida */}
+        <Column fillWidth padding="8" gap="4" overflowY="auto" style={{ minHeight: 0 }}>
+          <Row fillWidth paddingX="8" paddingTop="4" horizontal="end">
+            <IconButton
+              icon="close"
+              size="s"
+              variant="tertiary"
+              tooltip="Cerrar"
+              tooltipPosition="left"
+              onClick={handleClose}
             />
-            <Select
-              id="asset-template"
-              label="Activo"
-              value={templateId}
-              onSelect={(value) => setTemplateId(value as string)}
-              disabled={!selectedCategory}
-              options={
-                selectedCategory?.templates.map((template) => ({ value: template.id, label: template.name })) ?? []
-              }
-            />
-          </>
-        ) : (
-          <Input
-            id="asset-custom-title"
-            label="Título del activo"
-            value={customTitle}
-            onChange={(e) => setCustomTitle(e.target.value)}
-            placeholder="Ej. Guión de video"
-          />
-        )}
+          </Row>
 
-        {error && <Feedback variant="danger" description={error} />}
-
-        <Row fillWidth gap="8" horizontal="end">
-          <Button variant="secondary" size="m" onClick={handleClose} disabled={saving}>
-            Cancelar
-          </Button>
-          {mode === "template" ? (
-            <Button variant="primary" size="m" onClick={handleAddFromTemplate} loading={saving} disabled={!templateId}>
-              Agregar
-            </Button>
+          {!selectedCategory ? (
+            <Row fillWidth center paddingY="64">
+              <Text variant="body-default-m" onBackground="neutral-weak">
+                Selecciona una categoría
+              </Text>
+            </Row>
           ) : (
-            <Button variant="primary" size="m" onClick={handleAddCustom} loading={saving} disabled={!customTitle.trim()}>
-              Agregar
-            </Button>
+            <>
+              <Row fillWidth padding="8">
+                <Input
+                  id="asset-search"
+                  placeholder="Buscar activo..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  hasPrefix={<Icon name="search" size="xs" onBackground="neutral-weak" />}
+                />
+              </Row>
+
+              <Column fillWidth gap="2" paddingX="4">
+                {filteredTemplates.length === 0 ? (
+                  <Row fillWidth center paddingY="32">
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Sin resultados en esta categoría.
+                    </Text>
+                  </Row>
+                ) : (
+                  filteredTemplates.map((template) => (
+                    <Row
+                      key={template.id}
+                      fillWidth
+                      gap="8"
+                      vertical="center"
+                      paddingX="12"
+                      paddingY="8"
+                      radius="m"
+                      cursor="pointer"
+                      onClick={() => handleAddFromTemplate(template.id)}
+                    >
+                      <Icon name="sparkles" size="xs" onBackground="neutral-weak" />
+                      <Text variant="label-default-s" onBackground="neutral-strong">
+                        {template.name}
+                      </Text>
+                    </Row>
+                  ))
+                )}
+              </Column>
+            </>
           )}
-        </Row>
-      </Column>
-    </Modal>
+
+          {error && (
+            <Row fillWidth paddingX="8">
+              <Feedback variant="danger" description={error} />
+            </Row>
+          )}
+
+          <Row fillWidth paddingX="12" paddingTop="8">
+            {!showCustom ? (
+              <Text
+                variant="label-default-s"
+                onBackground="neutral-weak"
+                style={{ cursor: "pointer" }}
+                onClick={() => setShowCustom(true)}
+              >
+                ¿No encuentras el activo? Crea uno personalizado
+              </Text>
+            ) : (
+              <Row fillWidth gap="8" vertical="end" wrap>
+                <Column style={{ flex: 1, minWidth: 160 }}>
+                  <Input
+                    id="asset-custom-title"
+                    label="Título del activo"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder="Ej. Guión de video"
+                  />
+                </Column>
+                <Button
+                  variant="primary"
+                  size="m"
+                  onClick={handleAddCustom}
+                  loading={saving}
+                  disabled={!customTitle.trim()}
+                >
+                  Agregar
+                </Button>
+              </Row>
+            )}
+          </Row>
+        </Column>
+      </Row>
+    </Row>
   );
 }
 
@@ -788,13 +979,11 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
           </Column>
         )}
 
-        {viewerRole === "partner" && (
-          <Row fillWidth horizontal="end">
-            <Button variant="secondary" size="m" prefixIcon="plus" onClick={() => setAddAssetOpen(true)}>
-              Agregar activo
-            </Button>
-          </Row>
-        )}
+        <Row fillWidth horizontal="end">
+          <Button variant="secondary" size="m" prefixIcon="plus" onClick={() => setAddAssetOpen(true)}>
+            Agregar activo
+          </Button>
+        </Row>
       </Column>
 
       {/* ── Archivos ─────────────────────────────────────────────────────── */}
@@ -874,7 +1063,7 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
         viewerRole={viewerRole}
       />
 
-      <AddAssetModal
+      <AddAssetSearch
         isOpen={addAssetOpen}
         onClose={() => setAddAssetOpen(false)}
         projectId={project.id}

@@ -66,8 +66,8 @@ export async function getAssetCatalog(): Promise<AssetCategoryData[]> {
 
 /* ══ Activos del proyecto ═════════════════════════════════════════════ */
 
-// Solo el partner agrega Activos, clonando la
-// plantilla elegida (título + checklist) en una sola transacción.
+// Cliente o partner pueden agregar Activos, clonando la plantilla
+// elegida (título + checklist) en una sola transacción.
 export async function addProjectAsset(
   projectId: string,
   assetTemplateId: string,
@@ -77,7 +77,7 @@ export async function addProjectAsset(
 
   const auth = await getProjectAuth(projectId, userId);
   if (!auth.ok) return { ok: false, error: auth.error ?? "No autorizado" };
-  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede agregar activos." };
+  if (!auth.isClient && !auth.isPartner) return { ok: false, error: "No autorizado" };
 
   const template = await prisma.assetTemplate.findUnique({
     where: { id: assetTemplateId },
@@ -127,7 +127,7 @@ export async function addCustomProjectAsset(projectId: string, title: string): P
 
   const auth = await getProjectAuth(projectId, userId);
   if (!auth.ok) return { ok: false, error: auth.error ?? "No autorizado" };
-  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede agregar activos." };
+  if (!auth.isClient && !auth.isPartner) return { ok: false, error: "No autorizado" };
 
   const assetCount = await prisma.projectAsset.count({ where: { projectId } });
 
