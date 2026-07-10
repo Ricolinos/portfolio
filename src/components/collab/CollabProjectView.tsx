@@ -18,6 +18,7 @@ import {
   Tag,
   Text,
   Textarea,
+  type Colors,
 } from "@once-ui-system/core";
 import type { CollabLink, CollabProjectData, CollabTask } from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
@@ -76,6 +77,14 @@ const TASK_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success"> = 
   pending: "neutral",
   in_review: "warning",
   approved: "success",
+};
+
+const TASK_STATUS_ORDER = ["pending", "in_review", "approved"] as const;
+
+const TASK_STATUS_BAR_BACKGROUND: Record<string, Colors> = {
+  pending: "neutral-medium",
+  in_review: "warning-strong",
+  approved: "success-strong",
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -362,6 +371,13 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const taskStatusCounts = project.tasks.reduce<Record<string, number>>((acc, task) => {
+    acc[task.status] = (acc[task.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const approvedPercent =
+    project.tasks.length > 0 ? Math.round(((taskStatusCounts.approved ?? 0) / project.tasks.length) * 100) : 0;
+
   const [taskTitle, setTaskTitle] = useState("");
   const [addingTask, setAddingTask] = useState(false);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
@@ -496,6 +512,35 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
             {project.tasks.length} {project.tasks.length === 1 ? "tarea" : "tareas"}
           </Text>
         </Row>
+
+        {project.tasks.length > 0 && (
+          <Column gap="8" fillWidth>
+            <Row fillWidth height="8" radius="full" overflow="hidden" background="neutral-alpha-weak">
+              {TASK_STATUS_ORDER.filter((status) => (taskStatusCounts[status] ?? 0) > 0).map((status) => (
+                <Row
+                  key={status}
+                  background={TASK_STATUS_BAR_BACKGROUND[status]}
+                  style={{ flex: `${taskStatusCounts[status]} 0 0%` }}
+                />
+              ))}
+            </Row>
+            <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
+              <Row gap="12" wrap>
+                {TASK_STATUS_ORDER.map((status) => (
+                  <Tag
+                    key={status}
+                    size="s"
+                    variant={TASK_STATUS_VARIANTS[status] ?? "neutral"}
+                    label={`${TASK_STATUS_LABELS[status] ?? status}: ${taskStatusCounts[status] ?? 0}`}
+                  />
+                ))}
+              </Row>
+              <Text variant="label-default-s" onBackground="neutral-weak">
+                {approvedPercent}% aprobado
+              </Text>
+            </Row>
+          </Column>
+        )}
 
         {project.tasks.length === 0 ? (
           <Column
