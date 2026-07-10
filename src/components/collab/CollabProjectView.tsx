@@ -7,13 +7,16 @@ import {
   Button,
   Checkbox,
   Column,
+  DateInput,
   Feedback,
   Heading,
   Icon,
   IconButton,
   Input,
+  Kbar,
   Line,
   Modal,
+  NumberInput,
   ProgressBar,
   Row,
   Select,
@@ -24,7 +27,14 @@ import {
 import type { CollabLink, CollabProjectData, ProjectAssetData, ProjectAssetTaskData } from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
-import { addProjectLink, deleteProjectLink, updateCollabProject } from "@/app/actions/collab";
+import {
+  addProjectCollaborator,
+  addProjectLink,
+  deleteProjectLink,
+  removeProjectCollaborator,
+  updateCollabProject,
+} from "@/app/actions/collab";
+import type { CollabCollaboratorSummary } from "@/lib/collab";
 import type { AssetCategoryData } from "@/app/actions/projectAssets";
 import {
   addCustomProjectAsset,
@@ -53,6 +63,7 @@ interface CollabProjectViewProps {
   viewerRole: ViewerRole;
   viewerId: string;
   assetCatalog: AssetCategoryData[];
+  availablePartners: CollabCollaboratorSummary[];
 }
 
 const PROJECT_STATUS_LABELS: Record<string, string> = {
@@ -71,6 +82,11 @@ const PROJECT_STATUS_OPTIONS = [
   { value: "active", label: "Activo" },
   { value: "completed", label: "Completado" },
   { value: "archived", label: "Archivado" },
+];
+
+const QUOTE_CURRENCY_OPTIONS = [
+  { value: "MXN", label: "MXN" },
+  { value: "USD", label: "USD" },
 ];
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -112,6 +128,127 @@ function PersonBadge({ label, person }: { label: string; person: CollabPersonSum
         />
       )}
     </Row>
+  );
+}
+
+// Badge de colaborador para la fila "Colaboradores": partner fundador (sin
+// botón de quitar) o ProjectCollaborator adicional (con botón de quitar si
+// el viewer está autorizado).
+function CollaboratorBadge({
+  person,
+  headline,
+  canRemove,
+  busy,
+  onRemove,
+}: {
+  person: CollabPersonSummary;
+  headline?: string | null;
+  canRemove: boolean;
+  busy: boolean;
+  onRemove?: () => void;
+}) {
+  const initials = (person.name?.[0] ?? person.username?.[0] ?? "U").toUpperCase();
+
+  return (
+    <Row
+      gap="8"
+      vertical="center"
+      paddingX="12"
+      paddingY="8"
+      background="neutral-alpha-weak"
+      radius="full"
+      style={{ minWidth: 0 }}
+    >
+      <Avatar size="xs" {...(person.imageUrl ? { src: person.imageUrl } : { value: initials })} />
+      <Text
+        variant="label-default-s"
+        onBackground="neutral-strong"
+        style={{ minWidth: 0, overflowWrap: "anywhere" }}
+      >
+        {person.name ?? person.username ?? "Sin nombre"}
+      </Text>
+      {headline && <Tag size="s" variant="neutral" label={headline} />}
+      {person.username && (
+        <IconButton
+          icon="person"
+          size="s"
+          variant="tertiary"
+          href={`/${person.username}`}
+          tooltip="Ver perfil"
+          tooltipPosition="top"
+        />
+      )}
+      {canRemove && onRemove && (
+        <IconButton
+          icon="close"
+          size="s"
+          variant="tertiary"
+          tooltip="Quitar del proyecto"
+          tooltipPosition="top"
+          loading={busy}
+          disabled={busy}
+          onClick={onRemove}
+        />
+      )}
+    </Row>
+  );
+}
+
+// Command-palette estilo Kbar para elegir un colaborador entre los partners
+// aceptados por el cliente, agrupados visualmente por su puesto (headline).
+// `Kbar` (el único miembro del módulo que expone el paquete) envuelve su
+// propio trigger: le pasamos el botón "Agregar colaborador" como children y
+// el propio componente abre/cierra el buscador al hacer click en él.
+function AddCollaboratorSearch({
+  projectId,
+  availablePartners,
+  onError,
+}: {
+  projectId: string;
+  availablePartners: CollabCollaboratorSummary[];
+  onError: (message: string | null) => void;
+}) {
+  const router = useRouter();
+
+  const handleSelect = async (partnerId: string) => {
+    onError(null);
+    const result = await addProjectCollaborator(projectId, partnerId);
+    if (!result.ok) {
+      onError(result.error);
+      return;
+    }
+    router.refresh();
+  };
+
+  if (availablePartners.length === 0) {
+    return (
+      <>
+        <Button variant="tertiary" size="s" prefixIcon="plus" disabled>
+          Agregar colaborador
+        </Button>
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          El cliente no tiene otros colaboradores aceptados.
+        </Text>
+      </>
+    );
+  }
+
+  const items = availablePartners.map((partner) => ({
+    id: partner.id,
+    name: partner.name ?? partner.username ?? "Sin nombre",
+    section: partner.headline ?? "Sin puesto",
+    shortcut: [] as string[],
+    keywords: [partner.username, partner.headline].filter(Boolean).join(" "),
+    icon: "person",
+    perform: () => handleSelect(partner.id),
+  }));
+
+  return (
+    <Kbar items={items} inputSize="s">
+      <Button variant="tertiary" size="s" prefixIcon="plus">
+        Agregar colaborador
+      </Button>
+    </Kbar>
   );
 }
 
@@ -184,6 +321,15 @@ function ProjectSettingsDialog({
   const [description, setDescription] = useState(project.description ?? "");
   const [status, setStatus] = useState(project.status);
   const [clientNotes, setClientNotes] = useState(project.clientNotes ?? "");
+  const [quoteAmount, setQuoteAmount] = useState<number | undefined>(project.quoteAmount ?? undefined);
+  const [quoteCurrency, setQuoteCurrency] = useState(project.quoteCurrency || "MXN");
+  const [quoteNotes, setQuoteNotes] = useState(project.quoteNotes ?? "");
+  const [startDate, setStartDate] = useState<Date | undefined>(
+    project.startDate ? new Date(project.startDate) : undefined,
+  );
+  const [dueDate, setDueDate] = useState<Date | undefined>(
+    project.dueDate ? new Date(project.dueDate) : undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -199,6 +345,11 @@ function ProjectSettingsDialog({
       description,
       status,
       ...(viewerRole === "client" ? { clientNotes } : {}),
+      quoteAmount,
+      quoteCurrency,
+      quoteNotes,
+      startDate: startDate ? startDate.toISOString() : null,
+      dueDate: dueDate ? dueDate.toISOString() : null,
     });
     if (!result.ok) {
       setError(result.error);
@@ -228,6 +379,57 @@ function ProjectSettingsDialog({
           onSelect={(value) => setStatus(value as string)}
           options={PROJECT_STATUS_OPTIONS}
         />
+        <Line background="neutral-alpha-weak" />
+
+        <Column gap="12" fillWidth>
+          <Text variant="label-strong-s">Cotización y calendario</Text>
+          <Row fillWidth gap="8" wrap>
+            <Column style={{ flex: 2, minWidth: 160 }}>
+              <NumberInput
+                id="collab-project-quote-amount"
+                label="Monto"
+                value={quoteAmount}
+                onChange={setQuoteAmount}
+                min={0}
+              />
+            </Column>
+            <Column style={{ flex: 1, minWidth: 100 }}>
+              <Select
+                id="collab-project-quote-currency"
+                label="Moneda"
+                value={quoteCurrency}
+                onSelect={(value) => setQuoteCurrency(value as string)}
+                options={QUOTE_CURRENCY_OPTIONS}
+              />
+            </Column>
+          </Row>
+          <Textarea
+            id="collab-project-quote-notes"
+            label="Notas de cotización"
+            value={quoteNotes}
+            onChange={(e) => setQuoteNotes(e.target.value)}
+            lines={3}
+          />
+          <Row fillWidth gap="8" wrap>
+            <Column style={{ flex: 1, minWidth: 160 }}>
+              <DateInput
+                id="collab-project-start-date"
+                label="Fecha de inicio"
+                value={startDate}
+                onChange={setStartDate}
+              />
+            </Column>
+            <Column style={{ flex: 1, minWidth: 160 }}>
+              <DateInput
+                id="collab-project-due-date"
+                label="Fecha de entrega"
+                value={dueDate}
+                onChange={setDueDate}
+              />
+            </Column>
+          </Row>
+        </Column>
+
         {viewerRole === "client" && (
           <Textarea
             id="collab-project-client-notes"
@@ -836,36 +1038,81 @@ function AddAssetSearch({
   );
 }
 
-export function CollabProjectView({ project, client, partner, viewerRole, viewerId, assetCatalog }: CollabProjectViewProps) {
+export function CollabProjectView({
+  project,
+  client,
+  partner,
+  viewerRole,
+  viewerId,
+  assetCatalog,
+  availablePartners,
+}: CollabProjectViewProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [addAssetOpen, setAddAssetOpen] = useState(false);
 
-  const [linkLabel, setLinkLabel] = useState("");
-  const [linkUrl, setLinkUrl] = useState("");
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [addingLink, setAddingLink] = useState(false);
+  const [busyCollaboratorId, setBusyCollaboratorId] = useState<string | null>(null);
+
+  const [brandLinkLabel, setBrandLinkLabel] = useState("");
+  const [brandLinkUrl, setBrandLinkUrl] = useState("");
+  const [brandLinkError, setBrandLinkError] = useState<string | null>(null);
+  const [addingBrandLink, setAddingBrandLink] = useState(false);
+
+  const [finalLinkLabel, setFinalLinkLabel] = useState("");
+  const [finalLinkUrl, setFinalLinkUrl] = useState("");
+  const [finalLinkError, setFinalLinkError] = useState<string | null>(null);
+  const [addingFinalLink, setAddingFinalLink] = useState(false);
+
   const [busyLinkId, setBusyLinkId] = useState<string | null>(null);
 
-  const handleAddLink = async () => {
-    if (!linkLabel.trim() || !linkUrl.trim()) return;
-    if (!validateExternalUrl(linkUrl)) {
-      setLinkError("La URL no es válida.");
+  const handleRemoveCollaborator = async (collaboratorId: string) => {
+    setBusyCollaboratorId(collaboratorId);
+    setError(null);
+    const result = await removeProjectCollaborator(project.id, collaboratorId);
+    if (!result.ok) setError(result.error);
+    else router.refresh();
+    setBusyCollaboratorId(null);
+  };
+
+  const handleAddBrandLink = async () => {
+    if (!brandLinkLabel.trim() || !brandLinkUrl.trim()) return;
+    if (!validateExternalUrl(brandLinkUrl)) {
+      setBrandLinkError("La URL no es válida.");
       return;
     }
-    setLinkError(null);
-    setAddingLink(true);
+    setBrandLinkError(null);
+    setAddingBrandLink(true);
     setError(null);
-    const result = await addProjectLink(project.id, linkLabel, linkUrl);
+    const result = await addProjectLink(project.id, brandLinkLabel, brandLinkUrl);
     if (!result.ok) {
       setError(result.error);
     } else {
-      setLinkLabel("");
-      setLinkUrl("");
+      setBrandLinkLabel("");
+      setBrandLinkUrl("");
       router.refresh();
     }
-    setAddingLink(false);
+    setAddingBrandLink(false);
+  };
+
+  const handleAddFinalLink = async () => {
+    if (!finalLinkLabel.trim() || !finalLinkUrl.trim()) return;
+    if (!validateExternalUrl(finalLinkUrl)) {
+      setFinalLinkError("La URL no es válida.");
+      return;
+    }
+    setFinalLinkError(null);
+    setAddingFinalLink(true);
+    setError(null);
+    const result = await addProjectLink(project.id, finalLinkLabel, finalLinkUrl);
+    if (!result.ok) {
+      setError(result.error);
+    } else {
+      setFinalLinkLabel("");
+      setFinalLinkUrl("");
+      router.refresh();
+    }
+    setAddingFinalLink(false);
   };
 
   const handleDeleteLink = async (linkId: string) => {
@@ -884,12 +1131,15 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
   );
   const assetProgressPercent = totalAssetTasks > 0 ? Math.round((doneAssetTasks / totalAssetTasks) * 100) : 0;
 
+  const brandLinks = project.links.filter((link) => link.type === "brand");
+  const finalLinks = project.links.filter((link) => link.type === "final");
+
   return (
     <Column fillWidth maxWidth="l" horizontal="center" paddingX="32" paddingTop="40" paddingBottom="80" gap="24">
       {/* ── Cabecera ─────────────────────────────────────────────────────── */}
       <Column background="surface" border="neutral-alpha-weak" radius="l" padding="24" gap="16" fillWidth>
         <Row fillWidth gap="16" horizontal="between" vertical="start" wrap>
-          <Column gap="8" style={{ minWidth: 0 }}>
+          <Column gap="12" style={{ minWidth: 0 }}>
             <Row gap="8" vertical="center" wrap>
               <Heading variant="heading-strong-l" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                 {project.title}
@@ -909,6 +1159,9 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
                 {project.description}
               </Text>
             )}
+            <Row gap="16" wrap style={{ minWidth: 0 }}>
+              <PersonBadge label="Cliente" person={client} />
+            </Row>
           </Column>
           <IconButton
             icon="settings"
@@ -922,10 +1175,29 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
 
         <Line background="neutral-alpha-weak" />
 
-        <Row gap="24" wrap>
-          <PersonBadge label="Cliente" person={client} />
-          <PersonBadge label="Partner" person={partner} />
-        </Row>
+        <Column gap="8" fillWidth>
+          <Text variant="label-default-s" onBackground="neutral-weak">
+            Colaboradores
+          </Text>
+          <Row gap="12" vertical="center" wrap>
+            <CollaboratorBadge person={partner} canRemove={false} busy={false} />
+            {project.collaborators.map((collaborator) => (
+              <CollaboratorBadge
+                key={collaborator.id}
+                person={collaborator}
+                headline={collaborator.headline}
+                canRemove={viewerRole === "client" || collaborator.id === viewerId}
+                busy={busyCollaboratorId === collaborator.id}
+                onRemove={() => handleRemoveCollaborator(collaborator.id)}
+              />
+            ))}
+            <AddCollaboratorSearch
+              projectId={project.id}
+              availablePartners={availablePartners}
+              onError={setError}
+            />
+          </Row>
+        </Column>
 
         {viewerRole === "client" && project.clientNotes && (
           <Column background="neutral-alpha-weak" padding="12" radius="m" gap="4">
@@ -995,65 +1267,139 @@ export function CollabProjectView({ project, client, partner, viewerRole, viewer
           description="Aquí no se guardan archivos pesados: sube tus materiales a tu servicio de nube (Google Drive, Dropbox, OneDrive, WeTransfer...) con permisos de acceso para compartir, y pega el link abajo."
         />
 
-        {project.links.length === 0 ? (
-          <Text variant="body-default-s" onBackground="neutral-weak">
-            Todavía no se han compartido archivos.
-          </Text>
-        ) : (
-          <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-            {project.links.map((link, index) => (
-              <Column key={link.id} fillWidth>
-                {index > 0 && <Line background="neutral-alpha-weak" />}
-                <LinkRow
-                  link={link}
-                  canDelete={viewerRole === "client" || link.addedById === viewerId}
-                  busy={busyLinkId === link.id}
-                  onDelete={() => handleDeleteLink(link.id)}
-                />
-              </Column>
-            ))}
-          </Column>
-        )}
+        <Row fillWidth gap="24" wrap>
+          <Column gap="16" style={{ flex: 1, minWidth: 280 }}>
+            <Heading variant="heading-strong-s">Activos finales</Heading>
 
-        <Column gap="8" fillWidth>
-          <Row fillWidth gap="8" wrap>
-            <Column style={{ flex: 1, minWidth: 160 }}>
-              <Input
-                id="collab-new-link-label"
-                label="Etiqueta"
-                value={linkLabel}
-                onChange={(e) => setLinkLabel(e.target.value)}
-                placeholder="Ej. Fotos finales"
-              />
-            </Column>
-            <Column style={{ flex: 2, minWidth: 220 }}>
-              <Input
-                id="collab-new-link-url"
-                label="URL"
-                value={linkUrl}
-                onChange={(e) => {
-                  setLinkUrl(e.target.value);
-                  setLinkError(null);
-                }}
-                placeholder="https://drive.google.com/..."
-                error={Boolean(linkError)}
-                errorMessage={linkError ?? undefined}
-              />
-            </Column>
-          </Row>
-          <Row fillWidth horizontal="end">
-            <Button
-              variant="secondary"
-              size="m"
-              prefixIcon="plus"
-              onClick={handleAddLink}
-              loading={addingLink}
-              disabled={!linkLabel.trim() || !linkUrl.trim()}
-            >
-              Agregar link
-            </Button>
-          </Row>
-        </Column>
+            {finalLinks.length === 0 ? (
+              <Text variant="body-default-s" onBackground="neutral-weak">
+                Todavía no se han compartido activos finales.
+              </Text>
+            ) : (
+              <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
+                {finalLinks.map((link, index) => (
+                  <Column key={link.id} fillWidth>
+                    {index > 0 && <Line background="neutral-alpha-weak" />}
+                    <LinkRow
+                      link={link}
+                      canDelete={viewerRole === "client" || link.addedById === viewerId}
+                      busy={busyLinkId === link.id}
+                      onDelete={() => handleDeleteLink(link.id)}
+                    />
+                  </Column>
+                ))}
+              </Column>
+            )}
+
+            {viewerRole === "partner" && (
+              <Column gap="8" fillWidth>
+                <Row fillWidth gap="8" wrap>
+                  <Column style={{ flex: 1, minWidth: 160 }}>
+                    <Input
+                      id="collab-new-final-link-label"
+                      label="Etiqueta"
+                      value={finalLinkLabel}
+                      onChange={(e) => setFinalLinkLabel(e.target.value)}
+                      placeholder="Ej. Fotos finales"
+                    />
+                  </Column>
+                  <Column style={{ flex: 2, minWidth: 220 }}>
+                    <Input
+                      id="collab-new-final-link-url"
+                      label="URL"
+                      value={finalLinkUrl}
+                      onChange={(e) => {
+                        setFinalLinkUrl(e.target.value);
+                        setFinalLinkError(null);
+                      }}
+                      placeholder="https://drive.google.com/..."
+                      error={Boolean(finalLinkError)}
+                      errorMessage={finalLinkError ?? undefined}
+                    />
+                  </Column>
+                </Row>
+                <Row fillWidth horizontal="end">
+                  <Button
+                    variant="secondary"
+                    size="m"
+                    prefixIcon="plus"
+                    onClick={handleAddFinalLink}
+                    loading={addingFinalLink}
+                    disabled={!finalLinkLabel.trim() || !finalLinkUrl.trim()}
+                  >
+                    Agregar link
+                  </Button>
+                </Row>
+              </Column>
+            )}
+          </Column>
+
+          <Column gap="16" style={{ flex: 1, minWidth: 280 }}>
+            <Heading variant="heading-strong-s">Assets de marca</Heading>
+
+            {brandLinks.length === 0 ? (
+              <Text variant="body-default-s" onBackground="neutral-weak">
+                Todavía no se han compartido assets de marca.
+              </Text>
+            ) : (
+              <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
+                {brandLinks.map((link, index) => (
+                  <Column key={link.id} fillWidth>
+                    {index > 0 && <Line background="neutral-alpha-weak" />}
+                    <LinkRow
+                      link={link}
+                      canDelete={viewerRole === "client" || link.addedById === viewerId}
+                      busy={busyLinkId === link.id}
+                      onDelete={() => handleDeleteLink(link.id)}
+                    />
+                  </Column>
+                ))}
+              </Column>
+            )}
+
+            {viewerRole === "client" && (
+              <Column gap="8" fillWidth>
+                <Row fillWidth gap="8" wrap>
+                  <Column style={{ flex: 1, minWidth: 160 }}>
+                    <Input
+                      id="collab-new-brand-link-label"
+                      label="Etiqueta"
+                      value={brandLinkLabel}
+                      onChange={(e) => setBrandLinkLabel(e.target.value)}
+                      placeholder="Ej. Manual de marca"
+                    />
+                  </Column>
+                  <Column style={{ flex: 2, minWidth: 220 }}>
+                    <Input
+                      id="collab-new-brand-link-url"
+                      label="URL"
+                      value={brandLinkUrl}
+                      onChange={(e) => {
+                        setBrandLinkUrl(e.target.value);
+                        setBrandLinkError(null);
+                      }}
+                      placeholder="https://drive.google.com/..."
+                      error={Boolean(brandLinkError)}
+                      errorMessage={brandLinkError ?? undefined}
+                    />
+                  </Column>
+                </Row>
+                <Row fillWidth horizontal="end">
+                  <Button
+                    variant="secondary"
+                    size="m"
+                    prefixIcon="plus"
+                    onClick={handleAddBrandLink}
+                    loading={addingBrandLink}
+                    disabled={!brandLinkLabel.trim() || !brandLinkUrl.trim()}
+                  >
+                    Agregar link
+                  </Button>
+                </Row>
+              </Column>
+            )}
+          </Column>
+        </Row>
       </Column>
 
       <ProjectSettingsDialog

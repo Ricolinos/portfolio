@@ -33,6 +33,21 @@ export default async function CollabProjectPage({ params }: CollabProjectPagePro
 
   const viewerRole = connection.client.id === userId ? "client" : "partner";
 
+  // Candidatos a agregar como colaborador adicional: partners con Connection
+  // ACCEPTED con el mismo cliente, excluyendo al partner fundador y a los
+  // que ya sean colaboradores del proyecto.
+  const availableConnections = await prisma.connection.findMany({
+    where: {
+      clientId: connection.client.id,
+      status: "ACCEPTED",
+      partnerId: { notIn: [connection.partner.id, ...project.collaborators.map((c) => c.id)] },
+    },
+    include: {
+      partner: { select: { id: true, username: true, name: true, imageUrl: true, headline: true } },
+    },
+  });
+  const availablePartners = availableConnections.map((c) => c.partner);
+
   return (
     <CollabProjectView
       project={project}
@@ -41,6 +56,7 @@ export default async function CollabProjectPage({ params }: CollabProjectPagePro
       viewerRole={viewerRole}
       viewerId={userId}
       assetCatalog={assetCatalog}
+      availablePartners={availablePartners}
     />
   );
 }
