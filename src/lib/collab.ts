@@ -54,6 +54,21 @@ export interface CollabLink {
   createdAt: string;
 }
 
+export interface ProjectAssetTaskData {
+  id: string;
+  title: string;
+  done: boolean;
+  order: number;
+}
+
+export interface ProjectAssetData {
+  id: string;
+  title: string;
+  assetTemplateId: string | null;
+  order: number;
+  tasks: ProjectAssetTaskData[];
+}
+
 export interface CollabProjectData {
   id: string;
   title: string;
@@ -71,6 +86,7 @@ export interface CollabProjectData {
   updatedAt: string;
   tasks: CollabTask[];
   links: CollabLink[];
+  assets: ProjectAssetData[];
   collaborators: CollabCollaboratorSummary[];
 }
 
@@ -196,6 +212,36 @@ function toLink(link: {
   };
 }
 
+function toAssetTask(task: {
+  id: string;
+  title: string;
+  done: boolean;
+  order: number;
+}): ProjectAssetTaskData {
+  return {
+    id: task.id,
+    title: task.title,
+    done: task.done,
+    order: task.order,
+  };
+}
+
+function toAsset(asset: {
+  id: string;
+  title: string;
+  assetTemplateId: string | null;
+  order: number;
+  tasks: Parameters<typeof toAssetTask>[0][];
+}): ProjectAssetData {
+  return {
+    id: asset.id,
+    title: asset.title,
+    assetTemplateId: asset.assetTemplateId,
+    order: asset.order,
+    tasks: asset.tasks.map(toAssetTask),
+  };
+}
+
 function toCollaborator(collaborator: {
   user: {
     id: string;
@@ -230,6 +276,7 @@ function toProject(project: {
   updatedAt: Date;
   tasks: Parameters<typeof toTask>[0][];
   links: Parameters<typeof toLink>[0][];
+  assets: Parameters<typeof toAsset>[0][];
   collaborators: Parameters<typeof toCollaborator>[0][];
 }): CollabProjectData {
   return {
@@ -248,6 +295,7 @@ function toProject(project: {
     updatedAt: project.updatedAt.toISOString(),
     tasks: project.tasks.map(toTask),
     links: project.links.map(toLink),
+    assets: project.assets.map(toAsset),
     collaborators: project.collaborators.map(toCollaborator),
   };
 }
@@ -279,6 +327,10 @@ function toResource(resource: {
 const PROJECT_INCLUDE = {
   tasks: { orderBy: { order: "asc" as const } },
   links: { orderBy: { createdAt: "asc" as const } },
+  assets: {
+    include: { tasks: { orderBy: { order: "asc" as const } } },
+    orderBy: { order: "asc" as const },
+  },
   collaborators: {
     include: {
       user: { select: { id: true, username: true, name: true, imageUrl: true, headline: true } },

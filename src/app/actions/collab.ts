@@ -35,8 +35,20 @@ function revalidateUsernames(...usernames: (string | null | undefined)[]): void 
    Con ProjectCollaborator, "el partner" de un proyecto ya no es solo el
    partnerId de la Connection: es ese partnerId MÁS cualquier fila en
    ProjectCollaborator para ese proyecto. Este helper centraliza esa unión
-   para no repetir la query en cada server action. ══════════════════════ */
-async function getProjectAuth(projectId: string, userId: string) {
+   para no repetir la query en cada server action (también usado por
+   src/app/actions/projectAssets.ts). ══════════════════════════════════ */
+export interface ProjectAuthResult {
+  ok: boolean;
+  error?: string;
+  isClient?: boolean;
+  isPartner?: boolean;
+  clientId?: string;
+  clientUsername?: string | null;
+  partnerUsername?: string | null;
+  partnerIds?: Set<string>;
+}
+
+export async function getProjectAuth(projectId: string, userId: string): Promise<ProjectAuthResult> {
   const project = await prisma.collabProject.findUnique({
     where: { id: projectId },
     select: {
@@ -51,7 +63,7 @@ async function getProjectAuth(projectId: string, userId: string) {
       collaborators: { select: { userId: true } },
     },
   });
-  if (!project) return null;
+  if (!project) return { ok: false, error: "Proyecto no encontrado." };
 
   const isClient = project.connection.clientId === userId;
   const partnerIds = new Set([
@@ -60,7 +72,17 @@ async function getProjectAuth(projectId: string, userId: string) {
   ]);
   const isPartner = partnerIds.has(userId);
 
-  return { project, isClient, isPartner, partnerIds };
+  if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
+
+  return {
+    ok: true,
+    isClient,
+    isPartner,
+    clientId: project.connection.clientId,
+    clientUsername: project.connection.client.username,
+    partnerUsername: project.connection.partner.username,
+    partnerIds,
+  };
 }
 
 /* ══ Solicitudes de contacto ══════════════════════════════════════════ */
@@ -248,13 +270,13 @@ export async function addProjectCollaborator(
   if (!userId) return { ok: false, error: "No autenticado" };
 
   const auth = await getProjectAuth(projectId, userId);
-  if (!auth) return { ok: false, error: "Proyecto no encontrado." };
-  const { project, isClient, isPartner } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
 
   const collaboratorConnection = await prisma.connection.findUnique({
     where: {
-      clientId_partnerId: { clientId: project.connection.clientId, partnerId: partnerUserId },
+      clientId_partnerId: { clientId: auth.clientId!, partnerId: partnerUserId },
     },
     select: { id: true, status: true },
   });
@@ -272,7 +294,7 @@ export async function addProjectCollaborator(
       select: { id: true },
     });
 
-    revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+    revalidateUsernames(auth.clientUsername, auth.partnerUsername);
     return { ok: true, collaboratorId: collaborator.id };
   } catch {
     return { ok: false, error: "Ese partner ya es colaborador de este proyecto." };
@@ -290,8 +312,8 @@ export async function removeProjectCollaborator(
   if (!userId) return { ok: false, error: "No autenticado" };
 
   const auth = await getProjectAuth(projectId, userId);
-  if (!auth) return { ok: false, error: "Proyecto no encontrado." };
-  const { project, isClient } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient } = auth;
 
   if (!isClient && userId !== collaboratorUserId) {
     return { ok: false, error: "No autorizado" };
@@ -301,7 +323,7 @@ export async function removeProjectCollaborator(
     where: { projectId, userId: collaboratorUserId },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -332,8 +354,8 @@ export async function updateCollabProject(
   }
 
   const auth = await getProjectAuth(projectId, userId);
-  if (!auth) return { ok: false, error: "Proyecto no encontrado." };
-  const { project, isClient, isPartner } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
 
   await prisma.collabProject.update({
@@ -351,7 +373,7 @@ export async function updateCollabProject(
     },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -366,8 +388,8 @@ export async function addProjectTask(projectId: string, title: string): Promise<
   if (!trimmedTitle) return { ok: false, error: "El título de la tarea es obligatorio." };
 
   const auth = await getProjectAuth(projectId, userId);
-  if (!auth) return { ok: false, error: "Proyecto no encontrado." };
-  const { project, isPartner } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isPartner } = auth;
   if (!isPartner) {
     return { ok: false, error: "Solo el partner puede agregar tareas." };
   }
@@ -379,7 +401,7 @@ export async function addProjectTask(projectId: string, title: string): Promise<
     select: { id: true },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true, taskId: task.id };
 }
 
@@ -401,9 +423,8 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
   if (!task) return { ok: false, error: "Tarea no encontrada." };
 
   const auth = await getProjectAuth(task.projectId, userId);
-  if (!auth) return { ok: false, error: "Tarea no encontrada." };
-  const { project, isClient, isPartner } = auth;
-  const { connection } = project;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
 
   if (task.status === "approved") {
@@ -422,7 +443,7 @@ export async function updateTaskStatus(taskId: string, status: string): Promise<
 
   await prisma.projectTask.update({ where: { id: taskId }, data: { status: next } });
 
-  revalidateUsernames(connection.client.username, connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -438,8 +459,8 @@ export async function deleteProjectTask(taskId: string): Promise<Result> {
   if (!task) return { ok: false, error: "Tarea no encontrada." };
 
   const auth = await getProjectAuth(task.projectId, userId);
-  if (!auth) return { ok: false, error: "Tarea no encontrada." };
-  const { project, isPartner } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  const { isPartner } = auth;
   if (!isPartner) {
     return { ok: false, error: "Solo el partner puede eliminar tareas." };
   }
@@ -449,7 +470,7 @@ export async function deleteProjectTask(taskId: string): Promise<Result> {
 
   await prisma.projectTask.delete({ where: { id: taskId } });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 
@@ -472,8 +493,8 @@ export async function addProjectLink(
   if (!validUrl) return { ok: false, error: "La URL no es válida." };
 
   const auth = await getProjectAuth(projectId, userId);
-  if (!auth) return { ok: false, error: "Proyecto no encontrado." };
-  const { project, isClient, isPartner } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) {
     return { ok: false, error: "No autorizado" };
   }
@@ -493,7 +514,7 @@ export async function addProjectLink(
     select: { id: true },
   });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true, linkId: link.id };
 }
 
@@ -509,8 +530,8 @@ export async function deleteProjectLink(linkId: string): Promise<Result> {
   if (!link) return { ok: false, error: "Link no encontrado." };
 
   const auth = await getProjectAuth(link.projectId, userId);
-  if (!auth) return { ok: false, error: "Link no encontrado." };
-  const { project, isClient } = auth;
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Link no encontrado." };
+  const { isClient } = auth;
 
   if (link.addedById !== userId && !isClient) {
     return { ok: false, error: "No autorizado" };
@@ -518,7 +539,7 @@ export async function deleteProjectLink(linkId: string): Promise<Result> {
 
   await prisma.projectLink.delete({ where: { id: linkId } });
 
-  revalidateUsernames(project.connection.client.username, project.connection.partner.username);
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
 }
 

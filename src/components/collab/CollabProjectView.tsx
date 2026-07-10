@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
+  Checkbox,
   Column,
   DateInput,
   Feedback,
@@ -16,26 +17,35 @@ import {
   Line,
   Modal,
   NumberInput,
+  ProgressBar,
   Row,
   Select,
   Tag,
   Text,
   Textarea,
 } from "@once-ui-system/core";
-import type { CollabLink, CollabProjectData, CollabTask } from "@/lib/collab";
+import type { CollabLink, CollabProjectData, ProjectAssetData, ProjectAssetTaskData } from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import {
   addProjectCollaborator,
   addProjectLink,
-  addProjectTask,
   deleteProjectLink,
-  deleteProjectTask,
   removeProjectCollaborator,
   updateCollabProject,
-  updateTaskStatus,
 } from "@/app/actions/collab";
 import type { CollabCollaboratorSummary } from "@/lib/collab";
+import type { AssetCategoryData } from "@/app/actions/projectAssets";
+import {
+  addCustomProjectAsset,
+  addProjectAsset,
+  addProjectAssetTask,
+  deleteProjectAsset,
+  deleteProjectAssetTask,
+  renameProjectAsset,
+  renameProjectAssetTask,
+  toggleProjectAssetTask,
+} from "@/app/actions/projectAssets";
 
 type ViewerRole = "client" | "partner";
 
@@ -52,6 +62,7 @@ interface CollabProjectViewProps {
   partner: CollabPersonSummary;
   viewerRole: ViewerRole;
   viewerId: string;
+  assetCatalog: AssetCategoryData[];
   availablePartners: CollabCollaboratorSummary[];
 }
 
@@ -77,18 +88,6 @@ const QUOTE_CURRENCY_OPTIONS = [
   { value: "MXN", label: "MXN" },
   { value: "USD", label: "USD" },
 ];
-
-const TASK_STATUS_LABELS: Record<string, string> = {
-  pending: "Pendiente",
-  in_review: "En revisión",
-  approved: "Aprobada",
-};
-
-const TASK_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success"> = {
-  pending: "neutral",
-  in_review: "warning",
-  approved: "success",
-};
 
 const PROVIDER_LABELS: Record<string, string> = {
   drive: "Drive",
@@ -250,104 +249,6 @@ function AddCollaboratorSearch({
         Agregar colaborador
       </Button>
     </Kbar>
-  );
-}
-
-function TaskRow({
-  task,
-  viewerRole,
-  busy,
-  onStatusChange,
-  onDelete,
-}: {
-  task: CollabTask;
-  viewerRole: ViewerRole;
-  busy: boolean;
-  onStatusChange: (status: string) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" gap="16" wrap>
-      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
-        <Icon name="briefcase" size="s" onBackground="neutral-weak" />
-        <Text
-          variant="label-default-m"
-          onBackground="neutral-strong"
-          style={{ minWidth: 0, overflowWrap: "anywhere" }}
-        >
-          {task.title}
-        </Text>
-      </Row>
-
-      <Row gap="8" vertical="center">
-        <Tag
-          size="s"
-          variant={TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
-          label={TASK_STATUS_LABELS[task.status] ?? task.status}
-        />
-
-        {viewerRole === "partner" && task.status === "pending" && (
-          <IconButton
-            icon="arrowUpRight"
-            size="s"
-            variant="tertiary"
-            tooltip="Enviar a aprobación"
-            tooltipPosition="top"
-            loading={busy}
-            disabled={busy}
-            onClick={() => onStatusChange("in_review")}
-          />
-        )}
-        {viewerRole === "partner" && task.status === "in_review" && (
-          <IconButton
-            icon="refreshCw"
-            size="s"
-            variant="tertiary"
-            tooltip="Regresar a pendiente"
-            tooltipPosition="top"
-            loading={busy}
-            disabled={busy}
-            onClick={() => onStatusChange("pending")}
-          />
-        )}
-        {viewerRole === "client" && task.status === "in_review" && (
-          <>
-            <IconButton
-              icon="check"
-              size="s"
-              variant="success"
-              tooltip="Aprobar tarea"
-              tooltipPosition="top"
-              loading={busy}
-              disabled={busy}
-              onClick={() => onStatusChange("approved")}
-            />
-            <IconButton
-              icon="xCircle"
-              size="s"
-              variant="danger"
-              tooltip="Rechazar y regresar a pendiente"
-              tooltipPosition="top"
-              loading={busy}
-              disabled={busy}
-              onClick={() => onStatusChange("pending")}
-            />
-          </>
-        )}
-        {viewerRole === "partner" && task.status !== "approved" && (
-          <IconButton
-            icon="trash"
-            size="s"
-            variant="tertiary"
-            tooltip="Eliminar tarea"
-            tooltipPosition="top"
-            loading={busy}
-            disabled={busy}
-            onClick={onDelete}
-          />
-        )}
-      </Row>
-    </Row>
   );
 }
 
@@ -555,21 +456,601 @@ function ProjectSettingsDialog({
   );
 }
 
+function AssetTaskRow({
+  task,
+  canEdit,
+}: {
+  task: ProjectAssetTaskData;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [savingTitle, setSavingTitle] = useState(false);
+
+  const handleToggle = async () => {
+    setBusy(true);
+    const result = await toggleProjectAssetTask(task.id, !task.done);
+    setBusy(false);
+    if (result.ok) router.refresh();
+  };
+
+  const handleDelete = async () => {
+    setBusy(true);
+    const result = await deleteProjectAssetTask(task.id);
+    setBusy(false);
+    if (result.ok) router.refresh();
+  };
+
+  const handleSaveTitle = async () => {
+    if (!titleDraft.trim() || titleDraft === task.title) {
+      setEditingTitle(false);
+      setTitleDraft(task.title);
+      return;
+    }
+    setSavingTitle(true);
+    const result = await renameProjectAssetTask(task.id, titleDraft);
+    setSavingTitle(false);
+    if (!result.ok) return;
+    setEditingTitle(false);
+    router.refresh();
+  };
+
+  return (
+    <Row fillWidth paddingX="16" paddingY="8" horizontal="between" vertical="center" gap="12" wrap>
+      <Row gap="12" vertical="center" style={{ minWidth: 0, flex: 1 }}>
+        <Checkbox isChecked={task.done} onToggle={handleToggle} disabled={busy} />
+        {editingTitle ? (
+          <Column style={{ flex: 1, minWidth: 160 }}>
+            <Input
+              id={`asset-task-title-${task.id}`}
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveTitle();
+                if (e.key === "Escape") {
+                  setEditingTitle(false);
+                  setTitleDraft(task.title);
+                }
+              }}
+            />
+          </Column>
+        ) : (
+          <Text
+            variant="label-default-s"
+            onBackground={task.done ? "neutral-weak" : "neutral-strong"}
+            style={{
+              minWidth: 0,
+              overflowWrap: "anywhere",
+              textDecoration: task.done ? "line-through" : undefined,
+            }}
+          >
+            {task.title}
+          </Text>
+        )}
+      </Row>
+      {canEdit && (
+        <Row gap="4" vertical="center">
+          {editingTitle ? (
+            <>
+              <IconButton
+                icon="check"
+                size="s"
+                variant="tertiary"
+                tooltip="Guardar"
+                tooltipPosition="top"
+                loading={savingTitle}
+                disabled={savingTitle}
+                onClick={handleSaveTitle}
+              />
+              <IconButton
+                icon="xCircle"
+                size="s"
+                variant="tertiary"
+                tooltip="Cancelar"
+                tooltipPosition="top"
+                disabled={savingTitle}
+                onClick={() => {
+                  setEditingTitle(false);
+                  setTitleDraft(task.title);
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <IconButton
+                icon="edit"
+                size="s"
+                variant="tertiary"
+                tooltip="Editar tarea"
+                tooltipPosition="top"
+                onClick={() => setEditingTitle(true)}
+              />
+              <IconButton
+                icon="trash"
+                size="s"
+                variant="tertiary"
+                tooltip="Eliminar tarea"
+                tooltipPosition="top"
+                loading={busy}
+                disabled={busy}
+                onClick={handleDelete}
+              />
+            </>
+          )}
+        </Row>
+      )}
+    </Row>
+  );
+}
+
+function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole: ViewerRole }) {
+  const router = useRouter();
+  const isPartner = viewerRole === "partner";
+
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(asset.title);
+  const [savingTitle, setSavingTitle] = useState(false);
+
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [addingTask, setAddingTask] = useState(false);
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deletingAsset, setDeletingAsset] = useState(false);
+
+  const [error, setError] = useState<string | null>(null);
+
+  const total = asset.tasks.length;
+  const done = asset.tasks.filter((task) => task.done).length;
+
+  const handleSaveTitle = async () => {
+    if (!titleDraft.trim() || titleDraft === asset.title) {
+      setEditingTitle(false);
+      setTitleDraft(asset.title);
+      return;
+    }
+    setSavingTitle(true);
+    setError(null);
+    const result = await renameProjectAsset(asset.id, titleDraft);
+    setSavingTitle(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setEditingTitle(false);
+    router.refresh();
+  };
+
+  const handleAddTask = async () => {
+    if (!newTaskTitle.trim()) return;
+    setAddingTask(true);
+    setError(null);
+    const result = await addProjectAssetTask(asset.id, newTaskTitle);
+    setAddingTask(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setNewTaskTitle("");
+    router.refresh();
+  };
+
+  const handleDeleteAsset = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setDeletingAsset(true);
+    setError(null);
+    const result = await deleteProjectAsset(asset.id);
+    setDeletingAsset(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    router.refresh();
+  };
+
+  return (
+    <Column fillWidth border="neutral-alpha-medium" radius="l" padding="16" gap="12">
+      <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
+        <Row gap="8" vertical="center" style={{ minWidth: 0, flex: 1 }}>
+          {editingTitle ? (
+            <>
+              <Column style={{ flex: 1, minWidth: 160 }}>
+                <Input
+                  id={`asset-title-${asset.id}`}
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveTitle();
+                    if (e.key === "Escape") {
+                      setEditingTitle(false);
+                      setTitleDraft(asset.title);
+                    }
+                  }}
+                />
+              </Column>
+              <IconButton
+                icon="check"
+                size="s"
+                variant="tertiary"
+                tooltip="Guardar"
+                tooltipPosition="top"
+                loading={savingTitle}
+                disabled={savingTitle}
+                onClick={handleSaveTitle}
+              />
+              <IconButton
+                icon="xCircle"
+                size="s"
+                variant="tertiary"
+                tooltip="Cancelar"
+                tooltipPosition="top"
+                disabled={savingTitle}
+                onClick={() => {
+                  setEditingTitle(false);
+                  setTitleDraft(asset.title);
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <Text
+                variant="heading-strong-s"
+                onBackground="neutral-strong"
+                style={{ minWidth: 0, overflowWrap: "anywhere" }}
+              >
+                {asset.title}
+              </Text>
+              {isPartner && (
+                <IconButton
+                  icon="edit"
+                  size="s"
+                  variant="tertiary"
+                  tooltip="Renombrar activo"
+                  tooltipPosition="top"
+                  onClick={() => setEditingTitle(true)}
+                />
+              )}
+            </>
+          )}
+        </Row>
+
+        <Row gap="8" vertical="center">
+          {total > 0 && (
+            <Tag size="s" variant={done === total ? "success" : "neutral"} label={`${done}/${total}`} />
+          )}
+          {isPartner && (
+            <IconButton
+              icon="trash"
+              size="s"
+              variant={confirmDelete ? "danger" : "tertiary"}
+              tooltip={confirmDelete ? "Confirmar eliminación" : "Eliminar activo"}
+              tooltipPosition="top"
+              loading={deletingAsset}
+              disabled={deletingAsset}
+              onClick={handleDeleteAsset}
+            />
+          )}
+          {confirmDelete && isPartner && (
+            <IconButton
+              icon="xCircle"
+              size="s"
+              variant="tertiary"
+              tooltip="Cancelar"
+              tooltipPosition="top"
+              disabled={deletingAsset}
+              onClick={() => setConfirmDelete(false)}
+            />
+          )}
+        </Row>
+      </Row>
+
+      {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
+
+      {asset.tasks.length > 0 && (
+        <Column fillWidth border="neutral-alpha-weak" radius="m" overflow="hidden">
+          {asset.tasks.map((task, index) => (
+            <Column key={task.id} fillWidth>
+              {index > 0 && <Line background="neutral-alpha-weak" />}
+              <AssetTaskRow task={task} canEdit={isPartner} />
+            </Column>
+          ))}
+        </Column>
+      )}
+
+      {isPartner && (
+        <Row fillWidth gap="8" vertical="end" wrap>
+          <Column style={{ flex: 1, minWidth: 160 }}>
+            <Input
+              id={`asset-new-task-${asset.id}`}
+              label="Nueva tarea del checklist"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="Ej. Enviar boceto inicial"
+            />
+          </Column>
+          <Button
+            variant="secondary"
+            size="s"
+            prefixIcon="plus"
+            onClick={handleAddTask}
+            loading={addingTask}
+            disabled={!newTaskTitle.trim()}
+          >
+            Agregar tarea
+          </Button>
+        </Row>
+      )}
+    </Column>
+  );
+}
+
+// Diálogo de dos columnas (categorías a la izquierda, búsqueda de activos a
+// la derecha) para agregar un Activo desde el catálogo o uno personalizado.
+function AddAssetSearch({
+  isOpen,
+  onClose,
+  projectId,
+  assetCatalog,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  projectId: string;
+  assetCatalog: AssetCategoryData[];
+}) {
+  const router = useRouter();
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
+  const [query, setQuery] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+  const [customTitle, setCustomTitle] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectedCategory = assetCatalog.find((category) => category.id === selectedCategoryId);
+  const filteredTemplates =
+    selectedCategory?.templates.filter((template) =>
+      template.name.toLowerCase().includes(query.toLowerCase()),
+    ) ?? [];
+
+  const handleClose = () => {
+    if (saving) return;
+    setSelectedCategoryId("");
+    setQuery("");
+    setShowCustom(false);
+    setCustomTitle("");
+    setError(null);
+    onClose();
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscapeKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    document.addEventListener("keydown", handleEscapeKey);
+    return () => document.removeEventListener("keydown", handleEscapeKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, saving]);
+
+  const handleAddFromTemplate = async (templateId: string) => {
+    setSaving(true);
+    setError(null);
+    const result = await addProjectAsset(projectId, templateId);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    router.refresh();
+    handleClose();
+  };
+
+  const handleAddCustom = async () => {
+    if (!customTitle.trim()) return;
+    setSaving(true);
+    setError(null);
+    const result = await addCustomProjectAsset(projectId, customTitle);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    router.refresh();
+    handleClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <Row
+      position="fixed"
+      top="0"
+      left="0"
+      right="0"
+      bottom="0"
+      zIndex={10}
+      center
+      background="overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
+      <Row
+        maxWidth="s"
+        fillWidth
+        background="surface"
+        radius="l-4"
+        border="neutral-alpha-medium"
+        shadow="l"
+        overflow="hidden"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: "70vh" }}
+      >
+        {/* Columna izquierda: categorías del catálogo */}
+        <Column
+          gap="2"
+          padding="8"
+          background="surface"
+          overflowY="auto"
+          style={{ minWidth: 160, flexShrink: 0 }}
+        >
+          <Row paddingX="12" paddingTop="8" paddingBottom="4">
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              Categorías
+            </Text>
+          </Row>
+          {assetCatalog.map((category) => {
+            const active = category.id === selectedCategoryId;
+            return (
+              <Row
+                key={category.id}
+                paddingX="12"
+                paddingY="8"
+                radius="m"
+                cursor="pointer"
+                background={active ? "neutral-alpha-weak" : undefined}
+                onClick={() => {
+                  setSelectedCategoryId(category.id);
+                  setQuery("");
+                  setShowCustom(false);
+                }}
+              >
+                <Text
+                  variant="label-default-s"
+                  onBackground={active ? "neutral-strong" : "neutral-weak"}
+                >
+                  {category.name}
+                </Text>
+              </Row>
+            );
+          })}
+        </Column>
+
+        <Line background="neutral-alpha-weak" vert />
+
+        {/* Columna derecha: búsqueda de activos de la categoría elegida */}
+        <Column fillWidth padding="8" gap="4" overflowY="auto" style={{ minHeight: 0 }}>
+          <Row fillWidth paddingX="8" paddingTop="4" horizontal="end">
+            <IconButton
+              icon="close"
+              size="s"
+              variant="tertiary"
+              tooltip="Cerrar"
+              tooltipPosition="left"
+              onClick={handleClose}
+            />
+          </Row>
+
+          {!selectedCategory ? (
+            <Row fillWidth center paddingY="64">
+              <Text variant="body-default-m" onBackground="neutral-weak">
+                Selecciona una categoría
+              </Text>
+            </Row>
+          ) : (
+            <>
+              <Row fillWidth padding="8">
+                <Input
+                  id="asset-search"
+                  placeholder="Buscar activo..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  hasPrefix={<Icon name="search" size="xs" onBackground="neutral-weak" />}
+                />
+              </Row>
+
+              <Column fillWidth gap="2" paddingX="4">
+                {filteredTemplates.length === 0 ? (
+                  <Row fillWidth center paddingY="32">
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Sin resultados en esta categoría.
+                    </Text>
+                  </Row>
+                ) : (
+                  filteredTemplates.map((template) => (
+                    <Row
+                      key={template.id}
+                      fillWidth
+                      gap="8"
+                      vertical="center"
+                      paddingX="12"
+                      paddingY="8"
+                      radius="m"
+                      cursor="pointer"
+                      onClick={() => handleAddFromTemplate(template.id)}
+                    >
+                      <Icon name="sparkles" size="xs" onBackground="neutral-weak" />
+                      <Text variant="label-default-s" onBackground="neutral-strong">
+                        {template.name}
+                      </Text>
+                    </Row>
+                  ))
+                )}
+              </Column>
+            </>
+          )}
+
+          {error && (
+            <Row fillWidth paddingX="8">
+              <Feedback variant="danger" description={error} />
+            </Row>
+          )}
+
+          <Row fillWidth paddingX="12" paddingTop="8">
+            {!showCustom ? (
+              <Text
+                variant="label-default-s"
+                onBackground="neutral-weak"
+                style={{ cursor: "pointer" }}
+                onClick={() => setShowCustom(true)}
+              >
+                ¿No encuentras el activo? Crea uno personalizado
+              </Text>
+            ) : (
+              <Row fillWidth gap="8" vertical="end" wrap>
+                <Column style={{ flex: 1, minWidth: 160 }}>
+                  <Input
+                    id="asset-custom-title"
+                    label="Título del activo"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder="Ej. Guión de video"
+                  />
+                </Column>
+                <Button
+                  variant="primary"
+                  size="m"
+                  onClick={handleAddCustom}
+                  loading={saving}
+                  disabled={!customTitle.trim()}
+                >
+                  Agregar
+                </Button>
+              </Row>
+            )}
+          </Row>
+        </Column>
+      </Row>
+    </Row>
+  );
+}
+
 export function CollabProjectView({
   project,
   client,
   partner,
   viewerRole,
   viewerId,
+  assetCatalog,
   availablePartners,
 }: CollabProjectViewProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const [taskTitle, setTaskTitle] = useState("");
-  const [addingTask, setAddingTask] = useState(false);
-  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [addAssetOpen, setAddAssetOpen] = useState(false);
 
   const [busyCollaboratorId, setBusyCollaboratorId] = useState<string | null>(null);
 
@@ -584,38 +1065,6 @@ export function CollabProjectView({
   const [addingFinalLink, setAddingFinalLink] = useState(false);
 
   const [busyLinkId, setBusyLinkId] = useState<string | null>(null);
-
-  const handleAddTask = async () => {
-    if (!taskTitle.trim()) return;
-    setAddingTask(true);
-    setError(null);
-    const result = await addProjectTask(project.id, taskTitle);
-    if (!result.ok) {
-      setError(result.error);
-    } else {
-      setTaskTitle("");
-      router.refresh();
-    }
-    setAddingTask(false);
-  };
-
-  const handleTaskStatus = async (taskId: string, status: string) => {
-    setBusyTaskId(taskId);
-    setError(null);
-    const result = await updateTaskStatus(taskId, status);
-    if (!result.ok) setError(result.error);
-    else router.refresh();
-    setBusyTaskId(null);
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    setBusyTaskId(taskId);
-    setError(null);
-    const result = await deleteProjectTask(taskId);
-    if (!result.ok) setError(result.error);
-    else router.refresh();
-    setBusyTaskId(null);
-  };
 
   const handleRemoveCollaborator = async (collaboratorId: string) => {
     setBusyCollaboratorId(collaboratorId);
@@ -674,6 +1123,13 @@ export function CollabProjectView({
     else router.refresh();
     setBusyLinkId(null);
   };
+
+  const totalAssetTasks = project.assets.reduce((sum, asset) => sum + asset.tasks.length, 0);
+  const doneAssetTasks = project.assets.reduce(
+    (sum, asset) => sum + asset.tasks.filter((task) => task.done).length,
+    0,
+  );
+  const assetProgressPercent = totalAssetTasks > 0 ? Math.round((doneAssetTasks / totalAssetTasks) * 100) : 0;
 
   const brandLinks = project.links.filter((link) => link.type === "brand");
   const finalLinks = project.links.filter((link) => link.type === "final");
@@ -755,16 +1211,25 @@ export function CollabProjectView({
 
       {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
 
-      {/* ── Tareas ───────────────────────────────────────────────────────── */}
+      {/* ── Activos del proyecto ─────────────────────────────────────────── */}
       <Column gap="16" fillWidth>
         <Row fillWidth horizontal="between" vertical="center">
-          <Heading variant="heading-strong-m">Tareas</Heading>
+          <Heading variant="heading-strong-m">Activos del proyecto</Heading>
           <Text variant="label-default-s" onBackground="neutral-weak">
-            {project.tasks.length} {project.tasks.length === 1 ? "tarea" : "tareas"}
+            {project.assets.length} {project.assets.length === 1 ? "activo" : "activos"}
           </Text>
         </Row>
 
-        {project.tasks.length === 0 ? (
+        {totalAssetTasks > 0 && (
+          <Column gap="8" fillWidth>
+            <ProgressBar value={assetProgressPercent} label={false} />
+            <Text variant="label-default-s" onBackground="neutral-weak" align="center">
+              {doneAssetTasks} de {totalAssetTasks} completados ({assetProgressPercent}%)
+            </Text>
+          </Column>
+        )}
+
+        {project.assets.length === 0 ? (
           <Column
             fillWidth
             horizontal="center"
@@ -775,49 +1240,22 @@ export function CollabProjectView({
           >
             <Icon name="sparkles" size="l" onBackground="neutral-weak" />
             <Text variant="body-default-m" onBackground="neutral-weak" align="center">
-              Aún no hay tareas en este proyecto.
+              Aún no hay activos en este proyecto.
             </Text>
           </Column>
         ) : (
-          <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-            {project.tasks.map((task, index) => (
-              <Column key={task.id} fillWidth>
-                {index > 0 && <Line background="neutral-alpha-weak" />}
-                <TaskRow
-                  task={task}
-                  viewerRole={viewerRole}
-                  busy={busyTaskId === task.id}
-                  onStatusChange={(status) => handleTaskStatus(task.id, status)}
-                  onDelete={() => handleDeleteTask(task.id)}
-                />
-              </Column>
+          <Column gap="12" fillWidth>
+            {project.assets.map((asset) => (
+              <AssetCard key={asset.id} asset={asset} viewerRole={viewerRole} />
             ))}
           </Column>
         )}
 
-        {viewerRole === "partner" && (
-          <Row fillWidth gap="8" vertical="end" wrap>
-            <Column style={{ flex: 1, minWidth: 200 }}>
-              <Input
-                id="collab-new-task"
-                label="Nueva tarea"
-                value={taskTitle}
-                onChange={(e) => setTaskTitle(e.target.value)}
-                placeholder="Ej. Entregar primer boceto"
-              />
-            </Column>
-            <Button
-              variant="secondary"
-              size="m"
-              prefixIcon="plus"
-              onClick={handleAddTask}
-              loading={addingTask}
-              disabled={!taskTitle.trim()}
-            >
-              Agregar
-            </Button>
-          </Row>
-        )}
+        <Row fillWidth horizontal="end">
+          <Button variant="secondary" size="m" prefixIcon="plus" onClick={() => setAddAssetOpen(true)}>
+            Agregar activo
+          </Button>
+        </Row>
       </Column>
 
       {/* ── Archivos ─────────────────────────────────────────────────────── */}
@@ -971,6 +1409,12 @@ export function CollabProjectView({
         viewerRole={viewerRole}
       />
 
+      <AddAssetSearch
+        isOpen={addAssetOpen}
+        onClose={() => setAddAssetOpen(false)}
+        projectId={project.id}
+        assetCatalog={assetCatalog}
+      />
     </Column>
   );
 }

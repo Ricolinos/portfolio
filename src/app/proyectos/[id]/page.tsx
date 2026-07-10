@@ -2,21 +2,22 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { getCollabProject } from "@/lib/collab";
+import { getAssetCatalog } from "@/app/actions/projectAssets";
 import { CollabProjectView } from "@/components/collab/CollabProjectView";
 
 interface CollabProjectPageProps {
   params: Promise<{ id: string }>;
 }
 
-// Detalle de un proyecto colaborativo cliente↔partner: tareas con flujo de
-// aprobación, links de archivos externos y configuración del proyecto. Ver
+// Detalle de un proyecto colaborativo cliente↔partner: activos con checklist,
+// links de archivos externos y configuración del proyecto. Ver
 // src/lib/collab.ts (getCollabProject) y src/app/actions/collab.ts.
 export default async function CollabProjectPage({ params }: CollabProjectPageProps) {
   const { id } = await params;
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
-  const project = await getCollabProject(id, userId);
+  const [project, assetCatalog] = await Promise.all([getCollabProject(id, userId), getAssetCatalog()]);
   if (!project) notFound();
 
   // getCollabProject no proyecta client/partner (solo connectionId): se
@@ -54,6 +55,7 @@ export default async function CollabProjectPage({ params }: CollabProjectPagePro
       partner={connection.partner}
       viewerRole={viewerRole}
       viewerId={userId}
+      assetCatalog={assetCatalog}
       availablePartners={availablePartners}
     />
   );

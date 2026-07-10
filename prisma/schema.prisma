@@ -238,6 +238,7 @@ model CollabProject {
   connection    Connection            @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   tasks         ProjectTask[]
   links         ProjectLink[]
+  assets        ProjectAsset[]
   // Colaboradores ADICIONALES al partner "fundador" de la Connection (ej.
   // otros diseñadores invitados a este proyecto en particular).
   collaborators ProjectCollaborator[]
@@ -278,6 +279,69 @@ model ProjectLink {
   createdAt DateTime      @default(now())
 
   @@index([projectId])
+}
+
+// Catálogo reutilizable de plantillas de activos (no pertenece a ningún
+// proyecto en particular; es contenido de referencia del estudio).
+model AssetCategory {
+  id        String          @id @default(cuid())
+  name      String          @unique // "Branding"
+  order     Int             @default(0)
+  templates AssetTemplate[]
+}
+
+model AssetTemplate {
+  id            String              @id @default(cuid())
+  name          String // "Logotipo"
+  categoryId    String
+  category      AssetCategory       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  order         Int                 @default(0)
+  taskTemplates AssetTaskTemplate[]
+  projectAssets ProjectAsset[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+}
+
+model AssetTaskTemplate {
+  id              String        @id @default(cuid())
+  title           String
+  order           Int           @default(0)
+  assetTemplateId String
+  assetTemplate   AssetTemplate @relation(fields: [assetTemplateId], references: [id], onDelete: Cascade)
+
+  @@index([assetTemplateId])
+}
+
+// Instancia de un Activo dentro de un CollabProject real (clon editable de
+// AssetTemplate en el momento de agregarlo; assetTemplateId queda como
+// referencia pero el título/checklist ya son propios del proyecto).
+model ProjectAsset {
+  id              String             @id @default(cuid())
+  title           String
+  projectId       String
+  project         CollabProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assetTemplateId String?
+  assetTemplate   AssetTemplate?     @relation(fields: [assetTemplateId], references: [id], onDelete: SetNull)
+  order           Int                @default(0)
+  tasks           ProjectAssetTask[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([projectId])
+}
+
+model ProjectAssetTask {
+  id        String       @id @default(cuid())
+  title     String
+  done      Boolean      @default(false)
+  order     Int          @default(0)
+  assetId   String
+  asset     ProjectAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([assetId])
 }
 
 // Colaborador ADICIONAL de un CollabProject (además del partner "fundador"
