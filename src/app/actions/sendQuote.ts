@@ -45,7 +45,7 @@ function plantilla(lead: QuoteLead): string {
   return `
   <div style="font-family:-apple-system,'Segoe UI',Roboto,sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1a1a1a;">
     <h2 style="margin:0 0 4px;font-size:20px;">Nueva solicitud de cotización</h2>
-    <p style="margin:0 0 24px;color:#666;font-size:14px;">Enviada desde el cotizador de ricolinos.com</p>
+    <p style="margin:0 0 24px;color:#666;font-size:14px;">Enviada desde el cotizador de hub-nerds.com</p>
 
     <h3 style="margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:#999;">Datos del lead</h3>
     <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:24px;">
