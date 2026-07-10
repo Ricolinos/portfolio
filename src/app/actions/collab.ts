@@ -214,6 +214,53 @@ export async function updateCollabProject(
   return { ok: true };
 }
 
+/* ══ Autorización compartida ══════════════════════════════════════════ */
+
+export interface ProjectAuthResult {
+  ok: boolean;
+  error?: string;
+  // Cliente dueño de la Connection.
+  isClient?: boolean;
+  // Partner de la Connection del proyecto.
+  isPartner?: boolean;
+  clientUsername?: string | null;
+  partnerUsername?: string | null;
+}
+
+// Resuelve si userId está autorizado sobre un CollabProject: cliente o
+// partner de la Connection dueña del proyecto. Usado tanto por las acciones
+// de este archivo como por src/app/actions/projectAssets.ts para no
+// duplicar la query.
+export async function getProjectAuth(projectId: string, userId: string): Promise<ProjectAuthResult> {
+  const project = await prisma.collabProject.findUnique({
+    where: { id: projectId },
+    select: {
+      connection: {
+        select: {
+          clientId: true,
+          partnerId: true,
+          client: { select: { username: true } },
+          partner: { select: { username: true } },
+        },
+      },
+    },
+  });
+  if (!project) return { ok: false, error: "Proyecto no encontrado." };
+
+  const isClient = project.connection.clientId === userId;
+  const isPartner = project.connection.partnerId === userId;
+
+  if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
+
+  return {
+    ok: true,
+    isClient,
+    isPartner,
+    clientUsername: project.connection.client.username,
+    partnerUsername: project.connection.partner.username,
+  };
+}
+
 /* ══ Tareas ═══════════════════════════════════════════════════════════ */
 
 // Solo el partner agrega tareas; el orden se calcula al final de la lista.
