@@ -617,7 +617,7 @@ export function ProfileView({
           >
 
             {/* Columna izquierda — identidad, contacto y métricas */}
-            <Column gap="24" fillWidth>
+            <Column gap="24" fillWidth minWidth={0}>
               <Column gap="0" fillWidth>
                 <ProfileDesignerCard
                   featuredImageUrl={featuredImageUrl}
@@ -727,10 +727,10 @@ export function ProfileView({
               >
                 {metrics.map((metric) => (
                   <Row key={metric.label} fillWidth horizontal="between">
-                    <Text variant="label-default-s" onBackground="neutral-weak">
+                    <Text variant="label-default-s" onBackground="neutral-weak" style={{ minWidth: 0 }}>
                       {metric.label}
                     </Text>
-                    <Text variant="label-strong-s">{metric.value}</Text>
+                    <Text variant="label-strong-s" style={{ minWidth: 0 }}>{metric.value}</Text>
                   </Row>
                 ))}
               </Flex>
@@ -749,7 +749,11 @@ export function ProfileView({
                     {[...clients].map((client) => (
                       <Row key={client} gap="12" vertical="center">
                         <Avatar value={(client as string)[0].toUpperCase()} size="s" radius="s" />
-                        <Text variant="label-default-s" onBackground="neutral-strong">
+                        <Text
+                          variant="label-default-s"
+                          onBackground="neutral-strong"
+                          style={{ minWidth: 0 }}
+                        >
                           {client}
                         </Text>
                       </Row>
@@ -846,7 +850,7 @@ export function ProfileView({
             </Column>
 
             {/* Columna derecha — showcase de proyectos reales */}
-            <Column gap="24" fillWidth paddingTop="24" className={styles.projectsSpan}>
+            <Column gap="24" fillWidth className={styles.projectsSpan}>
               <Row fillWidth gap="12" wrap horizontal="between" vertical="center">
                 <SegmentedControl
                   selected={filter}
