@@ -26,36 +26,6 @@
   opacity: 1;
 }
 
-/* Tarjeta Designerd editable (cabecera del perfil): mismo patrón que el avatar */
-.cardButton {
-  position: relative;
-  display: flex;
-  width: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-l);
-  cursor: pointer;
-}
-
-.cardEdit {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--static-space-8);
-  border-radius: var(--radius-l);
-  background: color-mix(in srgb, var(--page-background) 65%, transparent);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.cardButton:hover .cardEdit,
-.cardButton:focus-visible .cardEdit {
-  opacity: 1;
-}
-
 /* Sección de proyectos dentro de la grilla de perfil (identidad + proyectos):
    ocupa los tracks restantes del Grid exterior (4 → 3, luego m: 3 → 2).
    Breakpoints alineados con node_modules/@once-ui-system/core/dist/styles/breakpoints.scss

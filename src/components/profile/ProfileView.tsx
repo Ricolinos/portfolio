@@ -28,6 +28,7 @@ import {
   Switch,
   Tag,
   Text,
+  TiltFx,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
@@ -225,7 +226,13 @@ function PieceCard({
             variant="heading-strong-s"
             onBackground="neutral-strong"
             wrap="balance"
-            style={{ minWidth: 0 }}
+            style={{
+              minWidth: 0,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
           >
             {piece.title}
           </Text>
@@ -452,62 +459,46 @@ function SharedResourceRow({ resource }: { resource: SharedResourceData }) {
   );
 }
 
-// Versión reducida (sin tilt/flip/cita) de la tarjeta Designerd de Explorar,
-// usada como cabecera del perfil en vez de la portada de ancho completo. El
-// avatar se superpone sobre su borde inferior (ver marginTop: -48px debajo).
+// Versión reducida (sin flip/cita) de la tarjeta Designerd de Explorar, usada
+// como cabecera del perfil en vez de la portada de ancho completo. El avatar
+// se superpone sobre su borde inferior (ver marginTop: -48px debajo) y queda
+// fuera del TiltFx, así que permanece estático mientras la tarjeta se inclina.
+// La imagen se cambia desde el modal "Editar información de perfil" →
+// "Tarjeta Designerd" → "Cambiar imagen" (PartnerEditInfoDialog).
 function ProfileDesignerCard({
   featuredImageUrl,
   avatarUrl,
-  isOwnProfile,
-  onEditClick,
 }: {
   featuredImageUrl?: string | null;
   avatarUrl?: string;
-  isOwnProfile: boolean;
-  onEditClick: () => void;
 }) {
   const imageSrc = featuredImageUrl || avatarUrl || null;
 
-  const card = (
-    <Column
-      fillWidth
-      radius="l"
-      overflow="hidden"
-      background="neutral-alpha-weak"
-      style={{ aspectRatio: "3 / 4" }}
-    >
-      {imageSrc ? (
-        <HoloFx position="absolute" top="0" left="0" fill radius="l">
-          <Media
-            src={imageSrc}
-            alt=""
-            fill
-            fillHeight
-            objectFit="cover"
-            sizes="(max-width: 768px) 100vw, 320px"
-          />
-        </HoloFx>
-      ) : (
-        <BlobFx seed={0} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
-      )}
-    </Column>
-  );
-
-  if (!isOwnProfile) return card;
-
   return (
-    <button
-      type="button"
-      className={styles.cardButton}
-      aria-label="Cambiar imagen de la tarjeta"
-      onClick={onEditClick}
-    >
-      {card}
-      <span className={styles.cardEdit}>
-        <Icon name="camera" size="s" />
-        <Text variant="label-strong-s">Cambiar imagen</Text>
-      </span>
-    </button>
+    <TiltFx fillWidth radius="l">
+      <Column
+        fillWidth
+        radius="l"
+        overflow="hidden"
+        background="neutral-alpha-weak"
+        style={{ aspectRatio: "3 / 4" }}
+      >
+        {imageSrc ? (
+          <HoloFx position="absolute" top="0" left="0" fill radius="l">
+            <Media
+              src={imageSrc}
+              alt=""
+              fill
+              fillHeight
+              objectFit="cover"
+              sizes="(max-width: 768px) 100vw, 320px"
+            />
+          </HoloFx>
+        ) : (
+          <BlobFx seed={0} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
+        )}
+      </Column>
+    </TiltFx>
   );
 }
 
@@ -623,8 +614,6 @@ export function ProfileView({
                 <ProfileDesignerCard
                   featuredImageUrl={featuredImageUrl}
                   avatarUrl={avatarUrl}
-                  isOwnProfile={isOwnProfile}
-                  onEditClick={() => setOpenDialog("featured")}
                 />
 
                 <Flex fillWidth horizontal="center" style={{ marginTop: "-48px" }}>
