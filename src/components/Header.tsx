@@ -165,10 +165,14 @@ const SearchBar = ({ fillWidth }: { fillWidth?: boolean }) => (
 // ─── AuthZone ─────────────────────────────────────────────────────────────────
 const AuthZone = ({
   mobile = false,
+  compact = false,
   onOpenAuth,
   onOpenSettings,
 }: {
   mobile?: boolean;
+  // Escritorio angosto (905–1199px): el chip completo con nombre/correo no
+  // cabe junto al buscador y los menús y desborda el viewport; solo avatar.
+  compact?: boolean;
   onOpenAuth: (mode: AuthMode) => void;
   onOpenSettings: () => void;
 }) => {
@@ -236,8 +240,23 @@ const AuthZone = ({
 
     return (
       <UserMenu
-        name={displayName}
-        subline={user.emailAddresses[0]?.emailAddress}
+        name={compact ? undefined : displayName}
+        subline={
+          compact ? undefined : (
+            // Truncado: un correo largo sin ellipsis desborda el viewport en ~1024px
+            <span
+              style={{
+                display: "block",
+                maxWidth: 180,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {user.emailAddresses[0]?.emailAddress}
+            </span>
+          )
+        }
         avatarProps={{ ...avatarProps, size: "s" }}
         placement="bottom-end"
         dropdown={
@@ -304,6 +323,7 @@ const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
 export const Header = () => {
   const [mobileOpen, setMobileOpen]       = useState(false);
   const [isMobile, setIsMobile]           = useState(false);
+  const [isCompact, setIsCompact]         = useState(false);
   const [scrolled, setScrolled]           = useState(false);
   const [authMode, setAuthMode]           = useState<AuthMode | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -324,6 +344,15 @@ export const Header = () => {
     const mq = window.matchMedia("(max-width: 904px)");
     setIsMobile(mq.matches);
     const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Escritorio angosto (905–1199px): chip de usuario compacto, ver AuthZone
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1199px)");
+    setIsCompact(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsCompact(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
@@ -403,7 +432,7 @@ export const Header = () => {
                 </Row>
               </Row>
               <Row vertical="center" gap="8" paddingRight="4">
-                <AuthZone onOpenAuth={setAuthMode} onOpenSettings={() => setIsSettingsOpen(true)} />
+                <AuthZone compact={isCompact} onOpenAuth={setAuthMode} onOpenSettings={() => setIsSettingsOpen(true)} />
               </Row>
             </Row>
           </motion.div>

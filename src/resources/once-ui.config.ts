@@ -22,6 +22,7 @@ const routes: RoutesConfig = {
   "/recursos": true,
   "/servicios": true,
   "/ejercicios": true,
+  "/proyectos": true,
   // "/about": true,
   // "/work": true,
   // "/blog": true,
