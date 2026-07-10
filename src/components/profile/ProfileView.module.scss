@@ -55,3 +55,20 @@
 .cardButton:focus-visible .cardEdit {
   opacity: 1;
 }
+
+/* Sección de proyectos dentro de la grilla de perfil (identidad + proyectos):
+   ocupa los tracks restantes del Grid exterior (4 → 3, luego m: 3 → 2).
+   Breakpoints alineados con node_modules/@once-ui-system/core/dist/styles/breakpoints.scss
+   ($breakpoint-m: 1024px, $breakpoint-s: 768px) para que coincidan exactamente
+   con los props m={{ columns }} / s={{ columns }} del Grid interior de proyectos. */
+.projectsSpan {
+  grid-column: span 3;
+
+  @media (max-width: 1024px) {
+    grid-column: span 2;
+  }
+
+  @media (max-width: 768px) {
+    grid-column: auto;
+  }
+}

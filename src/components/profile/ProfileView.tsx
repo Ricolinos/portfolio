@@ -177,11 +177,13 @@ function PieceCard({
   };
 
   const cover = piece.coverUrl ? (
-    <Column fillWidth radius="m" overflow="hidden">
+    <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
       <Media
         src={piece.coverUrl}
         alt={piece.title}
-        aspectRatio="4 / 3"
+        fill
+        fillHeight
+        objectFit="cover"
         sizes="(max-width: 768px) 100vw, 33vw"
       />
     </Column>
@@ -246,7 +248,7 @@ function PieceCard({
           </Row>
           {isOwnProfile && (
             <Row gap="8" vertical="center">
-              <Text variant="label-default-s" onBackground="neutral-weak">
+              <Text variant="label-default-s" onBackground="neutral-weak" style={{ minWidth: 0 }}>
                 {isPublic ? "Público" : "Borrador"}
               </Text>
               <Switch
@@ -604,17 +606,18 @@ export function ProfileView({
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
-          {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
-          <Row
+          {/* ── Layout de grilla: identidad + proyectos comparten el mismo track ── */}
+          <Grid
+            columns={4}
+            m={{ columns: 3 }}
+            s={{ columns: 1 }}
+            gap="20"
             fillWidth
-            gap="32"
-            s={{ direction: "column", horizontal: "center" }}
-            vertical="start"
             transition="macro-medium"
           >
 
             {/* Columna izquierda — identidad, contacto y métricas */}
-            <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
+            <Column gap="24" fillWidth>
               <Column gap="0" fillWidth>
                 <ProfileDesignerCard
                   featuredImageUrl={featuredImageUrl}
@@ -843,7 +846,7 @@ export function ProfileView({
             </Column>
 
             {/* Columna derecha — showcase de proyectos reales */}
-            <Column gap="24" fillWidth paddingTop="24">
+            <Column gap="24" fillWidth paddingTop="24" className={styles.projectsSpan}>
               <Row fillWidth gap="12" wrap horizontal="between" vertical="center">
                 <SegmentedControl
                   selected={filter}
@@ -933,7 +936,7 @@ export function ProfileView({
               )}
             </Column>
 
-          </Row>
+          </Grid>
         </Column>
 
         {isOwnProfile && (
