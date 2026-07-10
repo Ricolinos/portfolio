@@ -26,6 +26,13 @@ import {
   ListItem,
   Line,
   Carousel,
+  Avatar,
+  Tag,
+  Badge,
+  StatusIndicator,
+  ProgressBar,
+  Scroller,
+  MasonryGrid,
 } from "@once-ui-system/core";
 // El CompareImage de Once UI no se registra: en next-mdx-remote/rsc no
 // muestra ninguna de las dos imágenes sin importar la forma de
@@ -93,6 +100,255 @@ function LegacyCompareImage({
     </Row>
   );
 }
+
+// GOTCHA (descubierto al auditar bloques logoCloud/masonry en piezas
+// publicadas): `Media` (Once UI, ver dist/components/Media.js) solo aplica
+// un `width`/`height` propio cuando el valor coincide EXACTO con uno de sus
+// tokens ("0","1","2","4","8","12","16","20","24","32","40","48","56","64",
+// "80","104","128","160", o un sufijo %/vh/dvh/vw/calc(), ver parseDimension
+// en dist/components/ServerFlex.js). Cualquier otro string —incluido un
+// número "libre" como "6"— se descarta en silencio (undefined), y como
+// `Media` fuerza `fillWidth: true` en su Column interno SIN EXCEPCIÓN, la
+// imagen termina ocupando el 100% del contenedor padre en vez del tamaño
+// pedido: eso es lo que verificado en pantalla infla los logos de
+// `logoCloud` (y cualquier `masonry`/`carousel` con medidas fuera de esa
+// lista) a tiles gigantes apilados. Además, si `aspectRatio` se queda en su
+// default `"original"`, `Media` IGNORA el prop `height` sin importar su
+// valor (ver el ternario de `height` en Media.js). Este wrapper, registrado
+// como `Media` en el mapa de components de MDX, corrige ambos huecos sin
+// tocar el paquete: convierte cualquier string numérico "libre" en un
+// `number` real (que si acepta Once UI, vía `${value}rem` en
+// parseDimension), y si eso deja un `height` numérico sin `aspectRatio`
+// explícito, deriva un `aspectRatio` real (ej. "6 / 4") a partir de esos
+// mismos width/height para activar la ruta de `Media` que sí respeta una
+// caja de tamaño fijo, en vez de la ruta "original" que la ignora.
+//
+// Se descartó a propósito usar `aspectRatio=""` + forzar `fill` (el prop
+// booleano de `Media` que activa el fill-mode de `next/image`): verificado
+// en pantalla que ese combo rompe el sizing por completo. `Media.js`
+// construye el `style` del `<Image>` interno con `width: aspectRatio ?
+// "100%" : undefined` — con `aspectRatio=""` (falsy) da `width: undefined`
+// explícito—, y Next (`get-img-props.js`) arma el style final con
+// `Object.assign({position:absolute,width:'100%',height:'100%',...}, ...,
+// style)`: un `width`/`height` EXPLÍCITAMENTE `undefined` en ese último
+// objeto SOBRESCRIBE el `width:'100%'`/`height:'100%'` que Next necesita
+// para el fill-mode (Object.assign copia la clave aunque su valor sea
+// undefined), dejando el `<img>` sin ancho ni alto en absoluto. La ruta de
+// aspectRatio real (no vacío) evita ese bug: dispara el fill=false normal
+// de `Media` (mismo camino que ya usan carousel/video), donde el `<img>`
+// recibe `width:100%;height:100%;aspect-ratio:<real>` vía `style` y esos
+// porcentajes SÍ resuelven bien porque el Column contenedor ya tiene un
+// ancho definido (el `width` de abajo) y una altura definida por su propio
+// `aspect-ratio` CSS.
+//
+// Aplica tanto a contenido nuevo como al Markdown ya guardado en BD (ej.
+// `logoCloud`/`masonry` viejos con `width="6" height="4"` o sin ninguna
+// medida), sin requerir volver a guardar la pieza.
+const VALID_MEDIA_SIZE_TOKENS = new Set([
+  "0",
+  "1",
+  "2",
+  "4",
+  "8",
+  "12",
+  "16",
+  "20",
+  "24",
+  "32",
+  "40",
+  "48",
+  "56",
+  "64",
+  "80",
+  "104",
+  "128",
+  "160",
+]);
+const VALID_MEDIA_RESPONSIVE_TOKENS = new Set(["xs", "s", "m", "l", "xl"]);
+
+function isRecognizedSizeToken(value: string): boolean {
+  if (
+    value.endsWith("%") ||
+    value.endsWith("vh") ||
+    value.endsWith("dvh") ||
+    value.endsWith("vw") ||
+    value.startsWith("calc(")
+  ) {
+    return true;
+  }
+  return VALID_MEDIA_SIZE_TOKENS.has(value) || VALID_MEDIA_RESPONSIVE_TOKENS.has(value);
+}
+
+// `width` sí acepta tokens/CSSUnit como string (ver MediaProps, heredado de
+// Flex); solo se corrige si el valor NO es un token reconocido. `height` en
+// cambio SOLO acepta `number` en el tipo real de Media (MediaProps.height),
+// así que cualquier string —reconocido o no— se convierte a rem numérico:
+// no existe una variante "token" de `height` en este componente.
+function resolveMediaWidth(
+  value: string | number | undefined,
+): React.ComponentProps<typeof Media>["width"] {
+  if (value === undefined || typeof value === "number") return value;
+  if (isRecognizedSizeToken(value)) return value as React.ComponentProps<typeof Media>["width"];
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+// `height` en el tipo real de Media (MediaProps.height) SOLO acepta
+// `number`, así que cualquier string se convierte a rem numérico igual que
+// `width` cuando no es un token reconocido.
+function resolveMediaHeight(value: string | number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "number") return value;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+// Para derivar un aspectRatio real hace falta el valor NUMÉRICO puro de
+// width/height (independiente de si `width` terminó siendo un token/CSSUnit
+// para el prop final): un string como "6" pasa, un token como "24%" o
+// "calc(...)" no tiene un numero de "unidades" comparable y se ignora.
+function toPlainNumber(value: string | number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+interface MediaMdxProps extends Omit<React.ComponentProps<typeof Media>, "width" | "height"> {
+  width?: string | number;
+  height?: string | number;
+}
+
+function createMediaElement({ width, height, aspectRatio, objectFit, ...rest }: MediaMdxProps) {
+  const resolvedWidth = resolveMediaWidth(width);
+  const resolvedHeight = resolveMediaHeight(height);
+
+  let resolvedAspectRatio = aspectRatio;
+  let derivedFixedTile = false;
+  if (resolvedAspectRatio === undefined) {
+    const widthNumber = toPlainNumber(width);
+    const heightNumber = toPlainNumber(height);
+    if (widthNumber && heightNumber) {
+      resolvedAspectRatio = `${widthNumber} / ${heightNumber}`;
+      derivedFixedTile = true;
+    }
+  }
+  // Un tile de tamaño fijo derivado aquí (ej. logos de `logoCloud`, sin
+  // `aspectRatio` propio) es casi siempre un logo/ícono: verificado en
+  // pantalla que el `objectFit` default de Media ("cover") recorta logos
+  // con proporciones distintas al tile (ej. uno ancho, uno cuadrado, uno
+  // alto) en vez de encogerlos completos. Se prefiere "contain" en ese
+  // caso —logo entero visible, con márgenes si no coincide la proporción—
+  // salvo que el propio Markdown ya pida un `objectFit` explícito.
+  const resolvedObjectFit = objectFit ?? (derivedFixedTile ? "contain" : undefined);
+
+  return (
+    <Media
+      width={resolvedWidth}
+      height={resolvedHeight}
+      aspectRatio={resolvedAspectRatio}
+      objectFit={resolvedObjectFit}
+      {...rest}
+    />
+  );
+}
+
+// GOTCHA (misma auditoría): `MasonryGrid` solo define clases CSS para
+// `columns` entre 1 y 12 (ver dist/components/MasonryGrid.module.scss); un
+// valor fuera de ese rango —ej. "14", guardado en una pieza real— no
+// coincide con ninguna clase `columns-N`, así que `classNames()` la omite
+// en silencio y el contenedor queda en simple `display:block` SIN
+// `column-count`, apilando cada imagen a ancho completo en vez de una
+// cuadrícula. Se acota aquí en el render (afecta también Markdown ya
+// guardado) igual que ya se acota `columns` de `LogoCloud` en el editor
+// (`toGridSize`, ver ContentBlocks.tsx). También se acota al número real de
+// imágenes: pedir más columnas que fotos (ej. "14" columnas para 4 fotos)
+// no arma una cuadrícula razonable, deja columnas casi vacías y las
+// existentes angostísimas — verificado en pantalla, una fila de tiras de
+// ~46px de ancho en vez de una cuadrícula moderada.
+function clampMasonryColumns(value: string | number | undefined, itemCount: number): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  const requested = Number.isFinite(numeric) ? Math.round(numeric) : 3;
+  const boundedByRange = Math.min(12, Math.max(1, requested));
+  return itemCount > 0 ? Math.min(boundedByRange, itemCount) : boundedByRange;
+}
+
+interface MasonryGridMdxProps extends Omit<React.ComponentProps<typeof MasonryGrid>, "columns"> {
+  columns?: string | number;
+}
+
+function createMasonryGridElement({ columns, children, ...rest }: MasonryGridMdxProps) {
+  const itemCount = React.Children.count(children);
+  return (
+    <MasonryGrid columns={clampMasonryColumns(columns, itemCount)} {...rest}>
+      {children}
+    </MasonryGrid>
+  );
+}
+
+// GOTCHA (defecto logoCloud: "4 logos configurados, 5 espacios
+// renderizados"): el `Row` que arma `logoCloud` en ContentBlocks.tsx no
+// declara ancho propio, y el Column del artículo (`as="article"`) child
+// stretch por default (align-items: stretch) lo estira al 100% del ancho
+// del panel. Con 4 tiles de 96px + gap 24 (~456px) dentro de un Row de
+// ~640px, sobra un hueco al final del tamaño aproximado de un tile más —
+// verificado en pantalla con Playwright contra la pieza real
+// (`prueba-de-las-chidas`): el DOM solo tiene 4 <Media> hijos, no hay una
+// 5ª entrada ni una imagen rota, el hueco es puramente el remanente de
+// ancho del Row estirado. Dentro de esta app, `wrap` en un `Row` serializado
+// solo lo emite `logoCloud` (ver ContentBlocks.tsx); `avatarGroup`, `status`
+// y `link` usan `Row` sin `wrap`. Este wrapper aplica `fitWidth` (encoge el
+// Row a su contenido real) únicamente cuando `wrap` está presente y el
+// propio Markdown no pidió explícitamente `fillWidth`/`fill`.
+//
+// Defecto de alineación (decisión explícita del usuario, con captura del
+// visor): todo bloque NO textual debe quedar centrado en el panel del
+// artículo; el texto normal se queda a la izquierda. `Row` es el contenedor
+// real de logoCloud/avatarGroup/status/link — ninguno de esos declara
+// `fillWidth`, así que su ancho real es el de su contenido (intrínseco) y,
+// al vivir dentro del `Column as="article"` (align-items: stretch por
+// default), quedan pegados a la izquierda en vez de centrados. Se envuelve
+// el Row real (ya con su fitWidth resuelto) en un Row exterior que sí ocupa
+// el 100% del panel (`fillWidth`) con `horizontal="center"`; si el Markdown
+// ya pedía `fillWidth`/`fill` explícito (fuera de este editor) se omite el
+// envoltorio: centrar algo que ya ocupa el 100% no cambia nada visualmente,
+// pero evita anidar Rows sin necesidad. Sana también el Markdown ya
+// guardado en BD sin requerir volver a guardarlo.
+function createRowElement({
+  wrap,
+  fitWidth,
+  fillWidth,
+  fill,
+  children,
+  ...rest
+}: React.ComponentProps<typeof Row>) {
+  const resolvedFitWidth = wrap && !fillWidth && !fill ? (fitWidth ?? true) : fitWidth;
+  const row = (
+    <Row wrap={wrap} fitWidth={resolvedFitWidth} fillWidth={fillWidth} fill={fill} {...rest}>
+      {children}
+    </Row>
+  );
+  if (fillWidth || fill) return row;
+  return (
+    <Row fillWidth horizontal="center">
+      {row}
+    </Row>
+  );
+}
+
+// NOTA (mismo defecto de alineación): `tag`/`badge` sueltos (bloques
+// standalone) también deberían centrarse, pero a diferencia de
+// logoCloud/avatarGroup/status/link, `Tag` es el MISMO componente que usa
+// el bloque `scroller` (tira de tags) para sus chips internos — envolver
+// `Tag`/`Badge` a nivel del mapa de components de MDX (como `Row`/`Media`)
+// centraría también cada chip DENTRO del Scroller, rompiendo la tira
+// horizontal. No hay forma de distinguir "Tag suelto" de "Tag dentro de un
+// Scroller" desde este mapa (ambos llegan como el mismo tag JSX, sin
+// contexto del padre), así que este caso se resuelve en la SERIALIZACIÓN
+// (ContentBlocks.tsx envuelve el Tag/Badge/link sueltos en su propio `Row
+// fillWidth horizontal="center"` al crearlos) en vez de a nivel de render.
+// Esto sana automáticamente todo lo nuevo; el Markdown de piezas ya
+// guardadas con un tag/badge/link suelto (sin ese Row) requiere volver a
+// guardar la pieza para centrarse.
 
 type CustomLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
@@ -229,12 +485,25 @@ function createListItem({ children }: { children: ReactNode }) {
   );
 }
 
+// GOTCHA (defecto divisor: línea corta y sin margen): `Line` ya se estira
+// sola al 100% del ancho de su contenedor (ver Line.js: `fillWidth: !vert`
+// por default), así que el `Row fillWidth horizontal="center"` que envolvía
+// esto era innecesario. El bug real era el `maxWidth="40"` puesto sobre la
+// propia `Line`: ese "40" no es un token de `maxWidth` responsivo (los
+// únicos reconocidos son "xs"/"s"/"m"/"l"/"xl", ver ServerFlex.js), así que
+// cae a `parseDimension` como spacing token estático → `var(--static-space-
+// 40)` = 2.5rem = 40px — verificado en pantalla, por eso la línea medía
+// <50px en vez de cubrir el panel. Quitar el `maxWidth` dejar que `Line`
+// use su `fillWidth` nativo la estira a los ~448px reales del Column
+// `article` (maxWidth="xs"). Para el margen: el `Column as="article"` ya
+// trae `gap="16"` entre bloques; el pedido es sumar ~20px EXTRA arriba y
+// abajo del divisor. `marginTop`/`marginBottom` en Flex no colapsan con el
+// `gap` del padre (se suman), así que "20" (token estático = 20px exactos,
+// ver tokens.css `--static-space-20: 1.25rem`) da el extra pedido sin
+// tocar la escala del resto del artículo — medido en pantalla: 16 (gap) +
+// 20 (margin) = 36px de separación real arriba y abajo del divisor.
 function createHR() {
-  return (
-    <Row fillWidth horizontal="center">
-      <Line maxWidth="40" />
-    </Row>
-  );
+  return <Line fillWidth marginTop="20" marginBottom="20" />;
 }
 
 const components = {
@@ -264,13 +533,32 @@ const components = {
   Button,
   Card,
   Grid,
-  Row,
   Column,
   Icon,
-  Media,
+  // `Media`, `Row` y `MasonryGrid` crudos (los mismos imports de arriba) se
+  // reemplazan por los wrappers que corrigen los GOTCHAs de tamaño/layout
+  // documentados arriba; `createImage`/`LegacyCompareImage` siguen usando el
+  // `Media`/`Row` crudos importados (no pasan por el mapa de components de
+  // MDX, y ya proveen aspectRatio/tokens válidos o fillWidth explícito).
+  Media: createMediaElement as any,
+  Row: createRowElement as any,
   SmartLink,
   Carousel,
   CompareImage: LegacyCompareImage as any,
+  Avatar,
+  // `Tag`/`Badge` se centran en la SERIALIZACIÓN (ver nota arriba), no aquí:
+  // se mantienen crudos porque `Tag` también es el chip que arma el bloque
+  // `scroller` dentro de un `Scroller` (ya `fillWidth` por sí mismo, ver
+  // Scroller.js) y no debe ganar un envoltorio de centrado individual.
+  // `ProgressBar` tampoco necesita envoltorio: Once UI ya lo fuerza a
+  // `fillWidth` internamente (ProgressBar.js). `StatusIndicator` solo se usa
+  // dentro del Row de `status` (ya centrado vía `createRowElement`).
+  Tag,
+  Badge,
+  StatusIndicator,
+  ProgressBar,
+  Scroller,
+  MasonryGrid: createMasonryGridElement as any,
 };
 
 type CustomMDXProps = MDXRemoteProps & {

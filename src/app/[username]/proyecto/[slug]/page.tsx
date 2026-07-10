@@ -160,7 +160,18 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
           src={post.metadata.images[0]}
         />
       )}
-      <Column style={{ margin: "auto" }} as="article" maxWidth="xs">
+      {/* `gap` separa los bloques de nivel superior que arma el editor
+          (texto/imagen/carousel/tag/badge/status/progress/avatares/logos/
+          tira/masonry). Varios de esos bloques se serializan a JSX "pelón"
+          (Tag, Badge, StatusIndicator, ProgressBar, Scroller, MasonryGrid,
+          Row/Column crudos) sin margen propio —a diferencia de p/headings/
+          img, que ya traen su propio marginTop/marginBottom en los
+          overrides de mdx.tsx—, así que sin este gap quedan pegados entre
+          sí. Verificado en pantalla que un `gap` aquí no rompe el
+          contenido legado (los .mdx viejos ya traían su propio margen,
+          simplemente ganan un poco más de aire) y evita depender de que el
+          usuario agregue un bloque "Divisor" a mano entre cada sección. */}
+      <Column style={{ margin: "auto" }} as="article" maxWidth="xs" gap="16">
         <CustomMDX source={post.content} />
       </Column>
       <Column fillWidth horizontal="center" marginTop="40" gap="24">
