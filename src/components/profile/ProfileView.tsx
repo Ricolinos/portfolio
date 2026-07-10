@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Avatar,
+  BlobFx,
   Button,
   Card,
   Column,
@@ -13,6 +14,7 @@ import {
   Flex,
   Grid,
   Heading,
+  HoloFx,
   Icon,
   IconButton,
   Line,
@@ -21,20 +23,20 @@ import {
   RevealFx,
   Row,
   SegmentedControl,
+  Select,
   SmartLink,
   Switch,
   Tag,
   Text,
+  TiltFx,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
 import { respondContactRequest } from "@/app/actions/collab";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import {
-  CoverUploadDialog,
-  DesignerCardDialog,
   FeaturedImageUploadDialog,
-  PartnerSettingsDialog,
+  PartnerEditInfoDialog,
 } from "./PartnerProfileEditDialogs";
 import { NewCollabProjectDialog, type ConnectionOption } from "./ClientCollabDialogs";
 import { ContactPartnerDialog } from "./PartnerCollabDialogs";
@@ -61,6 +63,8 @@ export interface PartnerPiece {
   views: number;
   likes: number;
   isPublic: boolean;
+  // ISO string; usado para ordenar por "más recientes"
+  createdAt: string;
   // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
   href?: string;
 }
@@ -73,7 +77,6 @@ interface ProfileViewProps {
   whatsapp?: string | null;
   email?: string | null;
   memberSince?: string; // ISO string
-  coverImageUrl?: string | null;
   isPublic?: boolean;
   shareWhatsapp?: boolean;
   // Contenido de la tarjeta Designerd en Explorar (editable por el propio Partner)
@@ -119,6 +122,11 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 const ALL_CATEGORIES = "Todos";
+
+const SORT_OPTIONS = [
+  { value: "recent", label: "Más recientes" },
+  { value: "popular", label: "Más populares" },
+];
 
 function waLink(whatsapp: string) {
   return `https://wa.me/${whatsapp.replace(/\D/g, "")}`;
@@ -170,11 +178,13 @@ function PieceCard({
   };
 
   const cover = piece.coverUrl ? (
-    <Column fillWidth radius="m" overflow="hidden">
+    <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
       <Media
         src={piece.coverUrl}
         alt={piece.title}
-        aspectRatio="4 / 3"
+        fill
+        fillHeight
+        objectFit="cover"
         sizes="(max-width: 768px) 100vw, 33vw"
       />
     </Column>
@@ -195,11 +205,13 @@ function PieceCard({
     <Card
       href={isOwnProfile ? undefined : piece.href}
       fillWidth
+      minWidth={0}
       direction="column"
       gap="12"
       padding="12"
       radius="l"
       border="neutral-alpha-weak"
+      transition="macro-medium"
     >
       {isOwnProfile && piece.href ? (
         <SmartLink unstyled fillWidth href={piece.href}>
@@ -210,13 +222,24 @@ function PieceCard({
       )}
       <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
         <Row fillWidth horizontal="between" vertical="start" gap="8">
-          <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
+          <Text
+            variant="heading-strong-s"
+            onBackground="neutral-strong"
+            wrap="balance"
+            style={{
+              minWidth: 0,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
             {piece.title}
           </Text>
           <Tag size="s" label={piece.category} variant="neutral" />
         </Row>
         <Row fillWidth horizontal="between" vertical="center" gap="12">
-          <Row gap="12" vertical="center">
+          <Row gap="12" vertical="center" minWidth={0}>
             <Row gap="4" vertical="center">
               <Icon name="eye" size="xs" onBackground="neutral-weak" />
               <Text variant="label-default-s" onBackground="neutral-weak">
@@ -231,8 +254,8 @@ function PieceCard({
             </Row>
           </Row>
           {isOwnProfile && (
-            <Row gap="8" vertical="center">
-              <Text variant="label-default-s" onBackground="neutral-weak">
+            <Row gap="8" vertical="center" minWidth={0}>
+              <Text variant="label-default-s" onBackground="neutral-weak" style={{ minWidth: 0 }}>
                 {isPublic ? "Público" : "Borrador"}
               </Text>
               <Switch
@@ -240,6 +263,7 @@ function PieceCard({
                 onToggle={toggleVisibility}
                 loading={saving}
                 ariaLabel={`Visibilidad de ${piece.title}`}
+                style={{ flexShrink: 0 }}
               />
             </Row>
           )}
@@ -253,6 +277,7 @@ function PieceCard({
   return (
     <ContextMenu
       fillWidth
+      style={{ minWidth: 0 }}
       placement="bottom-start"
       onSelect={(value) => {
         if (value === "edit") onEdit();
@@ -434,6 +459,49 @@ function SharedResourceRow({ resource }: { resource: SharedResourceData }) {
   );
 }
 
+// Versión reducida (sin flip/cita) de la tarjeta Designerd de Explorar, usada
+// como cabecera del perfil en vez de la portada de ancho completo. El avatar
+// se superpone sobre su borde inferior (ver marginTop: -48px debajo) y queda
+// fuera del TiltFx, así que permanece estático mientras la tarjeta se inclina.
+// La imagen se cambia desde el modal "Editar información de perfil" →
+// "Tarjeta Designerd" → "Cambiar imagen" (PartnerEditInfoDialog).
+function ProfileDesignerCard({
+  featuredImageUrl,
+  avatarUrl,
+}: {
+  featuredImageUrl?: string | null;
+  avatarUrl?: string;
+}) {
+  const imageSrc = featuredImageUrl || avatarUrl || null;
+
+  return (
+    <TiltFx fillWidth radius="l">
+      <Column
+        fillWidth
+        radius="l"
+        overflow="hidden"
+        background="neutral-alpha-weak"
+        style={{ aspectRatio: "3 / 4" }}
+      >
+        {imageSrc ? (
+          <HoloFx position="absolute" top="0" left="0" fill radius="l">
+            <Media
+              src={imageSrc}
+              alt=""
+              fill
+              fillHeight
+              objectFit="cover"
+              sizes="(max-width: 768px) 100vw, 320px"
+            />
+          </HoloFx>
+        ) : (
+          <BlobFx seed={0} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
+        )}
+      </Column>
+    </TiltFx>
+  );
+}
+
 export function ProfileView({
   displayName,
   avatarUrl,
@@ -442,7 +510,6 @@ export function ProfileView({
   whatsapp,
   email,
   memberSince,
-  coverImageUrl,
   isPublic = true,
   shareWhatsapp = false,
   featuredImageUrl,
@@ -461,8 +528,9 @@ export function ProfileView({
 }: ProfileViewProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
+  const [sortBy, setSortBy] = useState<"recent" | "popular">("recent");
   const [openDialog, setOpenDialog] = useState<
-    "avatar" | "cover" | "info" | "featured" | "card" | null
+    "avatar" | "info" | "featured" | null
   >(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
@@ -508,6 +576,12 @@ export function ProfileView({
   const categories = [ALL_CATEGORIES, ...new Set(pieces.map((p) => p.category))];
   const visiblePieces =
     filter === ALL_CATEGORIES ? pieces : pieces.filter((p) => p.category === filter);
+  const sortedPieces =
+    sortBy === "popular"
+      ? [...visiblePieces].sort((a, b) => b.likes - a.likes)
+      : [...visiblePieces].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
 
   const metrics = [
     { label: "En curso", value: String(inProgress.length) },
@@ -524,76 +598,55 @@ export function ProfileView({
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
-          {/* ── Banner de cobertura ─────────────────────────────────────────── */}
-          {(() => {
-            const banner = (
-              <Flex
-                fillWidth
-                height="160"
-                radius="l"
-                background="brand-alpha-weak"
-                style={
-                  coverImageUrl
-                    ? {
-                        backgroundImage: `url(${coverImageUrl})`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                      }
-                    : undefined
-                }
-              />
-            );
-            return isOwnProfile ? (
-              <button
-                type="button"
-                className={styles.coverButton}
-                aria-label="Cambiar imagen de portada"
-                onClick={() => setOpenDialog("cover")}
-              >
-                {banner}
-                <span className={styles.coverEdit}>
-                  <Icon name="camera" size="s" />
-                  <Text variant="label-strong-s">Cambiar portada</Text>
-                </span>
-              </button>
-            ) : (
-              banner
-            );
-          })()}
-
-          {/* ── Layout asimétrico de dos columnas ──────────────────────────── */}
-          <Row fillWidth gap="32" s={{ direction: "column" }} vertical="start">
+          {/* ── Layout de grilla: identidad + proyectos comparten el mismo track ── */}
+          <Grid
+            columns={4}
+            m={{ columns: 3 }}
+            s={{ columns: 1 }}
+            gap="20"
+            fillWidth
+            transition="macro-medium"
+          >
 
             {/* Columna izquierda — identidad, contacto y métricas */}
-            <Column gap="24" fillWidth style={{ maxWidth: 320 }}>
-              <Flex style={{ marginTop: "-48px" }}>
-                {isOwnProfile ? (
-                  <button
-                    type="button"
-                    className={styles.avatarButton}
-                    aria-label="Cambiar imagen de perfil"
-                    onClick={() => setOpenDialog("avatar")}
-                  >
-                    <Avatar {...avatarProps} size="xl" />
-                    <span className={styles.avatarEdit}>
-                      <Icon name="edit" size="s" />
-                    </span>
-                  </button>
-                ) : (
-                  <Avatar {...avatarProps} size="xl" />
-                )}
-              </Flex>
+            <Column gap="24" fillWidth minWidth={0}>
+              <Column gap="0" fillWidth>
+                <ProfileDesignerCard
+                  featuredImageUrl={featuredImageUrl}
+                  avatarUrl={avatarUrl}
+                />
 
-              <Column gap="8">
-                <Heading variant="heading-strong-l">{displayName}</Heading>
-                <Row gap="8" vertical="center">
+                <Flex fillWidth horizontal="center" style={{ marginTop: "-48px" }}>
+                  {isOwnProfile ? (
+                    <button
+                      type="button"
+                      className={styles.avatarButton}
+                      aria-label="Cambiar imagen de perfil"
+                      onClick={() => setOpenDialog("avatar")}
+                    >
+                      <Avatar {...avatarProps} size="xl" />
+                      <span className={styles.avatarEdit}>
+                        <Icon name="edit" size="s" />
+                      </span>
+                    </button>
+                  ) : (
+                    <Avatar {...avatarProps} size="xl" />
+                  )}
+                </Flex>
+              </Column>
+
+              <Column gap="8" fillWidth horizontal="center">
+                <Heading variant="heading-strong-l" align="center">
+                  {displayName}
+                </Heading>
+                <Row fillWidth gap="8" vertical="center" horizontal="center">
                   <Tag size="s" variant="brand" label="Partner" />
                   <Text variant="body-default-m" onBackground="neutral-weak">
                     @{username}
                   </Text>
                 </Row>
                 {memberSince && (
-                  <Row gap="8" vertical="center">
+                  <Row fillWidth gap="8" vertical="center" horizontal="center">
                     <Icon name="calendar" size="s" onBackground="neutral-weak" />
                     <Text variant="body-default-m" onBackground="neutral-weak">
                       Partner desde {formatMemberSince(memberSince)}
@@ -601,7 +654,7 @@ export function ProfileView({
                   </Row>
                 )}
                 {isOwnProfile && email && (
-                  <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
+                  <Row fillWidth gap="8" vertical="center" horizontal="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
                     {/* Ellipsis en vez de quiebre a media palabra ("hubnerds.co m") */}
                     <Text
@@ -654,32 +707,6 @@ export function ProfileView({
                 </Column>
               )}
 
-              {isOwnProfile && (
-                <Flex
-                  background="neutral-alpha-weak"
-                  padding="16"
-                  radius="m"
-                  border="neutral-alpha-weak"
-                  direction="column"
-                  gap="12"
-                >
-                  <Column gap="4">
-                    <Text variant="label-strong-s">Tarjeta de Designerd</Text>
-                    <Text variant="body-default-s" onBackground="neutral-weak">
-                      Así te ven en Explorar / designerds.
-                    </Text>
-                  </Column>
-                  <Row gap="8" wrap>
-                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("featured")}>
-                      Imagen destacada
-                    </Button>
-                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("card")}>
-                      Cita, puesto y descripción
-                    </Button>
-                  </Row>
-                </Flex>
-              )}
-
               <Flex
                 background="neutral-alpha-weak"
                 padding="16"
@@ -690,10 +717,10 @@ export function ProfileView({
               >
                 {metrics.map((metric) => (
                   <Row key={metric.label} fillWidth horizontal="between">
-                    <Text variant="label-default-s" onBackground="neutral-weak">
+                    <Text variant="label-default-s" onBackground="neutral-weak" style={{ minWidth: 0 }}>
                       {metric.label}
                     </Text>
-                    <Text variant="label-strong-s">{metric.value}</Text>
+                    <Text variant="label-strong-s" style={{ minWidth: 0 }}>{metric.value}</Text>
                   </Row>
                 ))}
               </Flex>
@@ -712,7 +739,11 @@ export function ProfileView({
                     {[...clients].map((client) => (
                       <Row key={client} gap="12" vertical="center">
                         <Avatar value={(client as string)[0].toUpperCase()} size="s" radius="s" />
-                        <Text variant="label-default-s" onBackground="neutral-strong">
+                        <Text
+                          variant="label-default-s"
+                          onBackground="neutral-strong"
+                          style={{ minWidth: 0 }}
+                        >
                           {client}
                         </Text>
                       </Row>
@@ -809,12 +840,22 @@ export function ProfileView({
             </Column>
 
             {/* Columna derecha — showcase de proyectos reales */}
-            <Column gap="24" fillWidth paddingTop="24">
-              <SegmentedControl
-                selected={filter}
-                onToggle={setFilter}
-                buttons={categories.map((c) => ({ value: c, label: c }))}
-              />
+            <Column gap="24" fillWidth className={styles.projectsSpan}>
+              <Row fillWidth gap="12" wrap horizontal="between" vertical="center">
+                <SegmentedControl
+                  selected={filter}
+                  onToggle={setFilter}
+                  buttons={categories.map((c) => ({ value: c, label: c }))}
+                />
+                <Select
+                  id="pieces-sort"
+                  options={SORT_OPTIONS}
+                  value={sortBy}
+                  onSelect={(value) => setSortBy(value as "recent" | "popular")}
+                  height="s"
+                  maxWidth={12}
+                />
+              </Row>
 
               {isOwnProfile && pieces.length > 0 && (
                 <Flex background="brand-alpha-weak" padding="20" radius="m" fillWidth vertical="center" gap="16">
@@ -836,8 +877,41 @@ export function ProfileView({
                   </Text>
                 </Column>
               ) : (
-                <Grid columns={3} m={{ columns: 2 }} s={{ columns: 1 }} gap="20" fillWidth>
-                  {visiblePieces.map((piece) => (
+                <Grid
+                  columns={3}
+                  m={{ columns: 2 }}
+                  s={{ columns: 1 }}
+                  gap="20"
+                  fillWidth
+                  transition="macro-medium"
+                >
+                  {/* Tarjeta de acción "Publicar proyecto" */}
+                  {isOwnProfile && (
+                    <Flex
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setCreateOpen(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setCreateOpen(true);
+                      }}
+                      fillWidth
+                      minWidth={0}
+                      border="neutral-medium"
+                      radius="l"
+                      style={{ borderStyle: "dashed", cursor: "pointer" }}
+                      center
+                      padding="32"
+                      direction="column"
+                      gap="12"
+                    >
+                      <Icon name="plus" size="l" onBackground="neutral-weak" />
+                      <Text variant="label-default-s" onBackground="neutral-weak">
+                        Publicar proyecto
+                      </Text>
+                    </Flex>
+                  )}
+
+                  {sortedPieces.map((piece) => (
                     <PieceCard
                       key={piece.id}
                       piece={piece}
@@ -852,35 +926,11 @@ export function ProfileView({
                       }}
                     />
                   ))}
-
-                  {/* Tarjeta de acción "Publicar proyecto" */}
-                  {isOwnProfile && (
-                    <Flex
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setCreateOpen(true)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") setCreateOpen(true);
-                      }}
-                      border="neutral-medium"
-                      radius="l"
-                      style={{ borderStyle: "dashed", cursor: "pointer" }}
-                      center
-                      padding="40"
-                      direction="column"
-                      gap="12"
-                    >
-                      <Icon name="plus" size="l" onBackground="neutral-weak" />
-                      <Text variant="label-default-s" onBackground="neutral-weak">
-                        Publicar proyecto
-                      </Text>
-                    </Flex>
-                  )}
                 </Grid>
               )}
             </Column>
 
-          </Row>
+          </Grid>
         </Column>
 
         {isOwnProfile && (
@@ -890,30 +940,27 @@ export function ProfileView({
               onClose={() => setOpenDialog(null)}
               currentImageUrl={avatarUrl}
             />
-            <CoverUploadDialog
-              isOpen={openDialog === "cover"}
-              onClose={() => setOpenDialog(null)}
-              currentCoverUrl={coverImageUrl}
-            />
-            <PartnerSettingsDialog
+            <PartnerEditInfoDialog
               isOpen={openDialog === "info"}
               onClose={() => setOpenDialog(null)}
               initialIsPublic={isPublic}
               initialShareWhatsapp={shareWhatsapp}
-            />
-            <FeaturedImageUploadDialog
-              isOpen={openDialog === "featured"}
-              onClose={() => setOpenDialog(null)}
-              currentFeaturedUrl={featuredImageUrl}
-            />
-            <DesignerCardDialog
-              isOpen={openDialog === "card"}
-              onClose={() => setOpenDialog(null)}
               initial={{
                 cardQuote: cardQuote ?? "",
                 headline: headline ?? "",
                 bio: bio ?? "",
               }}
+              avatarUrl={avatarUrl}
+              displayName={displayName}
+              username={username}
+              featuredImageUrl={featuredImageUrl}
+              onOpenAvatar={() => setOpenDialog("avatar")}
+              onOpenFeatured={() => setOpenDialog("featured")}
+            />
+            <FeaturedImageUploadDialog
+              isOpen={openDialog === "featured"}
+              onClose={() => setOpenDialog(null)}
+              currentFeaturedUrl={featuredImageUrl}
             />
             <NewCollabProjectDialog
               isOpen={collabDialogOpen}
