@@ -6,13 +6,16 @@ import {
   Column,
   DateInput,
   Dialog,
+  DropdownWrapper,
   Feedback,
+  Grid,
   Icon,
   IconButton,
   Input,
   Line,
   Row,
   ScrollLock,
+  ShineFx,
   Spinner,
   TagInput,
   Text,
@@ -34,8 +37,10 @@ import {
   blocksToMarkdown,
   type ContentBlock,
   ContentBlockCard,
+  type ContentBlockType,
   createBlock,
 } from "./ContentBlocks";
+import styles from "./CreateProjectModal.module.scss";
 
 const modalBackdrop = <BrandModalBackdrop />;
 
@@ -309,6 +314,62 @@ function ResizableSplit({
   );
 }
 
+interface BlockTypePickerProps {
+  disabled: boolean;
+  onSelect: (type: ContentBlockType) => void;
+}
+
+// Segundo acceso a los 15 tipos de bloque (el primero es el panel derecho
+// "Añadir sección"): un "+" al fondo del lienzo que abre este popover anclado
+// con los mismos tipos como íconos 1:1. El dropdown-portal de DropdownWrapper
+// ya cae en la excepción de click-outside del WideDialog (clase
+// ".dropdown-portal", ver arriba), así que elegir un tipo no cierra el modal.
+function BlockTypePicker({ disabled, onSelect }: BlockTypePickerProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DropdownWrapper
+      isOpen={open}
+      onOpenChange={setOpen}
+      placement="top"
+      trigger={
+        <IconButton
+          icon="plus"
+          variant="secondary"
+          size="l"
+          tooltip="Añadir sección"
+          disabled={disabled}
+        />
+      }
+      dropdown={
+        <Grid columns={5} gap="8" padding="8">
+          {BLOCK_TYPES.map(({ type, label, icon }) => (
+            <IconButton
+              key={type}
+              size="l"
+              variant="secondary"
+              tooltip={label}
+              disabled={disabled}
+              onClick={() => {
+                onSelect(type);
+                setOpen(false);
+              }}
+            >
+              {type === "text" ? (
+                <Text variant="heading-strong-s" onBackground="neutral-weak">
+                  T
+                </Text>
+              ) : (
+                <Icon name={icon} size="s" onBackground="neutral-weak" />
+              )}
+            </IconButton>
+          ))}
+        </Grid>
+      }
+    />
+  );
+}
+
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -320,6 +381,8 @@ interface CreateProjectModalProps {
 export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreateProjectModalProps) {
   const router = useRouter();
   const [title, setTitle] = useState("");
+  const [titleFocused, setTitleFocused] = useState(false);
+  const [titleTouched, setTitleTouched] = useState(false);
   const [category, setCategory] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
@@ -343,6 +406,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
 
   const reset = () => {
     setTitle("");
+    setTitleFocused(false);
+    setTitleTouched(false);
     setCategory("");
     setCoverUrl("");
     setBlocks([]);
@@ -367,6 +432,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     let cancelled = false;
     setLoadingPiece(true);
     setError(null);
+    setTitleFocused(false);
+    setTitleTouched(false);
     getPortfolioPieceForEdit(pieceId)
       .then((piece) => {
         if (cancelled) return;
@@ -411,6 +478,19 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       setCoverUploading(false);
     }
   };
+
+  // Ver el comentario junto al `onClick` de los tiles del panel derecho
+  // ("Añadir sección"): `Card` de Once UI ata el mismo `onClick` al elemento
+  // externo Y al Flex interno, así que un solo click lo dispara 2 veces. El
+  // MouseEvent SÍ llega en runtime (aunque `CardProps.onClick` lo tipe como
+  // `() => void`); stopPropagation() ahí corta la burbuja hacia el externo
+  // y deja que se agregue un único bloque por click.
+  const handleAddBlockTile =
+    (type: ContentBlockType) =>
+    (event: React.MouseEvent) => {
+      event.stopPropagation();
+      setBlocks((current) => [...current, createBlock(type)]);
+    };
 
   const moveBlock = (id: string, direction: "up" | "down") => {
     setBlocks((current) => {
@@ -474,16 +554,41 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   return (
     <>
       <WideDialog isOpen={isOpen} onClose={handleAttemptClose}>
-        <Input
-          id="project-title"
-          placeholder="Nombre de tu proyecto"
-          variant="ghost"
-          height="xl"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          disabled={disabled}
-          style={{ paddingRight: "4rem" }}
-        />
+        <Row position="relative" fillWidth vertical="center">
+          <Input
+            id="project-title"
+            placeholder=""
+            variant="ghost"
+            height="xl"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onFocus={() => setTitleFocused(true)}
+            onBlur={() => {
+              setTitleFocused(false);
+              setTitleTouched(true);
+            }}
+            disabled={disabled}
+            className={`${styles.titleInput}${
+              titleTouched && !title.trim() ? ` ${styles.titleInvalid}` : ""
+            }`}
+            style={{ paddingRight: "4rem" }}
+          />
+          {!title && !titleFocused && (
+            <Row
+              position="absolute"
+              fill
+              horizontal="center"
+              vertical="center"
+              pointerEvents="none"
+              top="0"
+              left="0"
+            >
+              <ShineFx variant="heading-strong-l" onBackground="neutral-weak">
+                Nombra tu proyecto
+              </ShineFx>
+            </Row>
+          )}
+        </Row>
         {loadingPiece ? (
           <Row fill horizontal="center" vertical="center" paddingY="80">
             <Spinner size="l" ariaLabel="Cargando proyecto" />
@@ -557,6 +662,15 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       }
                     />
                   ))}
+
+                  <Row horizontal="center" paddingTop="8">
+                    <BlockTypePicker
+                      disabled={disabled}
+                      onSelect={(type) =>
+                        setBlocks((current) => [...current, createBlock(type)])
+                      }
+                    />
+                  </Row>
                 </Card>
               </Column>
             }
@@ -567,20 +681,61 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                   <Text variant="label-strong-s" onBackground="neutral-weak">
                     Añadir sección
                   </Text>
-                  <Row gap="8" style={{ overflowX: "auto" }}>
+                  <Grid columns={2} gap="8">
                     {BLOCK_TYPES.map(({ type, label, icon }) => (
-                      <IconButton
+                      <Card
                         key={type}
-                        icon={icon}
-                        tooltip={label}
-                        tooltipPosition="top"
-                        variant="secondary"
-                        size="l"
-                        disabled={disabled}
-                        onClick={() => setBlocks((current) => [...current, createBlock(type)])}
-                      />
+                        fillWidth
+                        direction="column"
+                        gap="8"
+                        padding="12"
+                        radius="m"
+                        border="neutral-alpha-weak"
+                        horizontal="center"
+                        vertical="center"
+                        style={{ minHeight: "5rem" }}
+                        opacity={disabled ? 50 : 100}
+                        cursor={disabled ? "not-allowed" : "interactive"}
+                        onClick={
+                          disabled
+                            ? undefined
+                            : // `CardProps.onClick` se declara como `() => void` (sin
+                              // evento), pero `Card.js` en runtime ata ese mismo
+                              // handler TANTO al elemento externo (ElementType) COMO
+                              // al Flex interno (ver dist/components/Card.js): un
+                              // solo click burbujea por ambos y el handler corre 2
+                              // veces, agregando el bloque por duplicado. En runtime
+                              // sí llega el MouseEvent como primer argumento (React
+                              // se lo pasa al invocar el onClick nativo), así que se
+                              // castea para poder leerlo y cortar la burbuja con
+                              // stopPropagation() antes de que llegue al externo.
+                              ((handleAddBlockTile(type) as unknown) as () => void)
+                        }
+                      >
+                        <Row
+                          horizontal="center"
+                          vertical="center"
+                          style={{ width: "1.5rem", height: "1.5rem" }}
+                        >
+                          {type === "text" ? (
+                            <Text variant="heading-strong-m" onBackground="neutral-weak">
+                              T
+                            </Text>
+                          ) : (
+                            <Icon name={icon} size="m" onBackground="neutral-weak" />
+                          )}
+                        </Row>
+                        <Text
+                          variant="label-default-xs"
+                          onBackground="neutral-weak"
+                          align="center"
+                          wrap="balance"
+                        >
+                          {label}
+                        </Text>
+                      </Card>
                     ))}
-                  </Row>
+                  </Grid>
                 </Card>
 
                 <Card fillWidth padding="16" radius="l" direction="column" gap="12">

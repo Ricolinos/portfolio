@@ -42,7 +42,16 @@ export default async function ExplorarCategoryPage({
       // Los Partners con perfil privado no se listan, pero su /[username] sigue accesible.
       where: { role: "collaborator", isPublic: true },
       orderBy: { createdAt: "asc" },
-      select: { id: true, name: true, username: true, imageUrl: true },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        imageUrl: true,
+        featuredImageUrl: true,
+        cardQuote: true,
+        headline: true,
+        bio: true,
+      },
     });
     return <DesignerDirectory platformDesigners={platformDesigners} />;
   }

@@ -1,0 +1,9 @@
+/* FlipFx fija su altura por JS (element.style.height = max(front, back)
+   scrollHeight); como las caras son "fill" absolutas, ese scrollHeight nunca
+   puede encoger, solo crecer (trinquete de altura en resize). Este !important
+   anula ese estilo inline y delega la altura al aspect-ratio en CSS, que sí
+   responde a cualquier resize del contenedor. */
+.flipCard {
+  height: auto !important;
+  aspect-ratio: 3 / 4;
+}

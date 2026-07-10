@@ -1,0 +1,13 @@
+/* Título del proyecto: Input.js aplica className/style solo a la Column
+   envolvente (nunca al <input> nativo), pero .input en Input.module.scss fija
+   su propio "color", que gana sobre cualquier color heredado desde afuera.
+   Este selector descendiente (clase + elemento) tiene más especificidad que
+   la clase sola ".input" del SCSS de la librería, así que sí gana. */
+.titleInvalid input {
+  color: var(--danger-on-background-medium);
+}
+
+.titleInput input {
+  text-align: center;
+  font-weight: var(--font-weight-bold);
+}

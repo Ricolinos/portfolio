@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
@@ -20,7 +21,26 @@ import {
 } from "@once-ui-system/core";
 import { STATUS_LABELS, type ProjectStatus } from "@/lib/projectStatus";
 import { RESOURCE_CATEGORY_SLUGS } from "@/components/resources/categories";
-import { AvatarUploadDialog, EditInfoDialog } from "./ClientProfileEditDialogs";
+import type {
+  ClientConnectionData,
+  ClientResourceData,
+  CollabPartnerSummary,
+  CollabProjectData,
+} from "@/lib/collab";
+import {
+  AvatarUploadDialog,
+  EditInfoDialog,
+  SecurityPrivacyDialog,
+  type EditProfileInitial,
+} from "./ClientProfileEditDialogs";
+import {
+  AddClientResourceDialog,
+  DeleteClientResourceDialog,
+  NewCollabProjectDialog,
+  ShareClientResourceDialog,
+  type ConnectionOption,
+  type ShareablePartner,
+} from "./ClientCollabDialogs";
 import styles from "./ClientProfileView.module.scss";
 
 export interface ClientProject {
@@ -32,27 +52,49 @@ export interface ClientProject {
   updatedAt: string; // ISO string
 }
 
-export interface ClientDesigner {
-  username: string | null;
-  name: string | null;
-  imageUrl: string | null;
-  whatsapp: string | null;
-}
-
 interface ClientProfileViewProps {
   displayName: string;
   avatarUrl?: string;
   isOwnProfile: boolean;
   email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
   whatsapp?: string | null;
   secondaryEmail?: string | null;
   address?: string | null;
   company?: string | null;
   brand?: string | null;
   motto?: string | null;
+  contactPreference?: string | null;
+  contactHours?: string | null;
+  website?: string | null;
+  industry?: string | null;
   projects: ClientProject[];
-  designers: ClientDesigner[];
+  connections?: ClientConnectionData[];
+  collabProjects?: CollabProjectData[];
+  resources?: ClientResourceData[];
 }
+
+const COLLAB_PROJECT_STATUS_LABELS: Record<string, string> = {
+  active: "Activo",
+  completed: "Completado",
+  archived: "Archivado",
+};
+
+const COLLAB_PROJECT_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success"> = {
+  active: "warning",
+  completed: "success",
+  archived: "neutral",
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  drive: "Drive",
+  dropbox: "Dropbox",
+  onedrive: "OneDrive",
+  wetransfer: "WeTransfer",
+  other: "Link",
+};
 
 // Colores tipo tablero Monday: en progreso ámbar, completado verde, enviada azul.
 const STATUS_VARIANTS: Record<ProjectStatus, "neutral" | "info" | "warning" | "success"> = {
@@ -65,24 +107,20 @@ const STATUS_VARIANTS: Record<ProjectStatus, "neutral" | "info" | "warning" | "s
 
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
 
+// href null = acceso aún sin destino (pendiente definir la página de nuevo
+// proyecto); se pinta como panel estático, no como tarjeta clicable.
 const QUICK_ACCESS = [
   {
     icon: "search",
     title: "Buscar talento",
     description: "Encuentra diseñadores para tu próximo proyecto.",
-    href: "/explorar",
+    href: "/explorar/designerds",
   },
   {
     icon: "plus",
     title: "Nuevo proyecto",
-    description: "Cotiza una nueva idea en minutos.",
-    href: "/servicios/cotizador",
-  },
-  {
-    icon: "download",
-    title: "Recursos",
-    description: "Materiales compartidos por tus diseñadores.",
-    href: "/recursos",
+    description: "Muy pronto podrás iniciar proyectos desde aquí.",
+    href: null,
   },
 ] as const;
 
@@ -99,7 +137,7 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function ProjectRow({ project, designer }: { project: ClientProject; designer?: ClientDesigner }) {
+function ProjectRow({ project, designer }: { project: ClientProject; designer?: CollabPartnerSummary }) {
   const status = project.status as ProjectStatus;
 
   return (
@@ -144,7 +182,7 @@ function ProjectGroup({
   title: string;
   variant: "warning" | "success";
   projects: ClientProject[];
-  designer?: ClientDesigner;
+  designer?: CollabPartnerSummary;
 }) {
   if (projects.length === 0) return null;
 
@@ -168,28 +206,195 @@ function ProjectGroup({
   );
 }
 
+// Fila de un proyecto en colaboración (con partner ya aceptado): estatus,
+// tareas esperando aprobación del cliente, y click para ir al detalle.
+function CollabProjectRow({ project }: { project: CollabProjectData }) {
+  const router = useRouter();
+  const pendingReview = project.tasks.filter((task) => task.status === "in_review").length;
+  const status = project.status;
+
+  return (
+    <Row
+      fillWidth
+      paddingX="20"
+      paddingY="12"
+      horizontal="between"
+      vertical="center"
+      gap="16"
+      style={{ cursor: "pointer" }}
+      onClick={() => router.push(`/proyectos/${project.id}`)}
+    >
+      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+        <Icon name="folder" size="s" onBackground="neutral-weak" />
+        <Text
+          variant="label-default-m"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {project.title}
+        </Text>
+      </Row>
+
+      <Row gap="8" vertical="center">
+        {pendingReview > 0 && (
+          <Tag
+            size="s"
+            variant="warning"
+            label={`${pendingReview} por aprobar`}
+          />
+        )}
+        <Tag
+          size="s"
+          variant={COLLAB_PROJECT_STATUS_VARIANTS[status] ?? "neutral"}
+          label={COLLAB_PROJECT_STATUS_LABELS[status] ?? status}
+        />
+      </Row>
+    </Row>
+  );
+}
+
+function CollabProjectGroup({ projects }: { projects: CollabProjectData[] }) {
+  if (projects.length === 0) return null;
+
+  return (
+    <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
+      <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" background="neutral-alpha-weak">
+        <Row gap="8" vertical="center">
+          <Tag size="s" variant="brand" label="Proyectos en colaboración" />
+        </Row>
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          {projects.length} {projects.length === 1 ? "proyecto" : "proyectos"}
+        </Text>
+      </Row>
+      {projects.map((project) => (
+        <Column key={project.id} fillWidth>
+          <Line background="neutral-alpha-weak" />
+          <CollabProjectRow project={project} />
+        </Column>
+      ))}
+    </Column>
+  );
+}
+
+// Fila de un recurso propio del cliente ("Mis recursos"): abrir, compartir y
+// eliminar. sharedWith se resume como cantidad de partners con acceso.
+function ResourceRow({
+  resource,
+  onShare,
+  onDelete,
+}: {
+  resource: ClientResourceData;
+  onShare: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" gap="16" wrap>
+      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+        <Icon name="link" size="s" onBackground="neutral-weak" />
+        <Text
+          variant="label-default-m"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {resource.label}
+        </Text>
+      </Row>
+
+      <Row gap="8" vertical="center">
+        <Tag size="s" variant="neutral" label={PROVIDER_LABELS[resource.provider] ?? "Link"} />
+        {resource.sharedWith.length > 0 && (
+          <Tag
+            size="s"
+            variant="info"
+            label={`Compartido con ${resource.sharedWith.length}`}
+          />
+        )}
+        <IconButton
+          icon="arrowUpRightFromSquare"
+          size="s"
+          variant="tertiary"
+          href={resource.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          tooltip="Abrir en nueva pestaña"
+          tooltipPosition="top"
+        />
+        <IconButton
+          icon="userGroup"
+          size="s"
+          variant="tertiary"
+          tooltip="Compartir con partners"
+          tooltipPosition="top"
+          onClick={onShare}
+        />
+        <IconButton
+          icon="trash"
+          size="s"
+          variant="tertiary"
+          tooltip="Eliminar recurso"
+          tooltipPosition="top"
+          onClick={onDelete}
+        />
+      </Row>
+    </Row>
+  );
+}
+
 export function ClientProfileView({
   displayName,
   avatarUrl,
   isOwnProfile,
   email,
+  firstName,
+  lastName,
+  username,
   whatsapp,
   secondaryEmail,
   address,
   company,
   brand,
   motto,
+  contactPreference,
+  contactHours,
+  website,
+  industry,
   projects,
-  designers,
+  connections = [],
+  collabProjects = [],
+  resources = [],
 }: ClientProfileViewProps) {
-  const [openDialog, setOpenDialog] = useState<"avatar" | "info" | null>(null);
+  const [openDialog, setOpenDialog] = useState<"avatar" | "info" | "security" | null>(null);
+  const [collabDialogOpen, setCollabDialogOpen] = useState(false);
+  const [resourceDialog, setResourceDialog] = useState<"add" | null>(null);
+  const [shareCandidate, setShareCandidate] = useState<ClientResourceData | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<ClientResourceData | null>(null);
+
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
 
   const inProgress = projects.filter((p) => IN_PROGRESS.includes(p.status as ProjectStatus));
+  // Notificaciones del cliente: tareas que los partners enviaron a su aprobación
+  const notificationCount = collabProjects.reduce(
+    (acc, project) => acc + project.tasks.filter((task) => task.status === "in_review").length,
+    0,
+  );
   const finished = projects.filter((p) => !IN_PROGRESS.includes(p.status as ProjectStatus));
-  // Sin relación proyecto→diseñador en el schema todavía: se contacta al primer partner.
-  const mainDesigner = designers[0];
+  const acceptedConnections = connections.filter((c) => c.status === "ACCEPTED");
+  const pendingConnections = connections.filter((c) => c.status === "PENDING");
+  // Sin relación proyecto→diseñador en el schema todavía: se contacta al primer partner aceptado.
+  const mainDesigner = acceptedConnections[0]?.partner;
+
+  const collabProjectOptions: ConnectionOption[] = acceptedConnections.map((connection) => ({
+    value: connection.id,
+    label: connection.partner.name ?? connection.partner.username ?? "Partner",
+  }));
+
+  const shareablePartners: ShareablePartner[] = acceptedConnections.map((connection) => ({
+    id: connection.partner.id,
+    name: connection.partner.name,
+    username: connection.partner.username,
+    imageUrl: connection.partner.imageUrl,
+  }));
 
   // Zona de identidad: con perfil propio se envuelve en ContextMenu (click o
   // click derecho) para cambiar imagen y editar información.
@@ -219,10 +424,13 @@ export function ClientProfileView({
         <Row gap="8" vertical="center" wrap style={{ minWidth: 0 }}>
           <Tag size="s" variant="brand" label="Cliente" />
           {isOwnProfile && email && (
+            // Ellipsis en vez de quiebre a media palabra ("hubnerds.co m");
+            // el correo completo queda en el title al hover
             <Text
               variant="label-default-s"
               onBackground="neutral-weak"
-              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+              title={email}
+              style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
             >
               {email}
             </Text>
@@ -248,98 +456,206 @@ export function ClientProfileView({
         <Column fillWidth paddingX="32" paddingTop="40" gap="24">
 
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
-          <Card fillWidth padding="24" radius="l">
-            <Row fillWidth gap="20" vertical="center" horizontal="between" wrap>
-              {isOwnProfile ? (
-                <ContextMenu
-                  placement="bottom-start"
-                  onSelect={(value) => setOpenDialog(value as "avatar" | "info")}
-                  style={{ cursor: "pointer" }}
-                  dropdown={
-                    <Column minWidth={14} padding="4" gap="2">
-                      <Option
-                        label="Cambiar imagen de perfil"
-                        value="avatar"
-                        hasPrefix={<Icon name="camera" size="s" onBackground="neutral-weak" />}
-                      />
-                      <Option
-                        label="Editar información"
-                        value="info"
-                        hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
-                      />
-                    </Column>
-                  }
-                >
-                  {identity}
-                </ContextMenu>
-              ) : (
-                identity
-              )}
-
-              <Row gap="8" vertical="center">
-                <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
-                <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
-                {isOwnProfile && whatsapp && (
-                  <IconButton
-                    icon="whatsapp"
-                    size="m"
-                    variant="tertiary"
-                    tooltip={`Tu WhatsApp: ${whatsapp}`}
-                    tooltipPosition="bottom"
-                  />
-                )}
+          {(() => {
+            const headerContent = (
+              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column", horizontal: "start" }}>
+                {identity}
+                <Row gap="20" vertical="center" wrap s={{ direction: "column", style: { width: "100%" } }}>
+                  {isOwnProfile && (
+                    <>
+                      {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
+                      <Line vert background="neutral-alpha-medium" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
+                      {/* Mismo patrón que "Administra tus proyectos" del perfil de Partner */}
+                      <Row
+                        background="brand-alpha-weak"
+                        padding="20"
+                        radius="m"
+                        vertical="center"
+                        gap="16"
+                        maxWidth={26}
+                        s={{ style: { maxWidth: "100%", width: "100%" } }}
+                        style={{ minWidth: 0 }}
+                      >
+                        <Icon name="warning" size="m" onBackground="brand-strong" />
+                        <Column gap="4" style={{ minWidth: 0 }}>
+                          <Text variant="heading-strong-s">Administra tu cuenta</Text>
+                          <Text variant="body-default-s" onBackground="neutral-weak">
+                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas táctiles) para
+                            cambiar tu imagen, editar tu perfil o ajustar tu seguridad y privacidad.
+                          </Text>
+                        </Column>
+                      </Row>
+                    </>
+                  )}
+                </Row>
               </Row>
-            </Row>
-          </Card>
+            );
+            return (
+              <Card fillWidth padding="24" radius="l">
+                {isOwnProfile ? (
+                  // El menú cubre toda la cabecera, no solo la zona de identidad
+                  <ContextMenu
+                    fillWidth
+                    placement="bottom-start"
+                    onSelect={(value) => setOpenDialog(value as "avatar" | "info" | "security")}
+                    // fillWidth del ContextMenu no estira su wrapper interno: sin
+                    // width explícito el contenido no alcanza el borde derecho del card
+                    style={{ cursor: "pointer", width: "100%" }}
+                    dropdown={
+                      <Column minWidth={14} padding="4" gap="2">
+                        <Option
+                          label="Cambiar imagen de perfil"
+                          value="avatar"
+                          hasPrefix={<Icon name="camera" size="s" onBackground="neutral-weak" />}
+                        />
+                        <Option
+                          label="Editar perfil"
+                          value="info"
+                          hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
+                        />
+                        <Option
+                          label="Seguridad y privacidad"
+                          value="security"
+                          hasPrefix={<Icon name="shield" size="s" onBackground="neutral-weak" />}
+                        />
+                      </Column>
+                    }
+                  >
+                    {headerContent}
+                  </ContextMenu>
+                ) : (
+                  headerContent
+                )}
+              </Card>
+            );
+          })()}
+
+          {/* ── Resumen de actividad ───────────────────────────────────────── */}
+          <Row fillWidth horizontal="end" vertical="center" gap="8" wrap>
+            <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
+            <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
+            <Tag size="m" variant="info" prefixIcon="bell" label={`${notificationCount} notificaciones`} />
+          </Row>
 
           {/* ── Accesos rápidos ────────────────────────────────────────────── */}
-          <Grid columns={3} s={{ columns: 1 }} gap="16" fillWidth>
-            {QUICK_ACCESS.map((item) => (
-              <Card key={item.href} fillWidth padding="20" radius="l" href={item.href} direction="column" gap="12">
-                <Row fillWidth horizontal="between" vertical="center">
-                  <Icon name={item.icon} size="m" onBackground="brand-weak" />
-                  <Icon name="arrowUpRight" size="s" onBackground="neutral-weak" />
-                </Row>
-                <Column gap="4">
-                  <Text variant="heading-strong-s">{item.title}</Text>
-                  <Text variant="body-default-s" onBackground="neutral-weak">
-                    {item.description}
-                  </Text>
+          <Grid columns={2} s={{ columns: 1 }} gap="16" fillWidth>
+            {QUICK_ACCESS.map((item) => {
+              const inner = (
+                <>
+                  <Row fillWidth horizontal="between" vertical="center">
+                    <Icon name={item.icon} size="m" onBackground="brand-weak" />
+                    {item.href && <Icon name="arrowUpRight" size="s" onBackground="neutral-weak" />}
+                  </Row>
+                  <Column gap="4">
+                    <Text variant="heading-strong-s">{item.title}</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      {item.description}
+                    </Text>
+                  </Column>
+                </>
+              );
+              return item.href ? (
+                <Card key={item.title} fillWidth padding="20" radius="l" href={item.href} direction="column" gap="12">
+                  {inner}
+                </Card>
+              ) : (
+                <Column key={item.title} fillWidth padding="20" radius="l" background="surface" border="neutral-alpha-weak" gap="12">
+                  {inner}
                 </Column>
-              </Card>
-            ))}
+              );
+            })}
           </Grid>
 
           {/* ── Tablero de proyectos + paneles laterales ───────────────────── */}
           <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
 
             {/* Tablero tipo Monday */}
-            <Column gap="16" fillWidth>
-              <Heading variant="heading-strong-m">Mis proyectos</Heading>
+            <Column gap="40" fillWidth>
+              <Column gap="16" fillWidth>
+                <Row fillWidth horizontal="between" vertical="center" wrap gap="8">
+                  <Heading variant="heading-strong-m">Mis proyectos</Heading>
+                  {acceptedConnections.length > 0 && (
+                    <Button
+                      variant="secondary"
+                      size="s"
+                      prefixIcon="plus"
+                      onClick={() => setCollabDialogOpen(true)}
+                    >
+                      Nuevo proyecto
+                    </Button>
+                  )}
+                </Row>
 
-              {projects.length === 0 ? (
-                <Column
-                  fillWidth
-                  horizontal="center"
-                  gap="16"
-                  padding="48"
-                  border="neutral-alpha-medium"
-                  radius="l"
-                >
-                  <Icon name="sparkles" size="l" onBackground="neutral-weak" />
-                  <Text variant="body-default-m" onBackground="neutral-weak" align="center">
-                    Aún no has contratado proyectos.
-                  </Text>
-                  <Button href="/servicios/cotizador" variant="primary" size="m" prefixIcon="plus">
-                    Cotizar mi primer proyecto
+                <CollabProjectGroup projects={collabProjects} />
+
+                {projects.length === 0 ? (
+                  <Column
+                    fillWidth
+                    horizontal="center"
+                    gap="16"
+                    padding="48"
+                    border="neutral-alpha-medium"
+                    radius="l"
+                  >
+                    <Icon name="sparkles" size="l" onBackground="neutral-weak" />
+                    <Text variant="body-default-m" onBackground="neutral-weak" align="center">
+                      Aún no has contratado proyectos.
+                    </Text>
+                    <Button href="/servicios/cotizador" variant="primary" size="m" prefixIcon="plus">
+                      Cotizar mi primer proyecto
+                    </Button>
+                  </Column>
+                ) : (
+                  <Column gap="16" fillWidth>
+                    <ProjectGroup title="En curso" variant="warning" projects={inProgress} designer={mainDesigner} />
+                    <ProjectGroup title="Finalizados" variant="success" projects={finished} designer={mainDesigner} />
+                  </Column>
+                )}
+              </Column>
+
+              {/* Mis recursos: assets propios del cliente como links compartibles */}
+              <Column gap="16" fillWidth>
+                <Row fillWidth horizontal="between" vertical="center" wrap gap="8">
+                  <Heading variant="heading-strong-m">Mis recursos</Heading>
+                  <Button
+                    variant="secondary"
+                    size="s"
+                    prefixIcon="plus"
+                    onClick={() => setResourceDialog("add")}
+                  >
+                    Agregar recurso
                   </Button>
-                </Column>
-              ) : (
-                <Column gap="16" fillWidth>
-                  <ProjectGroup title="En curso" variant="warning" projects={inProgress} designer={mainDesigner} />
-                  <ProjectGroup title="Finalizados" variant="success" projects={finished} designer={mainDesigner} />
-                </Column>
-              )}
+                </Row>
+
+                {resources.length === 0 ? (
+                  <Column
+                    fillWidth
+                    horizontal="center"
+                    gap="12"
+                    padding="32"
+                    border="neutral-alpha-medium"
+                    radius="l"
+                  >
+                    <Icon name="folder" size="l" onBackground="neutral-weak" />
+                    <Text variant="body-default-m" onBackground="neutral-weak" align="center">
+                      Aún no agregas recursos. Sube tus assets a tu nube favorita y comparte el link aquí.
+                    </Text>
+                  </Column>
+                ) : (
+                  <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
+                    {resources.map((resource, index) => (
+                      <Column key={resource.id} fillWidth>
+                        {index > 0 && <Line background="neutral-alpha-weak" />}
+                        <ResourceRow
+                          resource={resource}
+                          onShare={() => setShareCandidate(resource)}
+                          onDelete={() => setDeleteCandidate(resource)}
+                        />
+                      </Column>
+                    ))}
+                  </Column>
+                )}
+              </Column>
             </Column>
 
             {/* Paneles laterales */}
@@ -351,56 +667,84 @@ export function ClientProfileView({
                   <Icon name="userGroup" size="s" onBackground="neutral-weak" />
                   <Text variant="label-strong-s">Tus diseñadores</Text>
                 </Row>
-                {designers.length === 0 ? (
+                {connections.length === 0 ? (
                   <Text variant="body-default-s" onBackground="neutral-weak">
                     Todavía no trabajas con ningún diseñador.
                   </Text>
                 ) : (
-                  designers.map((designer) => (
-                    <Row key={designer.username ?? designer.name} fillWidth horizontal="between" vertical="center" gap="8">
-                      <Row gap="12" vertical="center">
-                        <Avatar
-                          size="s"
-                          {...(designer.imageUrl
-                            ? { src: designer.imageUrl }
-                            : { value: (designer.name?.[0] ?? "P").toUpperCase() })}
-                        />
-                        <Column gap="2">
-                          <Text variant="label-default-s" onBackground="neutral-strong">
-                            {designer.name ?? designer.username}
-                          </Text>
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            Partner
-                          </Text>
-                        </Column>
-                      </Row>
-                      <Row gap="4" vertical="center">
-                        {designer.whatsapp && (
-                          <IconButton
-                            icon="whatsapp"
+                  <>
+                    {acceptedConnections.map(({ partner }) => (
+                      <Row key={partner.id} fillWidth horizontal="between" vertical="center" gap="8">
+                        <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+                          <Avatar
                             size="s"
-                            variant="tertiary"
-                            href={waLink(designer.whatsapp)}
-                            tooltip="Contactar por WhatsApp"
-                            tooltipPosition="top"
+                            {...(partner.imageUrl
+                              ? { src: partner.imageUrl }
+                              : { value: (partner.name?.[0] ?? "P").toUpperCase() })}
                           />
-                        )}
-                        {designer.username && (
-                          <IconButton
-                            icon="person"
-                            size="s"
-                            variant="tertiary"
-                            href={`/${designer.username}`}
-                            tooltip="Ver perfil"
-                            tooltipPosition="top"
-                          />
-                        )}
+                          <Column gap="2" style={{ minWidth: 0 }}>
+                            <Text
+                              variant="label-default-s"
+                              onBackground="neutral-strong"
+                              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                            >
+                              {partner.name ?? partner.username}
+                            </Text>
+                            <Text variant="label-default-s" onBackground="neutral-weak">
+                              Partner
+                            </Text>
+                          </Column>
+                        </Row>
+                        <Row gap="4" vertical="center">
+                          {partner.whatsapp && (
+                            <IconButton
+                              icon="whatsapp"
+                              size="s"
+                              variant="tertiary"
+                              href={waLink(partner.whatsapp)}
+                              tooltip="Contactar por WhatsApp"
+                              tooltipPosition="top"
+                            />
+                          )}
+                          {partner.username && (
+                            <IconButton
+                              icon="person"
+                              size="s"
+                              variant="tertiary"
+                              href={`/${partner.username}`}
+                              tooltip="Ver perfil"
+                              tooltipPosition="top"
+                            />
+                          )}
+                        </Row>
                       </Row>
-                    </Row>
-                  ))
+                    ))}
+                    {pendingConnections.map(({ id, partner }) => (
+                      <Row key={id} fillWidth horizontal="between" vertical="center" gap="8">
+                        <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+                          <Avatar
+                            size="s"
+                            {...(partner.imageUrl
+                              ? { src: partner.imageUrl }
+                              : { value: (partner.name?.[0] ?? "P").toUpperCase() })}
+                          />
+                          <Column gap="2" style={{ minWidth: 0 }}>
+                            <Text
+                              variant="label-default-s"
+                              onBackground="neutral-strong"
+                              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                            >
+                              {partner.name ?? partner.username}
+                            </Text>
+                          </Column>
+                        </Row>
+                        <Tag size="s" variant="neutral" label="Solicitud enviada" />
+                      </Row>
+                    ))}
+                  </>
                 )}
                 <Line background="neutral-alpha-weak" />
-                <Button href="/explorar" variant="secondary" size="s" fillWidth prefixIcon="search">
+                <Button href="/explorar/designerds" variant="secondary" size="s" fillWidth prefixIcon="search">
                   Buscar más talento
                 </Button>
               </Column>
@@ -437,14 +781,48 @@ export function ClientProfileView({
             <EditInfoDialog
               isOpen={openDialog === "info"}
               onClose={() => setOpenDialog(null)}
+              avatarUrl={avatarUrl}
+              onOpenAvatar={() => setOpenDialog("avatar")}
               initial={{
+                firstName: firstName ?? "",
+                lastName: lastName ?? "",
+                username: username ?? "",
                 whatsapp: whatsapp ?? "",
                 secondaryEmail: secondaryEmail ?? "",
                 address: address ?? "",
                 company: company ?? "",
                 brand: brand ?? "",
                 motto: motto ?? "",
+                contactPreference: contactPreference ?? "",
+                contactHours: contactHours ?? "",
+                website: website ?? "",
+                industry: industry ?? "",
               }}
+            />
+            <SecurityPrivacyDialog
+              isOpen={openDialog === "security"}
+              onClose={() => setOpenDialog(null)}
+            />
+            <NewCollabProjectDialog
+              isOpen={collabDialogOpen}
+              onClose={() => setCollabDialogOpen(false)}
+              options={collabProjectOptions}
+            />
+            <AddClientResourceDialog
+              isOpen={resourceDialog === "add"}
+              onClose={() => setResourceDialog(null)}
+            />
+            <ShareClientResourceDialog
+              key={shareCandidate?.id ?? "none"}
+              isOpen={shareCandidate !== null}
+              onClose={() => setShareCandidate(null)}
+              resource={shareCandidate}
+              partners={shareablePartners}
+            />
+            <DeleteClientResourceDialog
+              isOpen={deleteCandidate !== null}
+              onClose={() => setDeleteCandidate(null)}
+              resource={deleteCandidate}
             />
           </>
         )}

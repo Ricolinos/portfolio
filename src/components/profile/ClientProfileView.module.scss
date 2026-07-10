@@ -2,6 +2,9 @@
 .avatarButton {
   position: relative;
   display: inline-flex;
+  /* Sin esto el flex comprime el avatar (64 → 45px) cuando la columna de
+     texto ocupa el ancho disponible en pantallas angostas */
+  flex-shrink: 0;
   padding: 0;
   border: none;
   background: transparent;

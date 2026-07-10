@@ -14,6 +14,8 @@ import {
   Grid,
   Heading,
   Icon,
+  IconButton,
+  Line,
   Media,
   Option,
   RevealFx,
@@ -25,8 +27,17 @@ import {
   Text,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
+import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
+import { respondContactRequest } from "@/app/actions/collab";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
-import { CoverUploadDialog, PartnerSettingsDialog } from "./PartnerProfileEditDialogs";
+import {
+  CoverUploadDialog,
+  DesignerCardDialog,
+  FeaturedImageUploadDialog,
+  PartnerSettingsDialog,
+} from "./PartnerProfileEditDialogs";
+import { NewCollabProjectDialog, type ConnectionOption } from "./ClientCollabDialogs";
+import { ContactPartnerDialog } from "./PartnerCollabDialogs";
 import styles from "./ProfileView.module.scss";
 import { deletePortfolioPiece, setPieceVisibility } from "@/app/actions/portfolioPieces";
 import { CreateProjectModal } from "./CreateProjectModal";
@@ -65,11 +76,47 @@ interface ProfileViewProps {
   coverImageUrl?: string | null;
   isPublic?: boolean;
   shareWhatsapp?: boolean;
+  // Contenido de la tarjeta Designerd en Explorar (editable por el propio Partner)
+  featuredImageUrl?: string | null;
+  cardQuote?: string | null;
+  headline?: string | null;
+  bio?: string | null;
   projects: PartnerProject[];
   pieces: PartnerPiece[];
+  // Id de usuario del dueño del perfil (el partner); usado para que un
+  // viewer cliente pueda enviarle una solicitud de contacto.
+  partnerId?: string;
+  // Perfil propio del partner: panel de colaboración con clientes.
+  pendingRequests?: PartnerConnectionData[];
+  partnerConnections?: PartnerConnectionData[];
+  collabProjects?: CollabProjectData[];
+  sharedResources?: SharedResourceData[];
+  // Perfil ajeno visto por un cliente logueado.
+  viewerCanContact?: boolean;
+  viewerConnectionStatus?: "PENDING" | "ACCEPTED" | "REJECTED" | null;
 }
 
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
+
+const COLLAB_PROJECT_STATUS_LABELS: Record<string, string> = {
+  active: "Activo",
+  completed: "Completado",
+  archived: "Archivado",
+};
+
+const COLLAB_PROJECT_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success"> = {
+  active: "warning",
+  completed: "success",
+  archived: "neutral",
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  drive: "Drive",
+  dropbox: "Dropbox",
+  onedrive: "OneDrive",
+  wetransfer: "WeTransfer",
+  other: "Link",
+};
 
 const ALL_CATEGORIES = "Todos";
 
@@ -240,6 +287,153 @@ function PieceCard({
   );
 }
 
+// Fila de un proyecto en colaboración con un cliente: estatus y tareas en
+// revisión esperando la aprobación del cliente, con click al detalle.
+function CollabProjectRow({ project }: { project: CollabProjectData }) {
+  const router = useRouter();
+  const pendingReview = project.tasks.filter((task) => task.status === "in_review").length;
+
+  return (
+    <Row
+      fillWidth
+      paddingX="16"
+      paddingY="12"
+      horizontal="between"
+      vertical="center"
+      gap="16"
+      style={{ cursor: "pointer" }}
+      onClick={() => router.push(`/proyectos/${project.id}`)}
+    >
+      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+        <Icon name="folder" size="s" onBackground="neutral-weak" />
+        <Text
+          variant="label-default-s"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {project.title}
+        </Text>
+      </Row>
+      <Row gap="8" vertical="center">
+        {pendingReview > 0 && (
+          <Tag size="s" variant="warning" label={`${pendingReview} esperando al cliente`} />
+        )}
+        <Tag
+          size="s"
+          variant={COLLAB_PROJECT_STATUS_VARIANTS[project.status] ?? "neutral"}
+          label={COLLAB_PROJECT_STATUS_LABELS[project.status] ?? project.status}
+        />
+      </Row>
+    </Row>
+  );
+}
+
+// Solicitud de contacto pendiente de un cliente: aceptar o rechazar.
+function PendingRequestRow({ request }: { request: PartnerConnectionData }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { client } = request;
+
+  const respond = async (accept: boolean) => {
+    setBusy(true);
+    setError(null);
+    const result = await respondContactRequest(request.id, accept);
+    setBusy(false);
+    if (!result.ok) setError(result.error);
+    else router.refresh();
+  };
+
+  return (
+    <Column fillWidth gap="4">
+      <Row fillWidth horizontal="between" vertical="center" gap="12">
+        <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+          <Avatar
+            size="s"
+            {...(client.imageUrl
+              ? { src: client.imageUrl }
+              : { value: (client.name?.[0] ?? "C").toUpperCase() })}
+          />
+          <Column gap="2" style={{ minWidth: 0 }}>
+            <Text
+              variant="label-default-s"
+              onBackground="neutral-strong"
+              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+            >
+              {client.name ?? client.username ?? "Cliente"}
+            </Text>
+            {request.message && (
+              <Text
+                variant="label-default-s"
+                onBackground="neutral-weak"
+                style={{ minWidth: 0, overflowWrap: "anywhere" }}
+              >
+                {request.message}
+              </Text>
+            )}
+          </Column>
+        </Row>
+        <Row gap="4" vertical="center">
+          <IconButton
+            icon="check"
+            size="s"
+            variant="success"
+            tooltip="Aceptar"
+            tooltipPosition="top"
+            loading={busy}
+            disabled={busy}
+            onClick={() => respond(true)}
+          />
+          <IconButton
+            icon="xCircle"
+            size="s"
+            variant="danger"
+            tooltip="Rechazar"
+            tooltipPosition="top"
+            loading={busy}
+            disabled={busy}
+            onClick={() => respond(false)}
+          />
+        </Row>
+      </Row>
+      {error && <Feedback variant="danger" description={error} />}
+    </Column>
+  );
+}
+
+// Recurso que un cliente compartió con este partner: solo lectura.
+function SharedResourceRow({ resource }: { resource: SharedResourceData }) {
+  return (
+    <Row fillWidth horizontal="between" vertical="center" gap="12">
+      <Column gap="2" style={{ minWidth: 0 }}>
+        <Text
+          variant="label-default-s"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {resource.label}
+        </Text>
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          {resource.owner.name ?? resource.owner.username ?? "Cliente"}
+        </Text>
+      </Column>
+      <Row gap="8" vertical="center">
+        <Tag size="s" variant="neutral" label={PROVIDER_LABELS[resource.provider] ?? "Link"} />
+        <IconButton
+          icon="arrowUpRightFromSquare"
+          size="s"
+          variant="tertiary"
+          href={resource.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          tooltip="Abrir en nueva pestaña"
+          tooltipPosition="top"
+        />
+      </Row>
+    </Row>
+  );
+}
+
 export function ProfileView({
   displayName,
   avatarUrl,
@@ -251,17 +445,37 @@ export function ProfileView({
   coverImageUrl,
   isPublic = true,
   shareWhatsapp = false,
+  featuredImageUrl,
+  cardQuote,
+  headline,
+  bio,
   projects,
   pieces,
+  partnerId,
+  pendingRequests = [],
+  partnerConnections = [],
+  collabProjects = [],
+  sharedResources = [],
+  viewerCanContact = false,
+  viewerConnectionStatus = null,
 }: ProfileViewProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
-  const [openDialog, setOpenDialog] = useState<"avatar" | "cover" | "info" | null>(null);
+  const [openDialog, setOpenDialog] = useState<
+    "avatar" | "cover" | "info" | "featured" | "card" | null
+  >(null);
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<PartnerPiece | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [contactDialogOpen, setContactDialogOpen] = useState(false);
+  const [collabDialogOpen, setCollabDialogOpen] = useState(false);
+
+  const collabProjectOptions: ConnectionOption[] = partnerConnections.map((connection) => ({
+    value: connection.id,
+    label: connection.client.name ?? connection.client.username ?? "Cliente",
+  }));
 
   const closeCreateModal = () => {
     setCreateOpen(false);
@@ -389,10 +603,12 @@ export function ProfileView({
                 {isOwnProfile && email && (
                   <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
                     <Icon name="email" size="s" onBackground="neutral-weak" />
+                    {/* Ellipsis en vez de quiebre a media palabra ("hubnerds.co m") */}
                     <Text
                       variant="body-default-m"
                       onBackground="neutral-weak"
-                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                      title={email}
+                      style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                     >
                       {email}
                     </Text>
@@ -410,11 +626,58 @@ export function ProfileView({
                   </Button>
                 </Column>
               ) : (
-                whatsapp && (
-                  <Button fillWidth variant="primary" href={waLink(whatsapp)} prefixIcon="whatsapp">
-                    Contactar por WhatsApp
-                  </Button>
-                )
+                <Column gap="8" fillWidth>
+                  {whatsapp && (
+                    <Button fillWidth variant="primary" href={waLink(whatsapp)} prefixIcon="whatsapp">
+                      Contactar por WhatsApp
+                    </Button>
+                  )}
+                  {viewerCanContact && viewerConnectionStatus === "ACCEPTED" && (
+                    <Tag size="m" variant="success" label="Ya colaboran" />
+                  )}
+                  {viewerCanContact && viewerConnectionStatus === "PENDING" && (
+                    <Button fillWidth variant="secondary" disabled prefixIcon="check">
+                      Solicitud enviada
+                    </Button>
+                  )}
+                  {viewerCanContact &&
+                    (viewerConnectionStatus === null || viewerConnectionStatus === "REJECTED") && (
+                      <Button
+                        fillWidth
+                        variant={whatsapp ? "secondary" : "primary"}
+                        prefixIcon="userGroup"
+                        onClick={() => setContactDialogOpen(true)}
+                      >
+                        Contactar
+                      </Button>
+                    )}
+                </Column>
+              )}
+
+              {isOwnProfile && (
+                <Flex
+                  background="neutral-alpha-weak"
+                  padding="16"
+                  radius="m"
+                  border="neutral-alpha-weak"
+                  direction="column"
+                  gap="12"
+                >
+                  <Column gap="4">
+                    <Text variant="label-strong-s">Tarjeta de Designerd</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Así te ven en Explorar / designerds.
+                    </Text>
+                  </Column>
+                  <Row gap="8" wrap>
+                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("featured")}>
+                      Imagen destacada
+                    </Button>
+                    <Button variant="secondary" size="s" onClick={() => setOpenDialog("card")}>
+                      Cita, puesto y descripción
+                    </Button>
+                  </Row>
+                </Flex>
               )}
 
               <Flex
@@ -456,6 +719,92 @@ export function ProfileView({
                     ))}
                   </Column>
                 </Flex>
+              )}
+
+              {/* ── Colaboración con clientes (solo perfil propio) ─────────── */}
+              {isOwnProfile && pendingRequests.length > 0 && (
+                <Column
+                  background="neutral-alpha-weak"
+                  border="neutral-alpha-weak"
+                  padding="16"
+                  radius="m"
+                  gap="12"
+                  fillWidth
+                >
+                  <Row gap="8" vertical="center">
+                    <Icon name="userGroup" size="s" onBackground="neutral-weak" />
+                    <Text variant="label-strong-s">Solicitudes de contacto</Text>
+                  </Row>
+                  {pendingRequests.map((request, index) => (
+                    <Column key={request.id} fillWidth gap="12">
+                      {index > 0 && <Line background="neutral-alpha-weak" />}
+                      <PendingRequestRow request={request} />
+                    </Column>
+                  ))}
+                </Column>
+              )}
+
+              {isOwnProfile && (
+                <Column
+                  background="neutral-alpha-weak"
+                  border="neutral-alpha-weak"
+                  padding="16"
+                  radius="m"
+                  gap="12"
+                  fillWidth
+                >
+                  <Row fillWidth horizontal="between" vertical="center" gap="8">
+                    <Row gap="8" vertical="center">
+                      <Icon name="folder" size="s" onBackground="neutral-weak" />
+                      <Text variant="label-strong-s">Proyectos con clientes</Text>
+                    </Row>
+                    {partnerConnections.length > 0 && (
+                      <IconButton
+                        icon="plus"
+                        size="s"
+                        variant="tertiary"
+                        tooltip="Nuevo proyecto"
+                        tooltipPosition="top"
+                        onClick={() => setCollabDialogOpen(true)}
+                      />
+                    )}
+                  </Row>
+                  {collabProjects.length === 0 ? (
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Todavía no tienes proyectos conjuntos con clientes.
+                    </Text>
+                  ) : (
+                    <Column fillWidth border="neutral-alpha-medium" radius="m" overflow="hidden">
+                      {collabProjects.map((project, index) => (
+                        <Column key={project.id} fillWidth>
+                          {index > 0 && <Line background="neutral-alpha-weak" />}
+                          <CollabProjectRow project={project} />
+                        </Column>
+                      ))}
+                    </Column>
+                  )}
+                </Column>
+              )}
+
+              {isOwnProfile && sharedResources.length > 0 && (
+                <Column
+                  background="neutral-alpha-weak"
+                  border="neutral-alpha-weak"
+                  padding="16"
+                  radius="m"
+                  gap="12"
+                  fillWidth
+                >
+                  <Row gap="8" vertical="center">
+                    <Icon name="download" size="s" onBackground="neutral-weak" />
+                    <Text variant="label-strong-s">Recursos compartidos contigo</Text>
+                  </Row>
+                  <Column gap="12">
+                    {sharedResources.map((resource) => (
+                      <SharedResourceRow key={resource.id} resource={resource} />
+                    ))}
+                  </Column>
+                </Column>
               )}
             </Column>
 
@@ -552,7 +901,35 @@ export function ProfileView({
               initialIsPublic={isPublic}
               initialShareWhatsapp={shareWhatsapp}
             />
+            <FeaturedImageUploadDialog
+              isOpen={openDialog === "featured"}
+              onClose={() => setOpenDialog(null)}
+              currentFeaturedUrl={featuredImageUrl}
+            />
+            <DesignerCardDialog
+              isOpen={openDialog === "card"}
+              onClose={() => setOpenDialog(null)}
+              initial={{
+                cardQuote: cardQuote ?? "",
+                headline: headline ?? "",
+                bio: bio ?? "",
+              }}
+            />
+            <NewCollabProjectDialog
+              isOpen={collabDialogOpen}
+              onClose={() => setCollabDialogOpen(false)}
+              options={collabProjectOptions}
+            />
           </>
+        )}
+
+        {!isOwnProfile && viewerCanContact && partnerId && (
+          <ContactPartnerDialog
+            isOpen={contactDialogOpen}
+            onClose={() => setContactDialogOpen(false)}
+            partnerId={partnerId}
+            partnerName={displayName}
+          />
         )}
       </Column>
 
