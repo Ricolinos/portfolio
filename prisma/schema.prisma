@@ -13,33 +13,33 @@ datasource db {
 
 // Sincronizado con Clerk: el id es el userId de Clerk (user_xxx)
 model User {
-  id        String   @id
-  email     String   @unique
-  username  String?  @unique
-  name      String?
-  imageUrl  String?
-  role      String   @default("client")
-  whatsapp  String?
+  id                String   @id
+  email             String   @unique
+  username          String?  @unique
+  name              String?
+  imageUrl          String?
+  role              String   @default("client")
+  whatsapp          String?
   // Opt-in del colaborador para exponer su WhatsApp en su perfil público.
   // Default false: privado hasta que el propio usuario decida compartirlo, y
   // aun así solo visible a otros usuarios logueados de la plataforma (nunca
   // a visitantes anónimos). Ver src/app/[username]/page.tsx.
-  shareWhatsapp Boolean @default(false)
+  shareWhatsapp     Boolean  @default(false)
   // Perfil editable por el cliente desde /[username]
-  secondaryEmail String?
-  address        String?
-  company        String?
-  brand          String?
+  secondaryEmail    String?
+  address           String?
+  company           String?
+  brand             String?
   // Lema corto (máx. 40 caracteres, validado en la server action)
-  motto          String?
+  motto             String?
   // Portada del perfil de Partner (data URL comprimida, validada en la server action)
-  coverImageUrl  String?
+  coverImageUrl     String?
   // Visibilidad del Partner en Explorar/designerds; el perfil directo por
   // username sigue siendo accesible aunque sea privado
-  isPublic       Boolean  @default(true)
+  isPublic          Boolean  @default(true)
   // Imagen destacada de la tarjeta Designerd en Explorar (data URL comprimida,
   // mismo patrón que coverImageUrl)
-  featuredImageUrl String?
+  featuredImageUrl  String?
   // Cita/blockquote mostrada sobre la imagen de la tarjeta Designerd
   cardQuote         String?
   // Puesto/título profesional del Partner (ej. "Diseñador de Marca")
@@ -53,8 +53,8 @@ model User {
   website           String?
   // Giro o industria del negocio del cliente
   industry          String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   quotes       ProjectQuote[]
   mediaFiles   MediaFile[]
@@ -62,30 +62,31 @@ model User {
   exercises    MarkdownExercise[]
   portfolio    PortfolioPiece[]
 
-  clientConnections  Connection[]     @relation("clientConnections")
-  partnerConnections Connection[]     @relation("partnerConnections")
-  resources          ClientResource[] @relation("clientResources")
+  clientConnections     Connection[]          @relation("clientConnections")
+  partnerConnections    Connection[]          @relation("partnerConnections")
+  resources             ClientResource[]      @relation("clientResources")
+  projectCollaborations ProjectCollaborator[] @relation("projectCollaborations")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
 // perfil /[username], HomeShowcase y ExploreFeed (antes mocks).
 model PortfolioPiece {
-  id          String   @id @default(cuid())
-  title       String
-  description String?  @db.Text
-  category    String   @default("Documento")
+  id               String    @id @default(cuid())
+  title            String
+  description      String?   @db.Text
+  category         String    @default("Documento")
   // URL pública (Supabase Storage o /images locales); nula en piezas creadas
   // desde el editor de Markdown, que no requieren portada
-  coverUrl    String?
-  gallery     Json?
-  location    String?
-  views       Int      @default(0)
-  likes       Int      @default(0)
+  coverUrl         String?
+  gallery          Json?
+  location         String?
+  views            Int       @default(0)
+  likes            Int       @default(0)
   // Visibilidad: false = borrador, solo visible para el dueño
-  isPublic    Boolean  @default(true)
+  isPublic         Boolean   @default(true)
   // Fuente Markdown del editor propio del Partner (texto plano). Distinta del
   // caso de estudio MDX por archivo en src/content/portfolio.
-  markdownContent  String? @db.Text
+  markdownContent  String?   @db.Text
   // Bloques estructurados del Canvas (ContentBlock[]), tal cual los arma el
   // editor. blocksToMarkdown() no tiene inversa: sin esto, reabrir una pieza
   // para editarla no podría reconstruir sus secciones desde el Markdown ya
@@ -94,18 +95,18 @@ model PortfolioPiece {
   downloadUrl      String?
   resourcePassword String?
   // Panel "Editar proyecto": máx. 5, validado en la server action
-  tags          String[] @default([])
+  tags             String[]  @default([])
   // Usernames de colaboradores, sin relación formal ni validación todavía
-  collaborators String[] @default([])
+  collaborators    String[]  @default([])
   // Fecha opcional de lanzamiento/publicación, distinta de createdAt
-  releaseDate   DateTime?
+  releaseDate      DateTime?
   // Caso de estudio creado desde el panel: slug de la ruta
   // /<username>/proyecto/<slug> y MDX completo (frontmatter + cuerpo).
   // Piezas antiguas lo dejan en null (su caso de estudio vive en archivo).
-  slug        String?
-  caseStudy   String?  @db.Text
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  slug             String?
+  caseStudy        String?   @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -116,16 +117,16 @@ model PortfolioPiece {
 }
 
 model ProjectQuote {
-  id         String   @id @default(cuid())
-  title      String
-  clientName String?
-  status     String   @default("draft")
-  currency   String   @default("MXN")
-  total      Decimal? @db.Decimal(12, 2)
+  id              String   @id @default(cuid())
+  title           String
+  clientName      String?
+  status          String   @default("draft")
+  currency        String   @default("MXN")
+  total           Decimal? @db.Decimal(12, 2)
   // Arrays/matrices de costos dinámicos de las tablas de cálculo
   calculationData Json
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -200,16 +201,20 @@ enum ConnectionStatus {
 
 // Solicitud de contacto cliente → partner; al aceptarse habilita proyectos conjuntos
 model Connection {
-  id        String           @id @default(cuid())
-  status    ConnectionStatus @default(PENDING)
-  message   String?          @db.Text
-  clientId  String
-  client    User             @relation("clientConnections", fields: [clientId], references: [id], onDelete: Cascade)
-  partnerId String
-  partner   User             @relation("partnerConnections", fields: [partnerId], references: [id], onDelete: Cascade)
-  projects  CollabProject[]
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id                    String                @id @default(cuid())
+  status                ConnectionStatus      @default(PENDING)
+  message               String?               @db.Text
+  clientId              String
+  client                User                  @relation("clientConnections", fields: [clientId], references: [id], onDelete: Cascade)
+  partnerId             String
+  partner               User                  @relation("partnerConnections", fields: [partnerId], references: [id], onDelete: Cascade)
+  projects              CollabProject[]
+  // Colaboradores adicionales agregados a un CollabProject vía esta Connection
+  // (ver ProjectCollaborator); el partner "fundador" de la Connection no
+  // necesita una fila aquí, ya está implícito en Connection.partnerId.
+  projectCollaborations ProjectCollaborator[]
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
 
   @@unique([clientId, partnerId])
   @@index([partnerId])
@@ -217,18 +222,21 @@ model Connection {
 
 // Proyecto conjunto entre el cliente y el partner de una Connection aceptada
 model CollabProject {
-  id           String        @id @default(cuid())
-  title        String
-  description  String?       @db.Text
-  status       String        @default("active") // active | completed | archived
+  id            String                @id @default(cuid())
+  title         String
+  description   String?               @db.Text
+  status        String                @default("active") // active | completed | archived
   // Notas/configuración editables por el cliente
-  clientNotes  String?       @db.Text
-  connectionId String
-  connection   Connection    @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  tasks        ProjectTask[]
-  links        ProjectLink[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  clientNotes   String?               @db.Text
+  connectionId  String
+  connection    Connection            @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  tasks         ProjectTask[]
+  links         ProjectLink[]
+  // Colaboradores ADICIONALES al partner "fundador" de la Connection (ej.
+  // otros diseñadores invitados a este proyecto en particular).
+  collaborators ProjectCollaborator[]
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   @@index([connectionId])
 }
@@ -254,12 +262,35 @@ model ProjectLink {
   url       String
   // Detectado del hostname: drive | dropbox | onedrive | wetransfer | other
   provider  String        @default("other")
+  // brand = assets de marca subidos por el cliente | final = activos finales
+  // subidos por cualquier partner/colaborador. Inferido server-side, nunca
+  // recibido como input del cliente (ver addProjectLink).
+  type      String        @default("final") // brand | final
   addedById String
   projectId String
   project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt DateTime      @default(now())
 
   @@index([projectId])
+}
+
+// Colaborador ADICIONAL de un CollabProject (además del partner "fundador"
+// de la Connection). Permite que varios partners participen en un mismo
+// proyecto conjunto sin romper el modelo 1:1 de Connection.
+model ProjectCollaborator {
+  id           String        @id @default(cuid())
+  projectId    String
+  project      CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User          @relation("projectCollaborations", fields: [userId], references: [id], onDelete: Cascade)
+  connectionId String
+  connection   Connection    @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  addedAt      DateTime      @default(now())
+
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([connectionId])
 }
 
 // Asset del cliente ("Mis recursos"): link a su nube, compartible con partners elegidos

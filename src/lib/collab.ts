@@ -21,6 +21,16 @@ export interface CollabClientSummary {
   imageUrl: string | null;
 }
 
+// Colaborador adicional del proyecto (además del partner "fundador" de la
+// Connection). headline = puesto/profesión (User.headline).
+export interface CollabCollaboratorSummary {
+  id: string;
+  username: string | null;
+  name: string | null;
+  imageUrl: string | null;
+  headline: string | null;
+}
+
 export interface CollabTask {
   id: string;
   title: string;
@@ -36,6 +46,9 @@ export interface CollabLink {
   label: string;
   url: string;
   provider: string;
+  // brand = assets de marca (subidos por el cliente) | final = activos
+  // finales (subidos por cualquier partner/colaborador)
+  type: string;
   addedById: string;
   projectId: string;
   createdAt: string;
@@ -52,6 +65,7 @@ export interface CollabProjectData {
   updatedAt: string;
   tasks: CollabTask[];
   links: CollabLink[];
+  collaborators: CollabCollaboratorSummary[];
 }
 
 export interface ClientConnectionData {
@@ -159,6 +173,7 @@ function toLink(link: {
   label: string;
   url: string;
   provider: string;
+  type: string;
   addedById: string;
   projectId: string;
   createdAt: Date;
@@ -168,9 +183,28 @@ function toLink(link: {
     label: link.label,
     url: link.url,
     provider: link.provider,
+    type: link.type,
     addedById: link.addedById,
     projectId: link.projectId,
     createdAt: link.createdAt.toISOString(),
+  };
+}
+
+function toCollaborator(collaborator: {
+  user: {
+    id: string;
+    username: string | null;
+    name: string | null;
+    imageUrl: string | null;
+    headline: string | null;
+  };
+}): CollabCollaboratorSummary {
+  return {
+    id: collaborator.user.id,
+    username: collaborator.user.username,
+    name: collaborator.user.name,
+    imageUrl: collaborator.user.imageUrl,
+    headline: collaborator.user.headline,
   };
 }
 
@@ -185,6 +219,7 @@ function toProject(project: {
   updatedAt: Date;
   tasks: Parameters<typeof toTask>[0][];
   links: Parameters<typeof toLink>[0][];
+  collaborators: Parameters<typeof toCollaborator>[0][];
 }): CollabProjectData {
   return {
     id: project.id,
@@ -197,6 +232,7 @@ function toProject(project: {
     updatedAt: project.updatedAt.toISOString(),
     tasks: project.tasks.map(toTask),
     links: project.links.map(toLink),
+    collaborators: project.collaborators.map(toCollaborator),
   };
 }
 
@@ -227,6 +263,11 @@ function toResource(resource: {
 const PROJECT_INCLUDE = {
   tasks: { orderBy: { order: "asc" as const } },
   links: { orderBy: { createdAt: "asc" as const } },
+  collaborators: {
+    include: {
+      user: { select: { id: true, username: true, name: true, imageUrl: true, headline: true } },
+    },
+  },
 };
 
 const PARTNER_SELECT = {
@@ -283,7 +324,7 @@ export async function getClientCollabData(userId: string): Promise<ClientCollabD
 // pendientes por responder, connections ya aceptadas, proyectos conjuntos
 // con tareas/links, y recursos de clientes que le compartieron acceso.
 export async function getPartnerCollabData(userId: string): Promise<PartnerCollabData> {
-  const [pending, accepted, sharedResources] = await Promise.all([
+  const [pending, accepted, sharedResources, collaboratorProjects] = await Promise.all([
     prisma.connection.findMany({
       where: { partnerId: userId, status: "PENDING" },
       orderBy: { createdAt: "desc" },
@@ -302,7 +343,20 @@ export async function getPartnerCollabData(userId: string): Promise<PartnerColla
       orderBy: { createdAt: "desc" },
       include: { owner: { select: CLIENT_SELECT } },
     }),
+    // Proyectos donde el usuario participa como ProjectCollaborator, aunque
+    // no sea el partner "fundador" de ninguna Connection con ese cliente
+    // (multi-colaborador: varios partners en un mismo CollabProject).
+    prisma.collabProject.findMany({
+      where: { collaborators: { some: { userId } } },
+      include: PROJECT_INCLUDE,
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
+
+  const foundingProjects = accepted.flatMap((connection) => connection.projects.map(toProject));
+  const dedupedCollaboratorProjects = collaboratorProjects
+    .map(toProject)
+    .filter((project) => !foundingProjects.some((existing) => existing.id === project.id));
 
   return {
     pendingRequests: pending.map((connection) => ({
@@ -321,7 +375,7 @@ export async function getPartnerCollabData(userId: string): Promise<PartnerColla
       updatedAt: connection.updatedAt.toISOString(),
       client: toClientSummary(connection.client),
     })),
-    projects: accepted.flatMap((connection) => connection.projects.map(toProject)),
+    projects: [...foundingProjects, ...dedupedCollaboratorProjects],
     sharedResources: sharedResources.map((resource) => ({
       ...toResource(resource),
       owner: toClientSummary(resource.owner),
@@ -330,8 +384,9 @@ export async function getPartnerCollabData(userId: string): Promise<PartnerColla
 }
 
 // Proyecto individual con tareas ordenadas y links; solo si userId es parte
-// (cliente o partner) de la Connection dueña del proyecto. null si no existe
-// o el usuario no está autorizado a verlo.
+// del proyecto: cliente, partner "fundador" de la Connection, o colaborador
+// adicional (ProjectCollaborator). null si no existe o el usuario no está
+// autorizado a verlo.
 export async function getCollabProject(
   projectId: string,
   userId: string,
@@ -345,7 +400,11 @@ export async function getCollabProject(
   });
 
   if (!project) return null;
-  if (project.connection.clientId !== userId && project.connection.partnerId !== userId) {
+
+  const isClient = project.connection.clientId === userId;
+  const isPartner = project.connection.partnerId === userId;
+  const isCollaborator = project.collaborators.some((collaborator) => collaborator.userId === userId);
+  if (!isClient && !isPartner && !isCollaborator) {
     return null;
   }
 
