@@ -47,6 +47,12 @@ export interface CollabProjectData {
   description: string | null;
   status: string;
   clientNotes: string | null;
+  // Cotización y calendario del borrador; editables por ambas partes
+  quoteAmount: number | null;
+  quoteCurrency: string;
+  quoteNotes: string | null;
+  startDate: string | null;
+  dueDate: string | null;
   connectionId: string;
   createdAt: string;
   updatedAt: string;
@@ -180,6 +186,11 @@ function toProject(project: {
   description: string | null;
   status: string;
   clientNotes: string | null;
+  quoteAmount: { toString(): string } | null;
+  quoteCurrency: string;
+  quoteNotes: string | null;
+  startDate: Date | null;
+  dueDate: Date | null;
   connectionId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -192,6 +203,11 @@ function toProject(project: {
     description: project.description,
     status: project.status,
     clientNotes: project.clientNotes,
+    quoteAmount: project.quoteAmount === null ? null : Number(project.quoteAmount),
+    quoteCurrency: project.quoteCurrency,
+    quoteNotes: project.quoteNotes,
+    startDate: project.startDate === null ? null : project.startDate.toISOString(),
+    dueDate: project.dueDate === null ? null : project.dueDate.toISOString(),
     connectionId: project.connectionId,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),

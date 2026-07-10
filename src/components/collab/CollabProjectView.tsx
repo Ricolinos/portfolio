@@ -6,6 +6,7 @@ import {
   Avatar,
   Button,
   Column,
+  DateInput,
   Feedback,
   Heading,
   Icon,
@@ -13,6 +14,7 @@ import {
   Input,
   Line,
   Modal,
+  NumberInput,
   Row,
   Select,
   Tag,
@@ -64,6 +66,11 @@ const PROJECT_STATUS_OPTIONS = [
   { value: "active", label: "Activo" },
   { value: "completed", label: "Completado" },
   { value: "archived", label: "Archivado" },
+];
+
+const QUOTE_CURRENCY_OPTIONS = [
+  { value: "MXN", label: "MXN" },
+  { value: "USD", label: "USD" },
 ];
 
 const TASK_STATUS_LABELS: Record<string, string> = {
@@ -287,6 +294,15 @@ function ProjectSettingsDialog({
   const [description, setDescription] = useState(project.description ?? "");
   const [status, setStatus] = useState(project.status);
   const [clientNotes, setClientNotes] = useState(project.clientNotes ?? "");
+  const [quoteAmount, setQuoteAmount] = useState<number | undefined>(project.quoteAmount ?? undefined);
+  const [quoteCurrency, setQuoteCurrency] = useState(project.quoteCurrency || "MXN");
+  const [quoteNotes, setQuoteNotes] = useState(project.quoteNotes ?? "");
+  const [startDate, setStartDate] = useState<Date | undefined>(
+    project.startDate ? new Date(project.startDate) : undefined,
+  );
+  const [dueDate, setDueDate] = useState<Date | undefined>(
+    project.dueDate ? new Date(project.dueDate) : undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -302,6 +318,11 @@ function ProjectSettingsDialog({
       description,
       status,
       ...(viewerRole === "client" ? { clientNotes } : {}),
+      quoteAmount,
+      quoteCurrency,
+      quoteNotes,
+      startDate: startDate ? startDate.toISOString() : null,
+      dueDate: dueDate ? dueDate.toISOString() : null,
     });
     if (!result.ok) {
       setError(result.error);
@@ -331,6 +352,57 @@ function ProjectSettingsDialog({
           onSelect={(value) => setStatus(value as string)}
           options={PROJECT_STATUS_OPTIONS}
         />
+        <Line background="neutral-alpha-weak" />
+
+        <Column gap="12" fillWidth>
+          <Text variant="label-strong-s">Cotización y calendario</Text>
+          <Row fillWidth gap="8" wrap>
+            <Column style={{ flex: 2, minWidth: 160 }}>
+              <NumberInput
+                id="collab-project-quote-amount"
+                label="Monto"
+                value={quoteAmount}
+                onChange={setQuoteAmount}
+                min={0}
+              />
+            </Column>
+            <Column style={{ flex: 1, minWidth: 100 }}>
+              <Select
+                id="collab-project-quote-currency"
+                label="Moneda"
+                value={quoteCurrency}
+                onSelect={(value) => setQuoteCurrency(value as string)}
+                options={QUOTE_CURRENCY_OPTIONS}
+              />
+            </Column>
+          </Row>
+          <Textarea
+            id="collab-project-quote-notes"
+            label="Notas de cotización"
+            value={quoteNotes}
+            onChange={(e) => setQuoteNotes(e.target.value)}
+            lines={3}
+          />
+          <Row fillWidth gap="8" wrap>
+            <Column style={{ flex: 1, minWidth: 160 }}>
+              <DateInput
+                id="collab-project-start-date"
+                label="Fecha de inicio"
+                value={startDate}
+                onChange={setStartDate}
+              />
+            </Column>
+            <Column style={{ flex: 1, minWidth: 160 }}>
+              <DateInput
+                id="collab-project-due-date"
+                label="Fecha de entrega"
+                value={dueDate}
+                onChange={setDueDate}
+              />
+            </Column>
+          </Row>
+        </Column>
+
         {viewerRole === "client" && (
           <Textarea
             id="collab-project-client-notes"

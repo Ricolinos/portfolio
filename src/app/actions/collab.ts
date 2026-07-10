@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { detectProvider, validateExternalUrl } from "@/lib/externalLink";
+import { sendCollabNotification } from "@/lib/collabNotify";
 import type { ConnectionStatus } from "@/generated/prisma/client";
 
 /* ══ Colaboración cliente ↔ partner: solicitudes de contacto, proyectos ══
@@ -44,8 +45,11 @@ export async function sendContactRequest(
   if (userId === partnerId) return { ok: false, error: "No puedes contactarte a ti mismo." };
 
   const [client, partner] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { role: true, username: true } }),
-    prisma.user.findUnique({ where: { id: partnerId }, select: { role: true, username: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { role: true, username: true, name: true } }),
+    prisma.user.findUnique({
+      where: { id: partnerId },
+      select: { role: true, username: true, name: true, email: true },
+    }),
   ]);
   if (!client || client.role !== "client") {
     return { ok: false, error: "Solo un cliente puede enviar solicitudes de contacto." };
@@ -84,6 +88,18 @@ export async function sendContactRequest(
     };
   }
 
+  void sendCollabNotification({
+    to: partner.email,
+    recipientName: partner.name,
+    subject: `Nueva solicitud de contacto de ${client.name ?? "un cliente"}`,
+    heading: "Tienes una nueva solicitud de contacto",
+    body: `${client.name ?? "Un cliente"} quiere colaborar contigo en la plataforma.${
+      trimmedMessage ? ` Mensaje: "${trimmedMessage}"` : ""
+    }`,
+    ctaUrl: partner.username ? `/${partner.username}` : undefined,
+    ctaLabel: "Ver solicitud",
+  });
+
   revalidateUsernames(client.username, partner.username);
   return { ok: true, connectionId };
 }
@@ -101,8 +117,8 @@ export async function respondContactRequest(
     select: {
       partnerId: true,
       status: true,
-      client: { select: { username: true } },
-      partner: { select: { username: true } },
+      client: { select: { username: true, name: true, email: true } },
+      partner: { select: { username: true, name: true } },
     },
   });
   if (!connection || connection.partnerId !== userId) {
@@ -114,6 +130,18 @@ export async function respondContactRequest(
 
   const status: ConnectionStatus = accept ? "ACCEPTED" : "REJECTED";
   await prisma.connection.update({ where: { id: connectionId }, data: { status } });
+
+  if (accept) {
+    void sendCollabNotification({
+      to: connection.client.email,
+      recipientName: connection.client.name,
+      subject: `${connection.partner.name ?? "Un partner"} aceptó tu solicitud de contacto`,
+      heading: "Tu solicitud de contacto fue aceptada",
+      body: `${connection.partner.name ?? "El partner"} aceptó tu solicitud. Ya pueden colaborar en un proyecto conjunto.`,
+      ctaUrl: connection.partner.username ? `/${connection.partner.username}` : undefined,
+      ctaLabel: "Ver perfil",
+    });
+  }
 
   revalidateUsernames(connection.client.username, connection.partner.username);
   return { ok: true, status };
@@ -140,8 +168,8 @@ export async function createCollabProject(
       clientId: true,
       partnerId: true,
       status: true,
-      client: { select: { username: true } },
-      partner: { select: { username: true } },
+      client: { select: { username: true, name: true, email: true } },
+      partner: { select: { username: true, name: true, email: true } },
     },
   });
   if (!connection || (connection.clientId !== userId && connection.partnerId !== userId)) {
@@ -156,6 +184,21 @@ export async function createCollabProject(
     select: { id: true },
   });
 
+  // Notifica a la otra parte (no a quien creó el proyecto).
+  const isClient = connection.clientId === userId;
+  const creatorName = (isClient ? connection.client.name : connection.partner.name) ?? "Tu colaborador";
+  const recipient = isClient ? connection.partner : connection.client;
+  const recipientProfileUsername = isClient ? connection.client.username : connection.partner.username;
+  void sendCollabNotification({
+    to: recipient.email,
+    recipientName: recipient.name,
+    subject: `${creatorName} creó un proyecto conjunto: ${trimmedTitle}`,
+    heading: "Nuevo proyecto conjunto",
+    body: `${creatorName} creó el borrador "${trimmedTitle}" para trabajar juntos.`,
+    ctaUrl: recipientProfileUsername ? `/${recipientProfileUsername}` : undefined,
+    ctaLabel: "Ver proyecto",
+  });
+
   revalidateUsernames(connection.client.username, connection.partner.username);
   return { ok: true, projectId: project.id };
 }
@@ -165,11 +208,16 @@ export interface UpdateCollabProjectInput {
   description?: string;
   status?: string;
   clientNotes?: string;
+  quoteAmount?: number;
+  quoteCurrency?: string;
+  quoteNotes?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
 }
 
 // El cliente puede editar todos los campos; el partner solo title,
-// description y status (clientNotes se ignora silenciosamente si no es el
-// cliente quien edita).
+// description, status y los campos de cotización/calendario (clientNotes se
+// ignora silenciosamente si no es el cliente quien edita).
 export async function updateCollabProject(
   projectId: string,
   data: UpdateCollabProjectInput,
@@ -207,6 +255,11 @@ export async function updateCollabProject(
       description: data.description !== undefined ? data.description.trim() || null : undefined,
       status: data.status !== undefined ? data.status : undefined,
       clientNotes: isClient && data.clientNotes !== undefined ? data.clientNotes.trim() || null : undefined,
+      quoteAmount: data.quoteAmount !== undefined ? data.quoteAmount : undefined,
+      quoteCurrency: data.quoteCurrency !== undefined ? data.quoteCurrency.trim() || undefined : undefined,
+      quoteNotes: data.quoteNotes !== undefined ? data.quoteNotes.trim() || null : undefined,
+      startDate: data.startDate !== undefined ? (data.startDate === null ? null : new Date(data.startDate)) : undefined,
+      dueDate: data.dueDate !== undefined ? (data.dueDate === null ? null : new Date(data.dueDate)) : undefined,
     },
   });
 
