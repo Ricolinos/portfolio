@@ -13,6 +13,12 @@ export type ProjectVertical = (typeof PROJECT_VERTICALS)[number];
 
 export const PROJECT_SUBCATEGORIES: Record<ProjectVertical, string[]> = {
   DISEÑO: ["Branding", "Logotipo", "Editorial", "Papelería", "Empaque"],
-  ANIMACIÓN: ["Motion graphics", "Videobug", "Wiper", "Pleca / Lower third", "Animación de personajes"],
+  ANIMACIÓN: [
+    "Motion graphics",
+    "Videobug",
+    "Wiper",
+    "Pleca / Lower third",
+    "Animación de personajes",
+  ],
   ILUSTRACIÓN: ["Ilustración editorial", "Lettering", "Icon set", "Character design", "Storyboard"],
 };

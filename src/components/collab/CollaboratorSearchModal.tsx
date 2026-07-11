@@ -1,7 +1,7 @@
 "use client";
 
-import { cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { Kbar, Text } from "@once-ui-system/core";
+import { cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 
 export interface CollaboratorSearchPerson {
   id: string;
@@ -26,7 +26,12 @@ interface CollaboratorSearchModalProps {
 // CollabProjectView.tsx) y el panel de cliente (buscar nuevo talento para
 // conectar, src/components/profile/ClientProfileView.tsx) — misma UX, dos
 // fuentes de datos y dos acciones distintas al seleccionar.
-export function CollaboratorSearchModal({ people, onSelect, trigger, emptyHint }: CollaboratorSearchModalProps) {
+export function CollaboratorSearchModal({
+  people,
+  onSelect,
+  trigger,
+  emptyHint,
+}: CollaboratorSearchModalProps) {
   if (people.length === 0) {
     const disabledTrigger = isValidElement(trigger)
       ? cloneElement(trigger as ReactElement<{ disabled?: boolean }>, { disabled: true })
