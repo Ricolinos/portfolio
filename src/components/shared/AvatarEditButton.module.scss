@@ -1,0 +1,32 @@
+/* Avatar editable: overlay con icono que aparece al hover/focus. Extraído de
+   ProfileView.module.scss / ClientProfileView.module.scss (mismo patrón
+   duplicado en ambos), reutilizado también por ProjectLogoControl. */
+.avatarButton {
+  position: relative;
+  display: inline-flex;
+  /* Sin esto el flex comprime el avatar cuando la columna de texto ocupa el
+     ancho disponible en pantallas angostas */
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.avatarEdit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-background) 65%, transparent);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.avatarButton:hover .avatarEdit,
+.avatarButton:focus-visible .avatarEdit {
+  opacity: 1;
+}

@@ -2,10 +2,12 @@
 
 import {
   Avatar,
+  AvatarGroup,
   Button,
   Checkbox,
   Column,
   DateInput,
+  DropdownWrapper,
   Feedback,
   Heading,
   Icon,
@@ -14,6 +16,7 @@ import {
   Line,
   Modal,
   NumberInput,
+  Option,
   ProgressBar,
   Row,
   Select,
@@ -23,11 +26,16 @@ import {
 } from "@once-ui-system/core";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { type ChannelData, getChannels } from "@/app/actions/channels";
 import {
   addProjectCollaborator,
   addProjectLink,
   deleteProjectLink,
   removeProjectCollaborator,
+  requestAssetTaskApproval,
+  resolveAssetTaskApproval,
+  setAssetTaskAssignees,
+  updateAssetTaskDetails,
   updateCollabProject,
   updateProjectLogo,
 } from "@/app/actions/collab";
@@ -45,7 +53,6 @@ import {
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { CollaboratorSearchModal } from "@/components/collab/CollaboratorSearchModal";
 import { ProjectLogoControl } from "@/components/collab/ProjectLogoControl";
-import { ProjectTaskRow } from "@/components/collab/ProjectTaskRow";
 import type {
   CollabCollaboratorSummary,
   CollabLink,
@@ -54,6 +61,13 @@ import type {
   ProjectAssetTaskData,
 } from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
+import { TASK_STATUS_LABELS, TASK_STATUS_VARIANTS } from "@/lib/projectStatus";
+import {
+  FILE_SUBTYPE_LABELS,
+  FILE_SUBTYPES,
+  PROJECT_SUBTYPES,
+  PROJECT_TYPES,
+} from "@/lib/projectTypes";
 
 type ViewerRole = "client" | "partner";
 
@@ -92,12 +106,6 @@ const PROJECT_STATUS_OPTIONS = [
   { value: "archived", label: "Archivado" },
 ];
 
-// Estados de ProjectTask (pipeline mensaje->tarea, chat-requirements.md
-// 3.3/4.1): "pending"/"in_review" son los históricos del checklist manual,
-// "pending_approval"/"approved"/"rejected" llegan del chat del proyecto.
-// Mapa centralizado en src/lib/projectStatus.ts, usado directamente por
-// ProjectTaskRow (Fase 6b) y por el panel de cliente (ClientProfileView).
-
 const QUOTE_CURRENCY_OPTIONS = [
   { value: "MXN", label: "MXN" },
   { value: "USD", label: "USD" },
@@ -110,6 +118,21 @@ const PROVIDER_LABELS: Record<string, string> = {
   wetransfer: "WeTransfer",
   other: "Link",
 };
+
+const PROJECT_TYPE_OPTIONS = PROJECT_TYPES.map((type) => ({ value: type, label: type }));
+
+const FILE_SUBTYPE_OPTIONS = FILE_SUBTYPES.map((subtype) => ({
+  value: subtype,
+  label: FILE_SUBTYPE_LABELS[subtype],
+}));
+
+// Miembro del proyecto (cliente, partner fundador o colaborador adicional):
+// unificado para el multi-select de "Responsables" de una tarea de activo.
+interface ProjectMemberSummary {
+  id: string;
+  name: string | null;
+  imageUrl: string | null;
+}
 
 const modalBackdrop = <BrandModalBackdrop />;
 
@@ -251,26 +274,45 @@ function LinkRow({
   canDelete,
   busy,
   onDelete,
+  assetTaskTitle,
 }: {
   link: CollabLink;
   canDelete: boolean;
   busy: boolean;
   onDelete: () => void;
+  // Título de la tarea de activo a la que quedó ligado este adjunto, si aplica.
+  assetTaskTitle?: string | null;
 }) {
   return (
     <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" gap="16" wrap>
       <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
         <Icon name="attach" size="s" onBackground="neutral-weak" />
-        <Text
-          variant="label-default-m"
-          onBackground="neutral-strong"
-          style={{ minWidth: 0, overflowWrap: "anywhere" }}
-        >
-          {link.label}
-        </Text>
+        <Column gap="2" style={{ minWidth: 0 }}>
+          <Text
+            variant="label-default-m"
+            onBackground="neutral-strong"
+            style={{ minWidth: 0, overflowWrap: "anywhere" }}
+          >
+            {link.label}
+          </Text>
+          {assetTaskTitle && (
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              Tarea: {assetTaskTitle}
+            </Text>
+          )}
+        </Column>
       </Row>
 
       <Row gap="8" vertical="center">
+        {link.subtype && (
+          <Tag
+            size="s"
+            variant="brand"
+            label={
+              FILE_SUBTYPE_LABELS[link.subtype as keyof typeof FILE_SUBTYPE_LABELS] ?? link.subtype
+            }
+          />
+        )}
         <Tag size="s" variant="neutral" label={PROVIDER_LABELS[link.provider] ?? "Link"} />
         <IconButton
           icon="arrowUpRightFromSquare"
@@ -462,7 +504,425 @@ function ProjectSettingsDialog({
   );
 }
 
-function AssetTaskRow({ task, canEdit }: { task: ProjectAssetTaskData; canEdit: boolean }) {
+// Tipo/subtipo de proyecto (catálogo del cotizador, src/lib/projectTypes.ts):
+// se muestra como Tag cuando ya están elegidos; el editor con los dos Selects
+// aparece al click del icono, solo para quien puede editar el proyecto.
+function ProjectTypeEditor({ project, canEdit }: { project: CollabProjectData; canEdit: boolean }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [typeDraft, setTypeDraft] = useState(project.projectType ?? "");
+  const [subtypeDraft, setSubtypeDraft] = useState(project.projectSubtype ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const subtypeOptions =
+    typeDraft && typeDraft in PROJECT_SUBTYPES
+      ? PROJECT_SUBTYPES[typeDraft as keyof typeof PROJECT_SUBTYPES].map((subtype) => ({
+          value: subtype,
+          label: subtype,
+        }))
+      : [];
+
+  const handleEdit = () => {
+    setTypeDraft(project.projectType ?? "");
+    setSubtypeDraft(project.projectSubtype ?? "");
+    setError(null);
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    const result = await updateCollabProject(project.id, {
+      projectType: typeDraft || null,
+      projectSubtype: subtypeDraft || null,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setEditing(false);
+    router.refresh();
+  };
+
+  if (!editing) {
+    return (
+      <Row gap="8" vertical="center" wrap>
+        {project.projectType ? (
+          <Tag size="s" variant="brand" label={project.projectType} />
+        ) : (
+          <Text variant="label-default-s" onBackground="neutral-weak">
+            Sin tipo de proyecto
+          </Text>
+        )}
+        {project.projectSubtype && (
+          <Tag size="s" variant="neutral" label={project.projectSubtype} />
+        )}
+        {canEdit && (
+          <IconButton
+            icon="edit"
+            size="s"
+            variant="tertiary"
+            tooltip="Editar tipo de proyecto"
+            tooltipPosition="top"
+            onClick={handleEdit}
+          />
+        )}
+      </Row>
+    );
+  }
+
+  return (
+    <Column gap="8" fillWidth>
+      <Row fillWidth gap="8" wrap>
+        <Column style={{ flex: 1, minWidth: 180 }}>
+          <Select
+            id="collab-project-type"
+            label="Tipo de proyecto"
+            placeholder="Selecciona un tipo"
+            value={typeDraft}
+            onSelect={(value) => {
+              setTypeDraft(value as string);
+              setSubtypeDraft("");
+            }}
+            options={PROJECT_TYPE_OPTIONS}
+          />
+        </Column>
+        <Column style={{ flex: 1, minWidth: 180 }}>
+          <Select
+            id="collab-project-subtype"
+            label="Subtipo"
+            placeholder="Selecciona un subtipo"
+            value={subtypeDraft}
+            onSelect={(value) => setSubtypeDraft(value as string)}
+            options={subtypeOptions}
+            disabled={!typeDraft}
+          />
+        </Column>
+      </Row>
+      {error && (
+        <Text variant="label-default-s" onBackground="danger-weak">
+          {error}
+        </Text>
+      )}
+      <Row gap="8">
+        <Button variant="secondary" size="s" onClick={() => setEditing(false)} disabled={saving}>
+          Cancelar
+        </Button>
+        <Button variant="primary" size="s" onClick={handleSave} loading={saving}>
+          Guardar
+        </Button>
+      </Row>
+    </Column>
+  );
+}
+
+// Menú "..." de una tarea de activo: responsables (multi-select), fecha de
+// entrega, liga de entregables, solicitar/resolver aprobación y adjuntar
+// archivo — todo dentro de un único DropdownWrapper (Once UI solo intercepta
+// clicks de los hijos directos del prop `dropdown` con value/data-value, así
+// que envolver todo en una sola Column evita que el menú se cierre al
+// interactuar con los campos).
+function AssetTaskMenu({
+  task,
+  projectId,
+  viewerRole,
+  isPartner,
+  projectMembers,
+  onChanged,
+}: {
+  task: ProjectAssetTaskData;
+  projectId: string;
+  viewerRole: ViewerRole;
+  isPartner: boolean;
+  projectMembers: ProjectMemberSummary[];
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dueDate, setDueDate] = useState<Date | undefined>(
+    task.dueDate ? new Date(task.dueDate) : undefined,
+  );
+  const [deliverableUrl, setDeliverableUrl] = useState(task.deliverableUrl ?? "");
+  const [attachLabel, setAttachLabel] = useState("");
+  const [attachUrl, setAttachUrl] = useState("");
+  const [attachSubtype, setAttachSubtype] = useState<string>("");
+  const [attaching, setAttaching] = useState(false);
+
+  const assigneeIds = new Set(task.assignees.map((assignee) => assignee.userId));
+
+  const handleToggleAssignee = async (userId: string) => {
+    setBusy(true);
+    setError(null);
+    const nextIds = assigneeIds.has(userId)
+      ? task.assignees.map((a) => a.userId).filter((id) => id !== userId)
+      : [...task.assignees.map((a) => a.userId), userId];
+    const result = await setAssetTaskAssignees(task.id, nextIds);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    onChanged();
+  };
+
+  const handleSaveDueDate = async (value: Date | undefined) => {
+    setDueDate(value);
+    setBusy(true);
+    setError(null);
+    const result = await updateAssetTaskDetails(task.id, {
+      dueDate: value ? value.toISOString() : null,
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    onChanged();
+  };
+
+  const handleSaveDeliverableUrl = async () => {
+    const trimmed = deliverableUrl.trim();
+    if (trimmed === (task.deliverableUrl ?? "")) return;
+    setBusy(true);
+    setError(null);
+    const result = await updateAssetTaskDetails(task.id, { deliverableUrl: trimmed || null });
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    onChanged();
+  };
+
+  const handleRequestApproval = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await requestAssetTaskApproval(task.id);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    onChanged();
+  };
+
+  const handleResolveApproval = async (approve: boolean) => {
+    setBusy(true);
+    setError(null);
+    const result = await resolveAssetTaskApproval(task.id, approve);
+    setBusy(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    onChanged();
+  };
+
+  const handleAttach = async () => {
+    if (!attachLabel.trim() || !attachUrl.trim()) return;
+    if (!validateExternalUrl(attachUrl)) {
+      setError("La URL no es válida.");
+      return;
+    }
+    setAttaching(true);
+    setError(null);
+    const result = await addProjectLink(projectId, attachLabel, attachUrl, {
+      ...(attachSubtype ? { subtype: attachSubtype } : {}),
+      assetTaskId: task.id,
+    });
+    setAttaching(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setAttachLabel("");
+    setAttachUrl("");
+    setAttachSubtype("");
+    onChanged();
+  };
+
+  return (
+    <DropdownWrapper
+      isOpen={open}
+      onOpenChange={setOpen}
+      placement="bottom-end"
+      // El Dropdown interno delega el click en cualquier descendiente con
+      // data-value (los Option de "Responsables"), sin importar su
+      // profundidad: sin closeAfterClick=false, marcar un responsable
+      // cerraría todo el menú en vez de permitir seguir editando.
+      closeAfterClick={false}
+      trigger={
+        <IconButton
+          icon="moreVertical"
+          size="s"
+          variant="tertiary"
+          tooltip="Opciones de la tarea"
+          tooltipPosition="top"
+        />
+      }
+      dropdown={
+        <Column
+          minWidth={18}
+          maxWidth={22}
+          padding="16"
+          gap="16"
+          style={{ maxHeight: 420, overflowY: "auto" }}
+        >
+          <Column gap="8" fillWidth>
+            <Text variant="label-strong-s">Responsables</Text>
+            <Column gap="2" fillWidth>
+              {projectMembers.map((member) => (
+                <Option
+                  key={member.id}
+                  value={member.id}
+                  label={member.name ?? "Sin nombre"}
+                  selected={assigneeIds.has(member.id)}
+                  disabled={!isPartner || busy}
+                  hasPrefix={
+                    <Avatar
+                      size="xs"
+                      {...(member.imageUrl
+                        ? { src: member.imageUrl }
+                        : { value: (member.name?.[0] ?? "U").toUpperCase() })}
+                    />
+                  }
+                  onClick={() => isPartner && handleToggleAssignee(member.id)}
+                />
+              ))}
+            </Column>
+          </Column>
+
+          <Line background="neutral-alpha-weak" />
+
+          <DateInput
+            id={`asset-task-due-${task.id}`}
+            label="Fecha de entrega"
+            value={dueDate}
+            onChange={handleSaveDueDate}
+            disabled={!isPartner || busy}
+          />
+
+          <Column gap="4" fillWidth>
+            <Input
+              id={`asset-task-deliverable-${task.id}`}
+              label="Liga de entregables"
+              value={deliverableUrl}
+              placeholder="https://drive.google.com/..."
+              onChange={(e) => setDeliverableUrl(e.target.value)}
+              onBlur={handleSaveDeliverableUrl}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSaveDeliverableUrl();
+              }}
+              disabled={busy}
+            />
+          </Column>
+
+          <Line background="neutral-alpha-weak" />
+
+          {isPartner && task.status === "pending" && (
+            <Button
+              variant="secondary"
+              size="s"
+              prefixIcon="check"
+              onClick={handleRequestApproval}
+              loading={busy}
+            >
+              Solicitar aprobación
+            </Button>
+          )}
+
+          {viewerRole === "client" && task.status === "in_review" && (
+            <Row fillWidth gap="8">
+              <Button
+                variant="primary"
+                size="s"
+                prefixIcon="check"
+                onClick={() => handleResolveApproval(true)}
+                loading={busy}
+                style={{ flex: 1 }}
+              >
+                Aprobar
+              </Button>
+              <Button
+                variant="danger"
+                size="s"
+                prefixIcon="xCircle"
+                onClick={() => handleResolveApproval(false)}
+                loading={busy}
+                style={{ flex: 1 }}
+              >
+                Rechazar
+              </Button>
+            </Row>
+          )}
+
+          <Line background="neutral-alpha-weak" />
+
+          <Column gap="8" fillWidth>
+            <Text variant="label-strong-s">Adjuntar archivo</Text>
+            <Input
+              id={`asset-task-attach-label-${task.id}`}
+              label="Etiqueta"
+              value={attachLabel}
+              onChange={(e) => setAttachLabel(e.target.value)}
+              placeholder="Ej. Boceto v2"
+            />
+            <Input
+              id={`asset-task-attach-url-${task.id}`}
+              label="URL"
+              value={attachUrl}
+              onChange={(e) => setAttachUrl(e.target.value)}
+              placeholder="https://drive.google.com/..."
+            />
+            <Select
+              id={`asset-task-attach-subtype-${task.id}`}
+              label="Etiqueta de archivo"
+              placeholder="Selecciona una opción"
+              value={attachSubtype}
+              onSelect={(value) => setAttachSubtype(value as string)}
+              options={FILE_SUBTYPE_OPTIONS}
+            />
+            <Button
+              variant="secondary"
+              size="s"
+              prefixIcon="plus"
+              onClick={handleAttach}
+              loading={attaching}
+              disabled={!attachLabel.trim() || !attachUrl.trim()}
+            >
+              Adjuntar
+            </Button>
+          </Column>
+
+          {error && (
+            <Text variant="label-default-s" onBackground="danger-weak">
+              {error}
+            </Text>
+          )}
+        </Column>
+      }
+    />
+  );
+}
+
+function AssetTaskRow({
+  task,
+  canEdit,
+  projectId,
+  viewerRole,
+  isPartner,
+  projectMembers,
+}: {
+  task: ProjectAssetTaskData;
+  canEdit: boolean;
+  projectId: string;
+  viewerRole: ViewerRole;
+  isPartner: boolean;
+  projectMembers: ProjectMemberSummary[];
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -498,39 +958,39 @@ function AssetTaskRow({ task, canEdit }: { task: ProjectAssetTaskData; canEdit: 
   };
 
   return (
-    <Row fillWidth paddingX="16" paddingY="8" horizontal="between" vertical="center" gap="12" wrap>
-      <Row gap="12" vertical="center" style={{ minWidth: 0, flex: 1 }}>
-        <Checkbox isChecked={task.done} onToggle={handleToggle} disabled={busy} />
-        {editingTitle ? (
-          <Column style={{ flex: 1, minWidth: 160 }}>
-            <Input
-              id={`asset-task-title-${task.id}`}
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveTitle();
-                if (e.key === "Escape") {
-                  setEditingTitle(false);
-                  setTitleDraft(task.title);
-                }
+    <Column fillWidth paddingX="16" paddingY="8" gap="8">
+      <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
+        <Row gap="12" vertical="center" style={{ minWidth: 0, flex: 1 }}>
+          <Checkbox isChecked={task.done} onToggle={handleToggle} disabled={busy} />
+          {editingTitle ? (
+            <Column style={{ flex: 1, minWidth: 160 }}>
+              <Input
+                id={`asset-task-title-${task.id}`}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveTitle();
+                  if (e.key === "Escape") {
+                    setEditingTitle(false);
+                    setTitleDraft(task.title);
+                  }
+                }}
+              />
+            </Column>
+          ) : (
+            <Text
+              variant="label-default-s"
+              onBackground={task.done ? "neutral-weak" : "neutral-strong"}
+              style={{
+                minWidth: 0,
+                overflowWrap: "anywhere",
+                textDecoration: task.done ? "line-through" : undefined,
               }}
-            />
-          </Column>
-        ) : (
-          <Text
-            variant="label-default-s"
-            onBackground={task.done ? "neutral-weak" : "neutral-strong"}
-            style={{
-              minWidth: 0,
-              overflowWrap: "anywhere",
-              textDecoration: task.done ? "line-through" : undefined,
-            }}
-          >
-            {task.title}
-          </Text>
-        )}
-      </Row>
-      {canEdit && (
+            >
+              {task.title}
+            </Text>
+          )}
+        </Row>
         <Row gap="4" vertical="center">
           {editingTitle ? (
             <>
@@ -559,36 +1019,97 @@ function AssetTaskRow({ task, canEdit }: { task: ProjectAssetTaskData; canEdit: 
             </>
           ) : (
             <>
-              <IconButton
-                icon="edit"
-                size="s"
-                variant="tertiary"
-                tooltip="Editar tarea"
-                tooltipPosition="top"
-                onClick={() => setEditingTitle(true)}
-              />
-              <IconButton
-                icon="trash"
-                size="s"
-                variant="tertiary"
-                tooltip="Eliminar tarea"
-                tooltipPosition="top"
-                loading={busy}
-                disabled={busy}
-                onClick={handleDelete}
+              {canEdit && (
+                <>
+                  <IconButton
+                    icon="edit"
+                    size="s"
+                    variant="tertiary"
+                    tooltip="Editar tarea"
+                    tooltipPosition="top"
+                    onClick={() => setEditingTitle(true)}
+                  />
+                  <IconButton
+                    icon="trash"
+                    size="s"
+                    variant="tertiary"
+                    tooltip="Eliminar tarea"
+                    tooltipPosition="top"
+                    loading={busy}
+                    disabled={busy}
+                    onClick={handleDelete}
+                  />
+                </>
+              )}
+              <AssetTaskMenu
+                task={task}
+                projectId={projectId}
+                viewerRole={viewerRole}
+                isPartner={isPartner}
+                projectMembers={projectMembers}
+                onChanged={() => router.refresh()}
               />
             </>
           )}
         </Row>
-      )}
-    </Row>
+      </Row>
+
+      <Row gap="12" vertical="center" wrap>
+        <Tag
+          size="s"
+          variant={TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
+          label={TASK_STATUS_LABELS[task.status] ?? task.status}
+        />
+        {task.dueDate && (
+          <Row gap="4" vertical="center">
+            <Icon name="calendar" size="xs" onBackground="neutral-weak" />
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              {new Date(task.dueDate).toLocaleDateString()}
+            </Text>
+          </Row>
+        )}
+        {task.deliverableUrl && (
+          <IconButton
+            icon="link"
+            size="s"
+            variant="tertiary"
+            href={task.deliverableUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            tooltip="Ver entregable"
+            tooltipPosition="top"
+          />
+        )}
+        {task.assignees.length > 0 && (
+          <AvatarGroup
+            size="xs"
+            avatars={task.assignees.map((assignee) => ({
+              ...(assignee.imageUrl
+                ? { src: assignee.imageUrl }
+                : { value: (assignee.name?.[0] ?? "U").toUpperCase() }),
+            }))}
+          />
+        )}
+      </Row>
+    </Column>
   );
 }
 
-function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole: ViewerRole }) {
+function AssetCard({
+  asset,
+  viewerRole,
+  projectId,
+  projectMembers,
+}: {
+  asset: ProjectAssetData;
+  viewerRole: ViewerRole;
+  projectId: string;
+  projectMembers: ProjectMemberSummary[];
+}) {
   const router = useRouter();
   const isPartner = viewerRole === "partner";
 
+  const [collapsed, setCollapsed] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(asset.title);
   const [savingTitle, setSavingTitle] = useState(false);
@@ -653,9 +1174,23 @@ function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole:
   };
 
   return (
-    <Column fillWidth border="neutral-alpha-medium" radius="l" padding="16" gap="12">
+    <Column
+      fillWidth
+      border="neutral-alpha-medium"
+      radius="l"
+      padding="16"
+      gap={collapsed ? "0" : "12"}
+    >
       <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
         <Row gap="8" vertical="center" style={{ minWidth: 0, flex: 1 }}>
+          <IconButton
+            icon={collapsed ? "chevronRight" : "chevronDown"}
+            size="s"
+            variant="tertiary"
+            tooltip={collapsed ? "Expandir activo" : "Colapsar activo"}
+            tooltipPosition="top"
+            onClick={() => setCollapsed((current) => !current)}
+          />
           {editingTitle ? (
             <>
               <Column style={{ flex: 1, minWidth: 160 }}>
@@ -752,49 +1287,60 @@ function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole:
         </Row>
       </Row>
 
-      {error && (
-        <Feedback
-          variant="danger"
-          description={error}
-          onClose={() => setError(null)}
-          showCloseButton
-          fillWidth
-        />
-      )}
-
-      {asset.tasks.length > 0 && (
-        <Column fillWidth border="neutral-alpha-weak" radius="m" overflow="hidden">
-          {asset.tasks.map((task, index) => (
-            <Column key={task.id} fillWidth>
-              {index > 0 && <Line background="neutral-alpha-weak" />}
-              <AssetTaskRow task={task} canEdit={isPartner} />
-            </Column>
-          ))}
-        </Column>
-      )}
-
-      {isPartner && (
-        <Row fillWidth gap="8" vertical="end" wrap>
-          <Column style={{ flex: 1, minWidth: 160 }}>
-            <Input
-              id={`asset-new-task-${asset.id}`}
-              label="Nueva tarea del checklist"
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              placeholder="Ej. Enviar boceto inicial"
+      {!collapsed && (
+        <>
+          {error && (
+            <Feedback
+              variant="danger"
+              description={error}
+              onClose={() => setError(null)}
+              showCloseButton
+              fillWidth
             />
-          </Column>
-          <Button
-            variant="secondary"
-            size="s"
-            prefixIcon="plus"
-            onClick={handleAddTask}
-            loading={addingTask}
-            disabled={!newTaskTitle.trim()}
-          >
-            Agregar tarea
-          </Button>
-        </Row>
+          )}
+
+          {asset.tasks.length > 0 && (
+            <Column fillWidth border="neutral-alpha-weak" radius="m" overflow="hidden">
+              {asset.tasks.map((task, index) => (
+                <Column key={task.id} fillWidth>
+                  {index > 0 && <Line background="neutral-alpha-weak" />}
+                  <AssetTaskRow
+                    task={task}
+                    canEdit={isPartner}
+                    projectId={projectId}
+                    viewerRole={viewerRole}
+                    isPartner={isPartner}
+                    projectMembers={projectMembers}
+                  />
+                </Column>
+              ))}
+            </Column>
+          )}
+
+          {isPartner && (
+            <Row fillWidth gap="8" vertical="end" wrap paddingTop="12">
+              <Column style={{ flex: 1, minWidth: 160 }}>
+                <Input
+                  id={`asset-new-task-${asset.id}`}
+                  label="Nueva tarea del checklist"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="Ej. Enviar boceto inicial"
+                />
+              </Column>
+              <Button
+                variant="secondary"
+                size="s"
+                prefixIcon="plus"
+                onClick={handleAddTask}
+                loading={addingTask}
+                disabled={!newTaskTitle.trim()}
+              >
+                Agregar tarea
+              </Button>
+            </Row>
+          )}
+        </>
       )}
     </Column>
   );
@@ -1068,15 +1614,54 @@ export function CollabProjectView({
 
   const [brandLinkLabel, setBrandLinkLabel] = useState("");
   const [brandLinkUrl, setBrandLinkUrl] = useState("");
+  const [brandLinkSubtype, setBrandLinkSubtype] = useState("");
   const [brandLinkError, setBrandLinkError] = useState<string | null>(null);
   const [addingBrandLink, setAddingBrandLink] = useState(false);
 
   const [finalLinkLabel, setFinalLinkLabel] = useState("");
   const [finalLinkUrl, setFinalLinkUrl] = useState("");
+  const [finalLinkSubtype, setFinalLinkSubtype] = useState("");
   const [finalLinkError, setFinalLinkError] = useState<string | null>(null);
   const [addingFinalLink, setAddingFinalLink] = useState(false);
 
   const [busyLinkId, setBusyLinkId] = useState<string | null>(null);
+
+  const [channels, setChannels] = useState<ChannelData[]>([]);
+
+  // Accesos directos a las salas del chat del proyecto (punto 3): se cargan
+  // aparte porque CollabProjectData no trae ProjectChannel (viven en
+  // src/app/actions/channels.ts, reutilizado también por /mensajes).
+  useEffect(() => {
+    let cancelled = false;
+    if (project.status !== "active") return;
+    (async () => {
+      const result = await getChannels(project.id);
+      if (!cancelled && result.ok) setChannels(result.channels);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, project.status]);
+
+  // Miembros del proyecto (cliente + partner fundador + colaboradores) para
+  // el multi-select de "Responsables" de las tareas de activo.
+  const projectMembers: ProjectMemberSummary[] = [
+    { id: client.id, name: client.name ?? client.username, imageUrl: client.imageUrl },
+    { id: partner.id, name: partner.name ?? partner.username, imageUrl: partner.imageUrl },
+    ...project.collaborators.map((collaborator) => ({
+      id: collaborator.id,
+      name: collaborator.name ?? collaborator.username,
+      imageUrl: collaborator.imageUrl,
+    })),
+  ];
+
+  // Título de la tarea de activo a la que quedó ligado cada link (punto 5).
+  const assetTaskTitleById = new Map<string, string>();
+  for (const asset of project.assets) {
+    for (const task of asset.tasks) {
+      assetTaskTitleById.set(task.id, task.title);
+    }
+  }
 
   const handleRemoveCollaborator = async (collaboratorId: string) => {
     setBusyCollaboratorId(collaboratorId);
@@ -1096,12 +1681,15 @@ export function CollabProjectView({
     setBrandLinkError(null);
     setAddingBrandLink(true);
     setError(null);
-    const result = await addProjectLink(project.id, brandLinkLabel, brandLinkUrl);
+    const result = await addProjectLink(project.id, brandLinkLabel, brandLinkUrl, {
+      ...(brandLinkSubtype ? { subtype: brandLinkSubtype } : {}),
+    });
     if (!result.ok) {
       setError(result.error);
     } else {
       setBrandLinkLabel("");
       setBrandLinkUrl("");
+      setBrandLinkSubtype("");
       router.refresh();
     }
     setAddingBrandLink(false);
@@ -1116,12 +1704,15 @@ export function CollabProjectView({
     setFinalLinkError(null);
     setAddingFinalLink(true);
     setError(null);
-    const result = await addProjectLink(project.id, finalLinkLabel, finalLinkUrl);
+    const result = await addProjectLink(project.id, finalLinkLabel, finalLinkUrl, {
+      ...(finalLinkSubtype ? { subtype: finalLinkSubtype } : {}),
+    });
     if (!result.ok) {
       setError(result.error);
     } else {
       setFinalLinkLabel("");
       setFinalLinkUrl("");
+      setFinalLinkSubtype("");
       router.refresh();
     }
     setAddingFinalLink(false);
@@ -1198,6 +1789,7 @@ export function CollabProjectView({
                   {project.description}
                 </Text>
               )}
+              <ProjectTypeEditor project={project} canEdit />
               <Row gap="16" wrap style={{ minWidth: 0 }}>
                 <PersonBadge label="Cliente" person={client} />
               </Row>
@@ -1277,6 +1869,21 @@ export function CollabProjectView({
           <Text variant="body-default-s" onBackground="neutral-weak">
             La conversación del proyecto ahora vive en el centro de mensajes.
           </Text>
+          {channels.length > 0 && (
+            <Row fillWidth gap="8" wrap>
+              {channels.map((channel) => (
+                <Button
+                  key={channel.id}
+                  variant="tertiary"
+                  size="s"
+                  prefixIcon="chat"
+                  href={`/mensajes?project=${project.id}&channel=${channel.id}`}
+                >
+                  {channel.name}
+                </Button>
+              ))}
+            </Row>
+          )}
           <Row fillWidth horizontal="start">
             <Button
               variant="secondary"
@@ -1287,26 +1894,6 @@ export function CollabProjectView({
               Ir a mensajes
             </Button>
           </Row>
-        </Column>
-      )}
-
-      {/* ── Tareas del proyecto ──────────────────────────────────────────── */}
-      {project.tasks.length > 0 && (
-        <Column gap="16" fillWidth>
-          <Heading variant="heading-strong-m">Tareas del proyecto</Heading>
-          <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-            {project.tasks.map((task, index) => (
-              <Column key={task.id} fillWidth>
-                {index > 0 && <Line background="neutral-alpha-weak" />}
-                <ProjectTaskRow
-                  task={task}
-                  allTasks={project.tasks}
-                  canEdit={viewerRole === "partner" && task.status !== "approved"}
-                  onChanged={() => router.refresh()}
-                />
-              </Column>
-            ))}
-          </Column>
         </Column>
       )}
 
@@ -1345,7 +1932,13 @@ export function CollabProjectView({
         ) : (
           <Column gap="12" fillWidth>
             {project.assets.map((asset) => (
-              <AssetCard key={asset.id} asset={asset} viewerRole={viewerRole} />
+              <AssetCard
+                key={asset.id}
+                asset={asset}
+                viewerRole={viewerRole}
+                projectId={project.id}
+                projectMembers={projectMembers}
+              />
             ))}
           </Column>
         )}
@@ -1389,6 +1982,9 @@ export function CollabProjectView({
                       canDelete={viewerRole === "client" || link.addedById === viewerId}
                       busy={busyLinkId === link.id}
                       onDelete={() => handleDeleteLink(link.id)}
+                      assetTaskTitle={
+                        link.assetTaskId ? assetTaskTitleById.get(link.assetTaskId) : null
+                      }
                     />
                   </Column>
                 ))}
@@ -1419,6 +2015,16 @@ export function CollabProjectView({
                       placeholder="https://drive.google.com/..."
                       error={Boolean(finalLinkError)}
                       errorMessage={finalLinkError ?? undefined}
+                    />
+                  </Column>
+                  <Column style={{ flex: 1, minWidth: 160 }}>
+                    <Select
+                      id="collab-new-final-link-subtype"
+                      label="Etiqueta de archivo"
+                      placeholder="Selecciona una opción"
+                      value={finalLinkSubtype}
+                      onSelect={(value) => setFinalLinkSubtype(value as string)}
+                      options={FILE_SUBTYPE_OPTIONS}
                     />
                   </Column>
                 </Row>
@@ -1455,6 +2061,9 @@ export function CollabProjectView({
                       canDelete={viewerRole === "client" || link.addedById === viewerId}
                       busy={busyLinkId === link.id}
                       onDelete={() => handleDeleteLink(link.id)}
+                      assetTaskTitle={
+                        link.assetTaskId ? assetTaskTitleById.get(link.assetTaskId) : null
+                      }
                     />
                   </Column>
                 ))}
@@ -1485,6 +2094,16 @@ export function CollabProjectView({
                       placeholder="https://drive.google.com/..."
                       error={Boolean(brandLinkError)}
                       errorMessage={brandLinkError ?? undefined}
+                    />
+                  </Column>
+                  <Column style={{ flex: 1, minWidth: 160 }}>
+                    <Select
+                      id="collab-new-brand-link-subtype"
+                      label="Etiqueta de archivo"
+                      placeholder="Selecciona una opción"
+                      value={brandLinkSubtype}
+                      onSelect={(value) => setBrandLinkSubtype(value as string)}
+                      options={FILE_SUBTYPE_OPTIONS}
                     />
                   </Column>
                 </Row>

@@ -14,7 +14,6 @@ import {
   Modal,
   Row,
   Select,
-  Slider,
   Switch,
   Text,
   Textarea,
@@ -32,12 +31,9 @@ import {
   type DesignerCardInput,
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { ImageCropper } from "@/components/shared/ImageCropper";
 import { MAX_SECONDARY_ROLES, PARTNER_ROLES } from "@/lib/partnerRoles";
 import { AppearancePanel } from "./AppearancePanel";
-
-const JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 3;
 
 const MAX_FEATURED_BYTES = 4 * 1024 * 1024;
 // Salida final de la imagen destacada, misma proporción vertical 3:4 de la
@@ -53,173 +49,6 @@ const MAX_HEADLINE_CHARS = 60;
 const MAX_BIO_CHARS = 280;
 
 const modalBackdrop = <BrandModalBackdrop />;
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("No se pudo cargar la imagen"));
-    img.src = src;
-  });
-}
-
-// Comprime el canvas a JPEG bajando la calidad hasta caber en el límite de la BD.
-function canvasToDataUrl(canvas: HTMLCanvasElement, maxChars: number): string {
-  for (const quality of JPEG_QUALITIES) {
-    const dataUrl = canvas.toDataURL("image/jpeg", quality);
-    if (dataUrl.length <= maxChars) return dataUrl;
-  }
-  throw new Error("La imagen es demasiado pesada incluso comprimida.");
-}
-
-// ─── Encuadre arrastrable de la imagen destacada ─────────────────────────────
-// Recorte arrastrable con zoom en formato vertical 3:4 (el mismo aspect ratio
-// que la tarjeta Designerd en Explorar).
-function FeaturedImageCropper({
-  file,
-  exportRef,
-}: {
-  file: File;
-  exportRef: React.MutableRefObject<(() => Promise<string | null>) | null>;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(MIN_ZOOM);
-  const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
-
-  useEffect(() => {
-    const objectUrl = URL.createObjectURL(file);
-    let cancelled = false;
-    setUrl(objectUrl);
-    setOffset({ x: 0, y: 0 });
-    setZoom(MIN_ZOOM);
-    setDims(null);
-    loadImage(objectUrl)
-      .then((img) => {
-        if (!cancelled) setDims({ w: img.naturalWidth, h: img.naturalHeight });
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [file]);
-
-  const baseScale = dims
-    ? Math.max(FEATURED_CROP_VIEW_W / dims.w, FEATURED_CROP_VIEW_H / dims.h)
-    : 1;
-  const scale = baseScale * zoom;
-  const maxX = dims ? Math.max(0, (dims.w * scale - FEATURED_CROP_VIEW_W) / 2) : 0;
-  const maxY = dims ? Math.max(0, (dims.h * scale - FEATURED_CROP_VIEW_H) / 2) : 0;
-  const clamp = (value: number, limit: number) => Math.min(limit, Math.max(-limit, value));
-
-  const handleZoom = (nextZoom: number) => {
-    setZoom(nextZoom);
-    if (!dims) return;
-    const nextScale = baseScale * nextZoom;
-    const nextMaxX = Math.max(0, (dims.w * nextScale - FEATURED_CROP_VIEW_W) / 2);
-    const nextMaxY = Math.max(0, (dims.h * nextScale - FEATURED_CROP_VIEW_H) / 2);
-    setOffset((current) => ({
-      x: clamp(current.x, nextMaxX),
-      y: clamp(current.y, nextMaxY),
-    }));
-  };
-
-  useEffect(() => {
-    exportRef.current = async () => {
-      if (!url || !dims) return null;
-      const img = await loadImage(url);
-      const srcW = FEATURED_CROP_VIEW_W / scale;
-      const srcH = FEATURED_CROP_VIEW_H / scale;
-      const srcX = (dims.w - srcW) / 2 - offset.x / scale;
-      const srcY = (dims.h - srcH) / 2 - offset.y / scale;
-      const canvas = document.createElement("canvas");
-      canvas.width = FEATURED_W;
-      canvas.height = FEATURED_H;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, FEATURED_W, FEATURED_H);
-      return canvasToDataUrl(canvas, MAX_FEATURED_DATA_URL_CHARS);
-    };
-    return () => {
-      exportRef.current = null;
-    };
-  }, [url, dims, offset, scale, exportRef]);
-
-  return (
-    <Column gap="8" horizontal="center" fillWidth>
-      <div
-        role="application"
-        aria-label="Arrastra la imagen para reencuadrar la tarjeta"
-        style={{
-          width: FEATURED_CROP_VIEW_W,
-          height: FEATURED_CROP_VIEW_H,
-          position: "relative",
-          overflow: "hidden",
-          borderRadius: "var(--radius-l)",
-          touchAction: "none",
-          cursor: dragRef.current ? "grabbing" : "grab",
-        }}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          dragRef.current = { startX: e.clientX, startY: e.clientY, ox: offset.x, oy: offset.y };
-        }}
-        onPointerMove={(e) => {
-          const drag = dragRef.current;
-          if (!drag) return;
-          setOffset({
-            x: clamp(drag.ox + (e.clientX - drag.startX), maxX),
-            y: clamp(drag.oy + (e.clientY - drag.startY), maxY),
-          });
-        }}
-        onPointerUp={() => {
-          dragRef.current = null;
-        }}
-        onPointerCancel={() => {
-          dragRef.current = null;
-        }}
-      >
-        {url && dims && (
-          // eslint-disable-next-line @next/next/no-img-element -- objectURL local, sin optimización posible
-          <img
-            src={url}
-            alt=""
-            draggable={false}
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: dims.w * scale,
-              height: dims.h * scale,
-              maxWidth: "none",
-              transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
-              userSelect: "none",
-              pointerEvents: "none",
-            }}
-          />
-        )}
-      </div>
-      <Row gap="12" vertical="center" style={{ width: FEATURED_CROP_VIEW_W }}>
-        <Text variant="label-default-s" onBackground="neutral-weak">
-          Zoom
-        </Text>
-        <Slider
-          aria-label="Zoom de la imagen"
-          min={MIN_ZOOM}
-          max={MAX_ZOOM}
-          step={0.05}
-          value={zoom}
-          onChange={handleZoom}
-          disabled={!dims}
-        />
-      </Row>
-      <Text variant="label-default-s" onBackground="neutral-weak">
-        Arrastra la imagen para centrarla o reencuadrarla
-      </Text>
-    </Column>
-  );
-}
 
 // ─── Cambiar imagen destacada de la tarjeta Designerd ────────────────────────
 export function FeaturedImageUploadDialog({
@@ -290,7 +119,17 @@ export function FeaturedImageUploadDialog({
 
         {file ? (
           <Column gap="12" fillWidth horizontal="center">
-            <FeaturedImageCropper file={file} exportRef={exportCrop} />
+            <ImageCropper
+              file={file}
+              exportRef={exportCrop}
+              viewWidth={FEATURED_CROP_VIEW_W}
+              viewHeight={FEATURED_CROP_VIEW_H}
+              outputWidth={FEATURED_W}
+              outputHeight={FEATURED_H}
+              maxDataUrlChars={MAX_FEATURED_DATA_URL_CHARS}
+              maskShape="none"
+              ariaLabel="Arrastra la imagen para reencuadrar la tarjeta"
+            />
             <Button variant="tertiary" size="s" onClick={() => setFile(null)} disabled={saving}>
               Elegir otra imagen
             </Button>
