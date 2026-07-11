@@ -1,10 +1,13 @@
-import { redirect } from "next/navigation";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { Button, Column, Feedback, Heading, Row, Text } from "@once-ui-system/core";
-import { getOrCreateUser } from "@/lib/syncUser";
-import { getClientCollabData } from "@/lib/collab";
+import { Button, Column, Feedback, Grid, Row } from "@once-ui-system/core";
+import { redirect } from "next/navigation";
+import { ChangelogWidget } from "@/components/dashboard/ChangelogWidget";
+import { DashboardHero } from "@/components/dashboard/DashboardHero";
 import { DashboardMetrics } from "@/components/dashboard/DashboardMetrics";
+import { NotificationsWidget } from "@/components/dashboard/NotificationsWidget";
 import { ProjectListWidget } from "@/components/dashboard/ProjectListWidget";
+import { getClientCollabData } from "@/lib/collab";
+import { getOrCreateUser } from "@/lib/syncUser";
 
 export default async function ClientDashboardPage() {
   const { userId } = await auth();
@@ -33,12 +36,7 @@ export default async function ClientDashboardPage() {
 
   return (
     <Column fillWidth paddingY="80" paddingX="24" gap="24" maxWidth="l" horizontal="center">
-      <Column gap="4" fillWidth>
-        <Heading variant="heading-strong-l">Panel de cliente</Heading>
-        <Text onBackground="neutral-weak" variant="body-default-m">
-          Resumen de tus proyectos conjuntos con tus partners.
-        </Text>
-      </Column>
+      <DashboardHero name={dbUser?.name ?? null} viewerRole="client" />
 
       {pendingConnections.map((connection) => (
         <Feedback
@@ -83,6 +81,11 @@ export default async function ClientDashboardPage() {
         emptyMessage="Todavía no tienes proyectos finalizados."
         limit={5}
       />
+
+      <Grid columns="2" s={{ columns: 1 }} fillWidth gap="24">
+        <NotificationsWidget />
+        <ChangelogWidget />
+      </Grid>
     </Column>
   );
 }

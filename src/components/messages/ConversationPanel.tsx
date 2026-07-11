@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
   Avatar,
   Column,
@@ -12,10 +11,11 @@ import {
   Row,
   Text,
 } from "@once-ui-system/core";
+import { useEffect, useRef, useState } from "react";
 import type { ConversationSummary } from "@/app/actions/inbox";
 import { MessageBubble } from "./MessageBubble";
+import { personInitial, presenceColor, presenceOf, type StreamMessage } from "./messengerUtils";
 import { CreateTaskModal, type TaskParticipant } from "./TaskCard";
-import { personInitial, type StreamMessage } from "./messengerUtils";
 
 /* ══ Panel central: conversación activa (2.2) ═══════════════════════════ */
 
@@ -120,6 +120,13 @@ export function ConversationPanel({
                   : isGroup
                     ? { icon: "userGroup" as const }
                     : { value: personInitial({ name: conversation.title, username: null }) })}
+                {...(!isGroup && conversation.participant
+                  ? {
+                      statusIndicator: {
+                        color: presenceColor(presenceOf(conversation.participant)),
+                      },
+                    }
+                  : {})}
               />
               <Column gap="0" style={{ minWidth: 0 }}>
                 <Heading variant="heading-strong-s" truncate style={{ minWidth: 0 }}>
@@ -241,6 +248,7 @@ export function ConversationPanel({
               partnerParticipants={partnerParticipants}
               assets={assets}
               onCreated={onTaskChanged}
+              projectId={conversation?.project?.id ?? null}
             />
           )}
         </>

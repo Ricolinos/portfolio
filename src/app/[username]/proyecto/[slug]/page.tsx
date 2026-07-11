@@ -1,6 +1,3 @@
-import { cache } from "react";
-import { notFound } from "next/navigation";
-import type { Metadata } from "next";
 import { auth } from "@clerk/nextjs/server";
 import {
   Avatar,
@@ -15,11 +12,14 @@ import {
   Tag,
   Text,
 } from "@once-ui-system/core";
-import { baseURL } from "@/resources";
-import { formatDate } from "@/utils/formatDate";
-import { ScrollToHash, CustomMDX } from "@/components";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { cache } from "react";
+import { CustomMDX, ScrollToHash } from "@/components";
 import { getCaseStudy, slugifyTitle } from "@/lib/caseStudies";
 import { prisma } from "@/lib/prisma";
+import { baseURL } from "@/resources";
+import { formatDate } from "@/utils/formatDate";
 
 interface CaseStudyPageProps {
   params: Promise<{ username: string; slug: string }>;
@@ -92,13 +92,31 @@ export async function generateMetadata({ params }: CaseStudyPageProps): Promise<
   const { username, slug } = await params;
   const result = await loadCaseStudy(username, slug);
   if (!result) return {};
-  const { post } = result;
+  const { post, author } = result;
+  const authorName = author.name ?? username;
+
+  // Piezas creadas desde el editor propio siempre traen summary vacío (ver
+  // loadCaseStudy): sin este fallback el og:description queda vacío y
+  // muchos clientes de link preview (WhatsApp, Twitter/X) directamente
+  // omiten la tarjeta si no hay descripción.
+  const description = post.metadata.summary?.trim()
+    ? post.metadata.summary
+    : `Proyecto de ${authorName} (@${username}) en Hub-Nerds`;
+
+  // coverUrl puede ser una data: URL (piezas viejas, antes de moverse a
+  // Supabase Storage): Meta.generate solo distingue http(s) vs relativa, así
+  // que una data: URL termina concatenada tras baseURL y produce una imagen
+  // rota fuera del sitio. Data URL no sirve para OG → usa el generador.
+  const image =
+    post.metadata.image && !post.metadata.image.startsWith("data:")
+      ? post.metadata.image
+      : `/api/og/generate?title=${encodeURIComponent(post.metadata.title)}`;
 
   return Meta.generate({
     title: post.metadata.title,
-    description: post.metadata.summary,
+    description,
     baseURL: baseURL,
-    image: post.metadata.image || `/api/og/generate?title=${post.metadata.title}`,
+    image,
     path: `/${username}/proyecto/${slug}`,
   });
 }

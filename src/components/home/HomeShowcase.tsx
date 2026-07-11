@@ -63,7 +63,7 @@ function CategoryDropdown({
       isOpen={open}
       onOpenChange={setOpen}
       trigger={
-        <Row vertical="center" gap="4" paddingX="4" style={{ cursor: "pointer" }}>
+        <Row vertical="center" gap="4" paddingX="4" cursor="pointer">
           <Text variant="label-default-s" onBackground="neutral-strong">
             {value}
           </Text>
@@ -98,7 +98,7 @@ function OrderDropdown({ value, onChange }: { value: string; onChange: (value: s
       isOpen={open}
       onOpenChange={setOpen}
       trigger={
-        <Row vertical="center" gap="4" paddingX="4" style={{ cursor: "pointer" }}>
+        <Row vertical="center" gap="4" paddingX="4" cursor="pointer">
           <Text variant="label-default-s" onBackground="neutral-strong">
             {value}
           </Text>
@@ -141,7 +141,7 @@ function LocationDropdown({
       isOpen={open}
       onOpenChange={setOpen}
       trigger={
-        <Row vertical="center" gap="4" paddingX="4" style={{ cursor: "pointer" }}>
+        <Row vertical="center" gap="4" paddingX="4" cursor="pointer">
           <Text variant="label-default-s" onBackground="neutral-strong">
             {value}
           </Text>

@@ -4,6 +4,7 @@ import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { validateExternalUrl } from "@/lib/externalLink";
+import { MAX_SECONDARY_ROLES, isPartnerRole } from "@/lib/partnerRoles";
 
 export interface ProfileInfoInput {
   whatsapp: string;
@@ -288,6 +289,46 @@ export async function updateDesignerCard(input: DesignerCardInput): Promise<void
   await prisma.user.update({
     where: { id: userId },
     data: { cardQuote, headline, bio },
+  });
+  if (partner.username) revalidatePath(`/${partner.username}`);
+  revalidatePath("/explorar/designerds");
+}
+
+export interface PartnerRolesInput {
+  primaryRole: string;
+  secondaryRoles: string[];
+}
+
+// Actualiza el rol principal y hasta 2 roles secundarios del Partner (matriz
+// de roles, Fase 4). Validación estricta: valores dentro del catálogo de
+// partnerRoles.ts, máx. MAX_SECONDARY_ROLES secundarios, sin duplicar el
+// principal ni entre sí.
+export async function updatePartnerRoles(input: PartnerRolesInput): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("No autenticado");
+  const partner = await requirePartner(userId);
+
+  const primaryRole = clean(input.primaryRole);
+  if (primaryRole && !isPartnerRole(primaryRole)) {
+    throw new Error("El rol principal no es válido.");
+  }
+
+  const secondaryRolesInput = Array.isArray(input.secondaryRoles) ? input.secondaryRoles : [];
+  const secondaryRoles = [...new Set(secondaryRolesInput.map((role) => role.trim()).filter(Boolean))];
+
+  if (secondaryRoles.length > MAX_SECONDARY_ROLES) {
+    throw new Error(`Puedes elegir hasta ${MAX_SECONDARY_ROLES} roles secundarios.`);
+  }
+  if (secondaryRoles.some((role) => !isPartnerRole(role))) {
+    throw new Error("Uno de los roles secundarios no es válido.");
+  }
+  if (primaryRole && secondaryRoles.includes(primaryRole)) {
+    throw new Error("Un rol secundario no puede repetir el rol principal.");
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { primaryRole, secondaryRoles },
   });
   if (partner.username) revalidatePath(`/${partner.username}`);
   revalidatePath("/explorar/designerds");

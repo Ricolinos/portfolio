@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
@@ -13,7 +11,6 @@ import {
   Icon,
   IconButton,
   Input,
-  Kbar,
   Line,
   Modal,
   NumberInput,
@@ -24,14 +21,8 @@ import {
   Text,
   Textarea,
 } from "@once-ui-system/core";
-import type {
-  CollabLink,
-  CollabProjectData,
-  ProjectAssetData,
-  ProjectAssetTaskData,
-} from "@/lib/collab";
-import { validateExternalUrl } from "@/lib/externalLink";
-import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   addProjectCollaborator,
   addProjectLink,
@@ -39,7 +30,6 @@ import {
   removeProjectCollaborator,
   updateCollabProject,
 } from "@/app/actions/collab";
-import type { CollabCollaboratorSummary } from "@/lib/collab";
 import type { AssetCategoryData } from "@/app/actions/projectAssets";
 import {
   addCustomProjectAsset,
@@ -51,6 +41,18 @@ import {
   renameProjectAssetTask,
   toggleProjectAssetTask,
 } from "@/app/actions/projectAssets";
+import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { CollaboratorSearchModal } from "@/components/collab/CollaboratorSearchModal";
+import { ProjectLogoControl } from "@/components/collab/ProjectLogoControl";
+import { ProjectTaskRow } from "@/components/collab/ProjectTaskRow";
+import type {
+  CollabCollaboratorSummary,
+  CollabLink,
+  CollabProjectData,
+  ProjectAssetData,
+  ProjectAssetTaskData,
+} from "@/lib/collab";
+import { validateExternalUrl } from "@/lib/externalLink";
 
 type ViewerRole = "client" | "partner";
 
@@ -92,21 +94,8 @@ const PROJECT_STATUS_OPTIONS = [
 // Estados de ProjectTask (pipeline mensaje->tarea, chat-requirements.md
 // 3.3/4.1): "pending"/"in_review" son los históricos del checklist manual,
 // "pending_approval"/"approved"/"rejected" llegan del chat del proyecto.
-const PROJECT_TASK_STATUS_LABELS: Record<string, string> = {
-  pending: "Pendiente",
-  in_review: "En revisión",
-  pending_approval: "Por aprobar",
-  approved: "Aprobada",
-  rejected: "Rechazada",
-};
-
-const PROJECT_TASK_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success" | "danger"> = {
-  pending: "neutral",
-  in_review: "neutral",
-  pending_approval: "warning",
-  approved: "success",
-  rejected: "danger",
-};
+// Mapa centralizado en src/lib/projectStatus.ts, usado directamente por
+// ProjectTaskRow (Fase 6b) y por el panel de cliente (ClientProfileView).
 
 const QUOTE_CURRENCY_OPTIONS = [
   { value: "MXN", label: "MXN" },
@@ -218,11 +207,9 @@ function CollaboratorBadge({
   );
 }
 
-// Command-palette estilo Kbar para elegir un colaborador entre los partners
-// aceptados por el cliente, agrupados visualmente por su puesto (headline).
-// `Kbar` (el único miembro del módulo que expone el paquete) envuelve su
-// propio trigger: le pasamos el botón "Agregar colaborador" como children y
-// el propio componente abre/cierra el buscador al hacer click en él.
+// Buscador de colaborador (CollaboratorSearchModal, compartido con el panel
+// de cliente) para elegir entre los partners aceptados por el cliente que
+// aún no están en este proyecto.
 function AddCollaboratorSearch({
   projectId,
   availablePartners,
@@ -244,35 +231,17 @@ function AddCollaboratorSearch({
     router.refresh();
   };
 
-  if (availablePartners.length === 0) {
-    return (
-      <>
-        <Button variant="tertiary" size="s" prefixIcon="plus" disabled>
+  return (
+    <CollaboratorSearchModal
+      people={availablePartners}
+      onSelect={handleSelect}
+      trigger={
+        <Button variant="tertiary" size="s" prefixIcon="plus">
           Agregar colaborador
         </Button>
-        <Text variant="label-default-s" onBackground="neutral-weak">
-          El cliente no tiene otros colaboradores aceptados.
-        </Text>
-      </>
-    );
-  }
-
-  const items = availablePartners.map((partner) => ({
-    id: partner.id,
-    name: partner.name ?? partner.username ?? "Sin nombre",
-    section: partner.headline ?? "Sin puesto",
-    shortcut: [] as string[],
-    keywords: [partner.username, partner.headline].filter(Boolean).join(" "),
-    icon: "person",
-    perform: () => handleSelect(partner.id),
-  }));
-
-  return (
-    <Kbar items={items} inputSize="s">
-      <Button variant="tertiary" size="s" prefixIcon="plus">
-        Agregar colaborador
-      </Button>
-    </Kbar>
+      }
+      emptyHint="El cliente no tiene otros colaboradores aceptados."
+    />
   );
 }
 
@@ -1197,30 +1166,42 @@ export function CollabProjectView({
         fillWidth
       >
         <Row fillWidth gap="16" horizontal="between" vertical="start" wrap>
-          <Column gap="12" style={{ minWidth: 0 }}>
-            <Row gap="8" vertical="center" wrap>
-              <Heading variant="heading-strong-l" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                {project.title}
-              </Heading>
-              <Tag
-                size="m"
-                variant={PROJECT_STATUS_VARIANTS[project.status] ?? "neutral"}
-                label={PROJECT_STATUS_LABELS[project.status] ?? project.status}
-              />
-            </Row>
-            {project.description && (
-              <Text
-                variant="body-default-m"
-                onBackground="neutral-weak"
-                style={{ minWidth: 0, overflowWrap: "anywhere" }}
-              >
-                {project.description}
-              </Text>
-            )}
-            <Row gap="16" wrap style={{ minWidth: 0 }}>
-              <PersonBadge label="Cliente" person={client} />
-            </Row>
-          </Column>
+          <Row gap="16" vertical="start" style={{ minWidth: 0 }}>
+            <ProjectLogoControl
+              projectId={project.id}
+              logoUrl={project.logoUrl}
+              title={project.title}
+              canEdit
+              onSaved={() => router.refresh()}
+            />
+            <Column gap="12" style={{ minWidth: 0 }}>
+              <Row gap="8" vertical="center" wrap>
+                <Heading
+                  variant="heading-strong-l"
+                  style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                >
+                  {project.title}
+                </Heading>
+                <Tag
+                  size="m"
+                  variant={PROJECT_STATUS_VARIANTS[project.status] ?? "neutral"}
+                  label={PROJECT_STATUS_LABELS[project.status] ?? project.status}
+                />
+              </Row>
+              {project.description && (
+                <Text
+                  variant="body-default-m"
+                  onBackground="neutral-weak"
+                  style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                >
+                  {project.description}
+                </Text>
+              )}
+              <Row gap="16" wrap style={{ minWidth: 0 }}>
+                <PersonBadge label="Cliente" person={client} />
+              </Row>
+            </Column>
+          </Row>
           <IconButton
             icon="settings"
             size="m"
@@ -1316,61 +1297,12 @@ export function CollabProjectView({
             {project.tasks.map((task, index) => (
               <Column key={task.id} fillWidth>
                 {index > 0 && <Line background="neutral-alpha-weak" />}
-                <Column fillWidth gap="8" paddingX="16" paddingY="12">
-                  <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
-                    <Text
-                      variant="label-default-m"
-                      onBackground="neutral-strong"
-                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
-                    >
-                      {task.title}
-                    </Text>
-                    <Tag
-                      size="s"
-                      variant={PROJECT_TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
-                      label={PROJECT_TASK_STATUS_LABELS[task.status] ?? task.status}
-                    />
-                  </Row>
-                  {(task.assignee || task.dueDate || task.asset) && (
-                    <Row gap="16" vertical="center" wrap>
-                      {task.assignee && (
-                        <Row gap="8" vertical="center">
-                          <Avatar
-                            size="xs"
-                            {...(task.assignee.imageUrl
-                              ? { src: task.assignee.imageUrl }
-                              : {
-                                  value: (
-                                    task.assignee.name?.[0] ??
-                                    task.assignee.username?.[0] ??
-                                    "U"
-                                  ).toUpperCase(),
-                                })}
-                          />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {task.assignee.name ?? task.assignee.username ?? "Sin asignar"}
-                          </Text>
-                        </Row>
-                      )}
-                      {task.dueDate && (
-                        <Row gap="4" vertical="center">
-                          <Icon name="calendar" size="xs" onBackground="neutral-weak" />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {new Date(task.dueDate).toLocaleDateString()}
-                          </Text>
-                        </Row>
-                      )}
-                      {task.asset && (
-                        <Row gap="4" vertical="center">
-                          <Icon name="shapes" size="xs" onBackground="neutral-weak" />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {task.asset.title}
-                          </Text>
-                        </Row>
-                      )}
-                    </Row>
-                  )}
-                </Column>
+                <ProjectTaskRow
+                  task={task}
+                  allTasks={project.tasks}
+                  canEdit={viewerRole === "partner" && task.status !== "approved"}
+                  onChanged={() => router.refresh()}
+                />
               </Column>
             ))}
           </Column>

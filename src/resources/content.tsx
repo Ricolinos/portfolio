@@ -64,7 +64,9 @@ const home: Home = {
   path: "/",
   image: "/api/og/generate?title=Hub-Nerds",
   label: "Home",
-  title: `Portafolios de ${person.name}`,
+  // Marca del sitio (no "Portafolios de..."): el layout raíz usa este valor
+  // como default del <title> y como og:title/twitter:title de fallback.
+  title: "Hub-Nerds",
   description:
     "Plataforma hecha por un grupo de creativos: diseñadores, realizadores y nerds construyendo el lugar donde el trabajo creativo se encuentra con quien lo necesita.",
   headline: <>Visuales que conectan </>,

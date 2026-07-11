@@ -24,28 +24,46 @@ async function requireAuth(): Promise<string | null> {
   return userId ?? null;
 }
 
+// Paginación simple por cursor (id de la última notificación ya cargada):
+// pide `limit + 1` filas, si sobra una hay más páginas y se recorta.
 export async function getNotifications(
   limit = 30,
-): Promise<Result<{ notifications: NotificationData[] }>> {
+  cursor?: string,
+): Promise<Result<{ notifications: NotificationData[]; nextCursor: string | null }>> {
   const userId = await requireAuth();
   if (!userId) return { ok: false, error: "No autenticado" };
 
-  const notifications = await prisma.notification.findMany({
+  const rows = await prisma.notification.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: limit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
 
   return {
     ok: true,
-    notifications: notifications.map((notification) => ({
+    notifications: page.map((notification) => ({
       id: notification.id,
       type: notification.type,
       payload: notification.payload,
       readAt: notification.readAt ? notification.readAt.toISOString() : null,
       createdAt: notification.createdAt.toISOString(),
     })),
+    nextCursor: hasMore ? page[page.length - 1].id : null,
   };
+}
+
+// Total de notificaciones no leídas del usuario, para el badge del panel de
+// notificaciones del dashboard (Fase 6b).
+export async function getUnreadNotificationCount(): Promise<Result<{ count: number }>> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const count = await prisma.notification.count({ where: { userId, readAt: null } });
+  return { ok: true, count };
 }
 
 // Sin ids: marca todas las notificaciones no leídas del usuario. Con ids:
@@ -64,4 +82,10 @@ export async function markNotificationsRead(ids?: string[]): Promise<Result> {
   });
 
   return { ok: true };
+}
+
+// Alias explícito de markNotificationsRead() sin ids, para el botón "marcar
+// todas como leídas" del panel de notificaciones.
+export async function markAllNotificationsRead(): Promise<Result> {
+  return markNotificationsRead();
 }

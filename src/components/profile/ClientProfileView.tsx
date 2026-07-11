@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
   Card,
   Column,
   ContextMenu,
-  Grid,
+  Feedback,
   Heading,
   Icon,
   IconButton,
@@ -19,7 +17,14 @@ import {
   Tag,
   Text,
 } from "@once-ui-system/core";
-import { STATUS_LABELS, type ProjectStatus } from "@/lib/projectStatus";
+import { LinearGauge } from "@once-ui-system/core/modules";
+import { useRouter } from "next/navigation";
+import { type MouseEvent, useState } from "react";
+import { sendContactRequest } from "@/app/actions/collab";
+import {
+  CollaboratorSearchModal,
+  type CollaboratorSearchPerson,
+} from "@/components/collab/CollaboratorSearchModal";
 import { RESOURCE_CATEGORY_SLUGS } from "@/components/resources/categories";
 import type {
   ClientConnectionData,
@@ -28,19 +33,25 @@ import type {
   CollabProjectData,
 } from "@/lib/collab";
 import {
-  AvatarUploadDialog,
-  EditInfoDialog,
-  SecurityPrivacyDialog,
-  type EditProfileInitial,
-} from "./ClientProfileEditDialogs";
+  type ProjectStatus,
+  projectStatusTag,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_VARIANTS,
+} from "@/lib/projectStatus";
 import {
   AddClientResourceDialog,
+  type ConnectionOption,
   DeleteClientResourceDialog,
   NewCollabProjectDialog,
-  ShareClientResourceDialog,
-  type ConnectionOption,
   type ShareablePartner,
+  ShareClientResourceDialog,
 } from "./ClientCollabDialogs";
+import {
+  AvatarUploadDialog,
+  EditInfoDialog,
+  type EditProfileInitial,
+  SecurityPrivacyDialog,
+} from "./ClientProfileEditDialogs";
 import styles from "./ClientProfileView.module.scss";
 
 export interface ClientProject {
@@ -74,19 +85,10 @@ interface ClientProfileViewProps {
   connections?: ClientConnectionData[];
   collabProjects?: CollabProjectData[];
   resources?: ClientResourceData[];
+  // Partners públicos aún sin Connection con este cliente, para el buscador
+  // de "Buscar más talento" (CollaboratorSearchModal).
+  discoverablePartners?: CollaboratorSearchPerson[];
 }
-
-const COLLAB_PROJECT_STATUS_LABELS: Record<string, string> = {
-  active: "Activo",
-  completed: "Completado",
-  archived: "Archivado",
-};
-
-const COLLAB_PROJECT_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success"> = {
-  active: "warning",
-  completed: "success",
-  archived: "neutral",
-};
 
 const PROVIDER_LABELS: Record<string, string> = {
   drive: "Drive",
@@ -96,33 +98,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   other: "Link",
 };
 
-// Colores tipo tablero Monday: en progreso ámbar, completado verde, enviada azul.
-const STATUS_VARIANTS: Record<ProjectStatus, "neutral" | "info" | "warning" | "success"> = {
-  draft: "neutral",
-  sent: "info",
-  active: "warning",
-  completed: "success",
-  archived: "neutral",
-};
-
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
-
-// href null = acceso aún sin destino (pendiente definir la página de nuevo
-// proyecto); se pinta como panel estático, no como tarjeta clicable.
-const QUICK_ACCESS = [
-  {
-    icon: "search",
-    title: "Buscar talento",
-    description: "Encuentra diseñadores para tu próximo proyecto.",
-    href: "/explorar/designerds",
-  },
-  {
-    icon: "plus",
-    title: "Nuevo proyecto",
-    description: "Muy pronto podrás iniciar proyectos desde aquí.",
-    href: null,
-  },
-] as const;
 
 function waLink(whatsapp: string) {
   return `https://wa.me/${whatsapp.replace(/\D/g, "")}`;
@@ -134,23 +110,37 @@ function formatTotal(total: number | null, currency: string) {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function ProjectRow({ project, designer }: { project: ClientProject; designer?: CollabPartnerSummary }) {
-  const status = project.status as ProjectStatus;
+function ProjectRow({
+  project,
+  designer,
+}: {
+  project: ClientProject;
+  designer?: CollabPartnerSummary;
+}) {
+  const statusTag = projectStatusTag(project.status);
 
   return (
     <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" gap="16">
-      <Row gap="12" vertical="center">
+      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
         <Icon name="briefcase" size="s" onBackground="neutral-weak" />
-        <Text variant="label-default-m" onBackground="neutral-strong">
+        <Text
+          variant="label-default-m"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
           {project.title}
         </Text>
       </Row>
 
       <Row gap="8" vertical="center">
-        <Tag size="s" variant={STATUS_VARIANTS[status] ?? "neutral"} label={STATUS_LABELS[status] ?? project.status} />
+        <Tag size="s" variant={statusTag.variant} label={statusTag.label} />
         <IconButton
           icon="infoCircle"
           size="s"
@@ -188,7 +178,14 @@ function ProjectGroup({
 
   return (
     <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-      <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" background="neutral-alpha-weak">
+      <Row
+        fillWidth
+        paddingX="20"
+        paddingY="12"
+        horizontal="between"
+        vertical="center"
+        background="neutral-alpha-weak"
+      >
         <Row gap="8" vertical="center">
           <Tag size="s" variant={variant} label={title} />
         </Row>
@@ -206,70 +203,166 @@ function ProjectGroup({
   );
 }
 
-// Fila de un proyecto en colaboración (con partner ya aceptado): estatus,
-// tareas esperando aprobación del cliente, y click para ir al detalle.
-function CollabProjectRow({ project }: { project: CollabProjectData }) {
-  const router = useRouter();
-  const pendingReview = project.tasks.filter((task) => task.status === "in_review").length;
-  const status = project.status;
-
+// Fila de una tarea activa (checklist) de un proyecto en colaboración,
+// dentro del contenedor expandible de CollabProjectRow. El avance
+// (LinearGauge) es de solo lectura aquí: la edición vive en el panel del
+// partner (CollabProjectView/ProjectTaskRow, Fase 6b).
+function TaskRow({ task }: { task: CollabProjectData["tasks"][number] }) {
   return (
-    <Row
-      fillWidth
-      paddingX="20"
-      paddingY="12"
-      horizontal="between"
-      vertical="center"
-      gap="16"
-      style={{ cursor: "pointer" }}
-      onClick={() => router.push(`/proyectos/${project.id}`)}
-    >
-      <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
-        <Icon name="folder" size="s" onBackground="neutral-weak" />
+    <Column fillWidth paddingX="16" paddingY="8" gap="8">
+      <Row fillWidth horizontal="between" vertical="center" gap="12">
         <Text
-          variant="label-default-m"
+          variant="label-default-s"
           onBackground="neutral-strong"
           style={{ minWidth: 0, overflowWrap: "anywhere" }}
         >
-          {project.title}
+          {task.title}
         </Text>
-      </Row>
-
-      <Row gap="8" vertical="center">
-        {pendingReview > 0 && (
-          <Tag
-            size="s"
-            variant="warning"
-            label={`${pendingReview} por aprobar`}
-          />
-        )}
         <Tag
           size="s"
-          variant={COLLAB_PROJECT_STATUS_VARIANTS[status] ?? "neutral"}
-          label={COLLAB_PROJECT_STATUS_LABELS[status] ?? status}
+          variant={TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
+          label={TASK_STATUS_LABELS[task.status] ?? task.status}
         />
       </Row>
-    </Row>
+      <Row gap="8" vertical="center">
+        <Column flex={1} height="24" style={{ minWidth: 60 }}>
+          <LinearGauge
+            value={task.progress}
+            hue={task.progress >= 100 ? "success" : "neutral"}
+            line={{ count: 20, length: 16 }}
+          />
+        </Column>
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          {task.progress}%
+        </Text>
+      </Row>
+    </Column>
   );
 }
 
-function CollabProjectGroup({ projects }: { projects: CollabProjectData[] }) {
-  if (projects.length === 0) return null;
+// Fila de un proyecto en colaboración (con partner ya aceptado): estatus
+// homologado, tareas esperando aprobación del cliente, click para ir al
+// detalle, y un botón para expandir/colapsar sus tareas activas sin salir
+// del panel.
+function CollabProjectRow({ project }: { project: CollabProjectData }) {
+  const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
+  const pendingReview = project.tasks.filter(
+    (task) => task.status === "in_review" || task.status === "pending_approval",
+  ).length;
+  const statusTag = projectStatusTag(project.status);
+  const activeTasks = project.tasks.filter(
+    (task) => task.status !== "approved" && task.status !== "rejected",
+  );
+
+  return (
+    <Column fillWidth>
+      <Row
+        fillWidth
+        paddingX="20"
+        paddingY="12"
+        horizontal="between"
+        vertical="center"
+        gap="16"
+        style={{ cursor: "pointer" }}
+        onClick={() => router.push(`/proyectos/${project.id}`)}
+      >
+        <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+          <Icon name="folder" size="s" onBackground="neutral-weak" />
+          <Text
+            variant="label-default-m"
+            onBackground="neutral-strong"
+            style={{ minWidth: 0, overflowWrap: "anywhere" }}
+          >
+            {project.title}
+          </Text>
+        </Row>
+
+        <Row gap="8" vertical="center">
+          {pendingReview > 0 && (
+            <Tag size="s" variant="warning" label={`${pendingReview} por aprobar`} />
+          )}
+          <Tag size="s" variant={statusTag.variant} label={statusTag.label} />
+          {project.tasks.length > 0 && (
+            <IconButton
+              icon={expanded ? "chevronUp" : "chevronDown"}
+              size="s"
+              variant="tertiary"
+              tooltip={expanded ? "Ocultar tareas" : "Ver tareas"}
+              tooltipPosition="top"
+              onClick={(e: MouseEvent) => {
+                e.stopPropagation();
+                setExpanded((current) => !current);
+              }}
+            />
+          )}
+        </Row>
+      </Row>
+
+      {expanded && project.tasks.length > 0 && (
+        <Column fillWidth paddingLeft={52} paddingRight="20" paddingBottom="8">
+          {activeTasks.length === 0 ? (
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              Sin tareas activas.
+            </Text>
+          ) : (
+            <Column fillWidth border="neutral-alpha-weak" radius="m" overflow="hidden">
+              {activeTasks.map((task, index) => (
+                <Column key={task.id} fillWidth>
+                  {index > 0 && <Line background="neutral-alpha-weak" />}
+                  <TaskRow task={task} />
+                </Column>
+              ))}
+            </Column>
+          )}
+        </Column>
+      )}
+    </Column>
+  );
+}
+
+// Bloque unificado "Proyectos en curso" (Fase 3): fusiona los proyectos en
+// colaboración (CollabProject, con tareas expandibles) y las cotizaciones
+// del cliente todavía en curso (ProjectQuote) en un único contenedor.
+function InProgressProjectsGroup({
+  collabProjects,
+  quoteProjects,
+  designer,
+}: {
+  collabProjects: CollabProjectData[];
+  quoteProjects: ClientProject[];
+  designer?: CollabPartnerSummary;
+}) {
+  const total = collabProjects.length + quoteProjects.length;
+  if (total === 0) return null;
 
   return (
     <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-      <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" background="neutral-alpha-weak">
+      <Row
+        fillWidth
+        paddingX="20"
+        paddingY="12"
+        horizontal="between"
+        vertical="center"
+        background="neutral-alpha-weak"
+      >
         <Row gap="8" vertical="center">
-          <Tag size="s" variant="brand" label="Proyectos en colaboración" />
+          <Tag size="s" variant="brand" label="Proyectos en curso" />
         </Row>
         <Text variant="label-default-s" onBackground="neutral-weak">
-          {projects.length} {projects.length === 1 ? "proyecto" : "proyectos"}
+          {total} {total === 1 ? "proyecto" : "proyectos"}
         </Text>
       </Row>
-      {projects.map((project) => (
+      {collabProjects.map((project) => (
         <Column key={project.id} fillWidth>
           <Line background="neutral-alpha-weak" />
           <CollabProjectRow project={project} />
+        </Column>
+      ))}
+      {quoteProjects.map((project) => (
+        <Column key={project.id} fillWidth>
+          <Line background="neutral-alpha-weak" />
+          <ProjectRow project={project} designer={designer} />
         </Column>
       ))}
     </Column>
@@ -303,11 +396,7 @@ function ResourceRow({
       <Row gap="8" vertical="center">
         <Tag size="s" variant="neutral" label={PROVIDER_LABELS[resource.provider] ?? "Link"} />
         {resource.sharedWith.length > 0 && (
-          <Tag
-            size="s"
-            variant="info"
-            label={`Compartido con ${resource.sharedWith.length}`}
-          />
+          <Tag size="s" variant="info" label={`Compartido con ${resource.sharedWith.length}`} />
         )}
         <IconButton
           icon="arrowUpRightFromSquare"
@@ -362,12 +451,15 @@ export function ClientProfileView({
   connections = [],
   collabProjects = [],
   resources = [],
+  discoverablePartners = [],
 }: ClientProfileViewProps) {
+  const router = useRouter();
   const [openDialog, setOpenDialog] = useState<"avatar" | "info" | "security" | null>(null);
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
   const [resourceDialog, setResourceDialog] = useState<"add" | null>(null);
   const [shareCandidate, setShareCandidate] = useState<ClientResourceData | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ClientResourceData | null>(null);
+  const [contactError, setContactError] = useState<string | null>(null);
 
   const initials = (displayName[0] ?? "U").toUpperCase();
   const avatarProps = avatarUrl ? { src: avatarUrl } : { value: initials };
@@ -395,6 +487,18 @@ export function ClientProfileView({
     username: connection.partner.username,
     imageUrl: connection.partner.imageUrl,
   }));
+
+  // "Buscar más talento": envía una solicitud de contacto directa al partner
+  // elegido en el buscador, en vez de redirigir a /explorar/designerds.
+  const handleContactPartner = async (partnerId: string) => {
+    setContactError(null);
+    const result = await sendContactRequest(partnerId);
+    if (!result.ok) {
+      setContactError(result.error);
+      return;
+    }
+    router.refresh();
+  };
 
   // Zona de identidad: con perfil propio se envuelve en ContextMenu (click o
   // click derecho) para cambiar imagen y editar información.
@@ -430,7 +534,12 @@ export function ClientProfileView({
               variant="label-default-s"
               onBackground="neutral-weak"
               title={email}
-              style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+              style={{
+                minWidth: 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
             >
               {email}
             </Text>
@@ -442,7 +551,11 @@ export function ClientProfileView({
           </Text>
         )}
         {motto && (
-          <Text variant="body-default-s" onBackground="neutral-weak" style={{ fontStyle: "italic" }}>
+          <Text
+            variant="body-default-s"
+            onBackground="neutral-weak"
+            style={{ fontStyle: "italic" }}
+          >
             “{motto}”
           </Text>
         )}
@@ -454,17 +567,33 @@ export function ClientProfileView({
     <RevealFx fillWidth horizontal="center" revealedByDefault>
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="40" gap="24">
-
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
           {(() => {
             const headerContent = (
-              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column", horizontal: "start" }}>
+              <Row
+                fillWidth
+                gap="20"
+                vertical="center"
+                horizontal="between"
+                wrap
+                s={{ direction: "column", horizontal: "start" }}
+              >
                 {identity}
-                <Row gap="20" vertical="center" wrap s={{ direction: "column", style: { width: "100%" } }}>
+                <Row
+                  gap="20"
+                  vertical="center"
+                  wrap
+                  s={{ direction: "column", style: { width: "100%" } }}
+                >
                   {isOwnProfile && (
                     <>
                       {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
-                      <Line vert background="neutral-alpha-medium" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
+                      <Line
+                        vert
+                        background="neutral-alpha-medium"
+                        style={{ alignSelf: "stretch" }}
+                        s={{ hide: true }}
+                      />
                       {/* Mismo patrón que "Administra tus proyectos" del perfil de Partner */}
                       <Row
                         background="brand-alpha-weak"
@@ -480,8 +609,9 @@ export function ClientProfileView({
                         <Column gap="4" style={{ minWidth: 0 }}>
                           <Text variant="heading-strong-s">Administra tu cuenta</Text>
                           <Text variant="body-default-s" onBackground="neutral-weak">
-                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas táctiles) para
-                            cambiar tu imagen, editar tu perfil o ajustar tu seguridad y privacidad.
+                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas
+                            táctiles) para cambiar tu imagen, editar tu perfil o ajustar tu
+                            seguridad y privacidad.
                           </Text>
                         </Column>
                       </Row>
@@ -533,62 +663,71 @@ export function ClientProfileView({
           {/* ── Resumen de actividad ───────────────────────────────────────── */}
           <Row fillWidth horizontal="end" vertical="center" gap="8" wrap>
             <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
-            <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
-            <Tag size="m" variant="info" prefixIcon="bell" label={`${notificationCount} notificaciones`} />
+            <Tag
+              size="m"
+              variant="success"
+              label={`${finished.filter((p) => p.status === "completed").length} completados`}
+            />
+            <Tag
+              size="m"
+              variant="info"
+              prefixIcon="bell"
+              label={`${notificationCount} notificaciones`}
+            />
           </Row>
 
-          {/* ── Accesos rápidos ────────────────────────────────────────────── */}
-          <Grid columns={2} s={{ columns: 1 }} gap="16" fillWidth>
-            {QUICK_ACCESS.map((item) => {
-              const inner = (
-                <>
-                  <Row fillWidth horizontal="between" vertical="center">
-                    <Icon name={item.icon} size="m" onBackground="brand-weak" />
-                    {item.href && <Icon name="arrowUpRight" size="s" onBackground="neutral-weak" />}
-                  </Row>
-                  <Column gap="4">
-                    <Text variant="heading-strong-s">{item.title}</Text>
-                    <Text variant="body-default-s" onBackground="neutral-weak">
-                      {item.description}
-                    </Text>
-                  </Column>
-                </>
-              );
-              return item.href ? (
-                <Card key={item.title} fillWidth padding="20" radius="l" href={item.href} direction="column" gap="12">
-                  {inner}
-                </Card>
-              ) : (
-                <Column key={item.title} fillWidth padding="20" radius="l" background="surface" border="neutral-alpha-weak" gap="12">
-                  {inner}
-                </Column>
-              );
-            })}
-          </Grid>
+          {/* ── Nuevo proyecto: panel principal de creación, toda la tarjeta ── */}
+          {/* es clicable (reemplaza el botón disparador que vivía en "Mis   */}
+          {/* proyectos"); requiere al menos un diseñador conectado. ──────── */}
+          {acceptedConnections.length > 0 ? (
+            <Card
+              fillWidth
+              padding="20"
+              radius="l"
+              direction="column"
+              gap="12"
+              onClick={() => setCollabDialogOpen(true)}
+            >
+              <Row fillWidth horizontal="between" vertical="center">
+                <Icon name="plus" size="m" onBackground="brand-weak" />
+                <Icon name="arrowUpRight" size="s" onBackground="neutral-weak" />
+              </Row>
+              <Column gap="4">
+                <Text variant="heading-strong-s">Nuevo proyecto</Text>
+                <Text variant="body-default-s" onBackground="neutral-weak">
+                  Elige la vertical de tu proyecto y arráncalo en colaboración con tu diseñador.
+                </Text>
+              </Column>
+            </Card>
+          ) : (
+            <Column
+              fillWidth
+              padding="20"
+              radius="l"
+              background="surface"
+              border="neutral-alpha-weak"
+              gap="12"
+            >
+              <Icon name="plus" size="m" onBackground="brand-weak" />
+              <Column gap="4">
+                <Text variant="heading-strong-s">Nuevo proyecto</Text>
+                <Text variant="body-default-s" onBackground="neutral-weak">
+                  Conecta primero con un diseñador para poder iniciar un proyecto en colaboración.
+                </Text>
+              </Column>
+            </Column>
+          )}
 
           {/* ── Tablero de proyectos + paneles laterales ───────────────────── */}
           <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
-
             {/* Tablero tipo Monday */}
             <Column gap="40" fillWidth>
               <Column gap="16" fillWidth>
                 <Row fillWidth horizontal="between" vertical="center" wrap gap="8">
                   <Heading variant="heading-strong-m">Mis proyectos</Heading>
-                  {acceptedConnections.length > 0 && (
-                    <Button
-                      variant="secondary"
-                      size="s"
-                      prefixIcon="plus"
-                      onClick={() => setCollabDialogOpen(true)}
-                    >
-                      Nuevo proyecto
-                    </Button>
-                  )}
                 </Row>
 
-                <CollabProjectGroup projects={collabProjects} />
-
-                {projects.length === 0 ? (
+                {projects.length === 0 && collabProjects.length === 0 ? (
                   <Column
                     fillWidth
                     horizontal="center"
@@ -601,14 +740,28 @@ export function ClientProfileView({
                     <Text variant="body-default-m" onBackground="neutral-weak" align="center">
                       Aún no has contratado proyectos.
                     </Text>
-                    <Button href="/servicios/cotizador" variant="primary" size="m" prefixIcon="plus">
+                    <Button
+                      href="/servicios/cotizador"
+                      variant="primary"
+                      size="m"
+                      prefixIcon="plus"
+                    >
                       Cotizar mi primer proyecto
                     </Button>
                   </Column>
                 ) : (
                   <Column gap="16" fillWidth>
-                    <ProjectGroup title="En curso" variant="warning" projects={inProgress} designer={mainDesigner} />
-                    <ProjectGroup title="Finalizados" variant="success" projects={finished} designer={mainDesigner} />
+                    <InProgressProjectsGroup
+                      collabProjects={collabProjects}
+                      quoteProjects={inProgress}
+                      designer={mainDesigner}
+                    />
+                    <ProjectGroup
+                      title="Finalizados"
+                      variant="success"
+                      projects={finished}
+                      designer={mainDesigner}
+                    />
                   </Column>
                 )}
               </Column>
@@ -638,7 +791,8 @@ export function ClientProfileView({
                   >
                     <Icon name="folder" size="l" onBackground="neutral-weak" />
                     <Text variant="body-default-m" onBackground="neutral-weak" align="center">
-                      Aún no agregas recursos. Sube tus assets a tu nube favorita y comparte el link aquí.
+                      Aún no agregas recursos. Sube tus assets a tu nube favorita y comparte el link
+                      aquí.
                     </Text>
                   </Column>
                 ) : (
@@ -660,9 +814,14 @@ export function ClientProfileView({
 
             {/* Paneles laterales */}
             <Column gap="16" fillWidth style={{ maxWidth: 320 }}>
-
               {/* Diseñadores contratados */}
-              <Column background="neutral-alpha-weak" border="neutral-alpha-weak" padding="16" radius="m" gap="12">
+              <Column
+                background="neutral-alpha-weak"
+                border="neutral-alpha-weak"
+                padding="16"
+                radius="m"
+                gap="12"
+              >
                 <Row gap="8" vertical="center">
                   <Icon name="userGroup" size="s" onBackground="neutral-weak" />
                   <Text variant="label-strong-s">Tus diseñadores</Text>
@@ -674,7 +833,13 @@ export function ClientProfileView({
                 ) : (
                   <>
                     {acceptedConnections.map(({ partner }) => (
-                      <Row key={partner.id} fillWidth horizontal="between" vertical="center" gap="8">
+                      <Row
+                        key={partner.id}
+                        fillWidth
+                        horizontal="between"
+                        vertical="center"
+                        gap="8"
+                      >
                         <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
                           <Avatar
                             size="s"
@@ -744,13 +909,27 @@ export function ClientProfileView({
                   </>
                 )}
                 <Line background="neutral-alpha-weak" />
-                <Button href="/explorar/designerds" variant="secondary" size="s" fillWidth prefixIcon="search">
-                  Buscar más talento
-                </Button>
+                <CollaboratorSearchModal
+                  people={discoverablePartners}
+                  onSelect={handleContactPartner}
+                  trigger={
+                    <Button variant="secondary" size="s" fillWidth prefixIcon="search">
+                      Buscar más talento
+                    </Button>
+                  }
+                  emptyHint="No hay más diseñadores disponibles para conectar por ahora."
+                />
+                {contactError && <Feedback variant="danger" description={contactError} />}
               </Column>
 
               {/* Recursos por categoría */}
-              <Column background="neutral-alpha-weak" border="neutral-alpha-weak" padding="16" radius="m" gap="12">
+              <Column
+                background="neutral-alpha-weak"
+                border="neutral-alpha-weak"
+                padding="16"
+                radius="m"
+                gap="12"
+              >
                 <Row gap="8" vertical="center">
                   <Icon name="download" size="s" onBackground="neutral-weak" />
                   <Text variant="label-strong-s">Recursos compartidos</Text>
@@ -766,7 +945,6 @@ export function ClientProfileView({
                   ))}
                 </Row>
               </Column>
-
             </Column>
           </Row>
         </Column>

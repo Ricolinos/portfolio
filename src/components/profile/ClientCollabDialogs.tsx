@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
+  Chip,
   Column,
   Dialog,
   Feedback,
@@ -18,6 +19,7 @@ import {
 } from "@once-ui-system/core";
 import type { ClientResourceData } from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
+import { PROJECT_SUBCATEGORIES, PROJECT_VERTICALS, type ProjectVertical } from "@/lib/projectCategories";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { addClientResource, createCollabProject, updateClientResource, deleteClientResource } from "@/app/actions/collab";
 
@@ -44,6 +46,13 @@ export function NewCollabProjectDialog({
   const [connectionId, setConnectionId] = useState<string>(options[0]?.value ?? "");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // Formulario predictivo de categoría: vertical raíz + ramificaciones que se
+  // despliegan dinámicamente tras accionar "Agregar". No hay campo en el
+  // schema para esto (CollabProject no tiene categoría); se resume como una
+  // línea al inicio de la descripción para no romper createCollabProject.
+  const [vertical, setVertical] = useState<ProjectVertical | "">("");
+  const [subcategoriesRevealed, setSubcategoriesRevealed] = useState(false);
+  const [selectedSubcategories, setSelectedSubcategories] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -51,12 +60,27 @@ export function NewCollabProjectDialog({
     setConnectionId(options[0]?.value ?? "");
     setTitle("");
     setDescription("");
+    setVertical("");
+    setSubcategoriesRevealed(false);
+    setSelectedSubcategories([]);
     setError(null);
   };
 
   const handleClose = () => {
     reset();
     onClose();
+  };
+
+  const handleAddVertical = () => {
+    if (!vertical) return;
+    setSubcategoriesRevealed(true);
+    setSelectedSubcategories([]);
+  };
+
+  const toggleSubcategory = (subcategory: string) => {
+    setSelectedSubcategories((current) =>
+      current.includes(subcategory) ? current.filter((item) => item !== subcategory) : [...current, subcategory],
+    );
   };
 
   const handleSave = async () => {
@@ -66,7 +90,14 @@ export function NewCollabProjectDialog({
     }
     setSaving(true);
     setError(null);
-    const result = await createCollabProject(connectionId, title, description);
+    const categoryLine =
+      vertical && selectedSubcategories.length > 0
+        ? `Categoría: ${vertical} → ${selectedSubcategories.join(", ")}`
+        : null;
+    const finalDescription = categoryLine
+      ? [categoryLine, description.trim()].filter(Boolean).join("\n\n")
+      : description;
+    const result = await createCollabProject(connectionId, title, finalDescription);
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
@@ -94,6 +125,46 @@ export function NewCollabProjectDialog({
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Ej. Rediseño de marca"
         />
+
+        <Column gap="12" fillWidth>
+          <Row fillWidth gap="8" vertical="end" wrap>
+            <Column style={{ flex: 1, minWidth: 160 }}>
+              <Select
+                id="collab-new-project-vertical"
+                label="Tipo de proyecto"
+                value={vertical}
+                onSelect={(value) => {
+                  setVertical(value as ProjectVertical);
+                  setSubcategoriesRevealed(false);
+                  setSelectedSubcategories([]);
+                }}
+                options={PROJECT_VERTICALS.map((item) => ({ value: item, label: item }))}
+              />
+            </Column>
+            <Button variant="secondary" size="m" prefixIcon="plus" onClick={handleAddVertical} disabled={!vertical}>
+              Agregar
+            </Button>
+          </Row>
+
+          {subcategoriesRevealed && vertical && (
+            <Column gap="8" fillWidth>
+              <Text variant="label-default-s" onBackground="neutral-weak">
+                Elige una o más ramificaciones
+              </Text>
+              <Row gap="8" wrap>
+                {PROJECT_SUBCATEGORIES[vertical].map((subcategory) => (
+                  <Chip
+                    key={subcategory}
+                    label={subcategory}
+                    selected={selectedSubcategories.includes(subcategory)}
+                    onClick={() => toggleSubcategory(subcategory)}
+                  />
+                ))}
+              </Row>
+            </Column>
+          )}
+        </Column>
+
         <Textarea
           id="collab-new-project-description"
           label="Descripción (opcional)"

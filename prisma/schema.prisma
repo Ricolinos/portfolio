@@ -53,6 +53,17 @@ model User {
   website           String?
   // Giro o industria del negocio del cliente
   industry          String?
+  // Matriz de roles del Partner (Fase 4): rol principal y hasta 2 roles
+  // secundarios. Máx. 2 secundarios, validado en la server action, no en el schema.
+  primaryRole       String?
+  secondaryRoles    String[] @default([])
+  // Presencia del messenger (heartbeat del cliente cada ~60s vía
+  // presenceHeartbeat): null = nunca reportó actividad. La derivación a
+  // online/busy/offline vive en src/lib/presence.ts (derivePresence).
+  lastSeenAt        DateTime?
+  // Estado manual de presencia: null = automático (según lastSeenAt);
+  // "busy" = ocupado, fijado a mano por el propio usuario.
+  presenceStatus    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -76,6 +87,8 @@ model User {
   projectRoles        ProjectRoleAssignment[] @relation("projectRoles")
   assignedTasks       ProjectTask[]           @relation("assignedTasks")
   notifications       Notification[]          @relation("notifications")
+  // Control de acceso por sala (canales restringidos, ver ChannelMember)
+  channelMemberships  ChannelMember[]         @relation("channelMemberships")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -245,6 +258,9 @@ model CollabProject {
   quoteNotes      String?                 @db.Text
   startDate       DateTime?
   dueDate         DateTime?
+  // Imagen corporativa/logotipo del proyecto (data URL comprimida o URL
+  // pública, mismo patrón que User.coverImageUrl)
+  logoUrl         String?
   connectionId    String
   connection      Connection              @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   tasks           ProjectTask[]
@@ -260,6 +276,13 @@ model CollabProject {
   updatedAt       DateTime                @updatedAt
 
   @@index([connectionId])
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }
 
 // Tarea del proyecto; el partner la marca in_review para pedir aprobación del cliente.
@@ -287,11 +310,40 @@ model ProjectTask {
   sourceMessageId String?         @unique
   sourceMessage   ChannelMessage? @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
 
+  // Atributos ricos (Fase 6): prioridad, avance, rango de fechas y categoría
+  priority  TaskPriority @default(MEDIUM)
+  // Avance 0-100 para LinearGauge, validado en la server action
+  progress  Int          @default(0)
+  // Junto a dueDate, para DateRangePicker
+  startDate DateTime?
+  // Categorización personalizada libre
+  category  String?
+
+  // Dependencias cruzadas entre tareas (Fase 6)
+  dependencies TaskDependency[] @relation("taskDependencies")
+  dependents   TaskDependency[] @relation("dependentTasks")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([projectId])
   @@index([assigneeId])
+}
+
+// Dependencia cruzada entre tareas del mismo proyecto (self-relation sobre
+// ProjectTask): la tarea `task` depende de que `dependsOn` esté resuelta.
+model TaskDependency {
+  id          String      @id @default(cuid())
+  taskId      String
+  task        ProjectTask @relation("taskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnId String
+  dependsOn   ProjectTask @relation("dependentTasks", fields: [dependsOnId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([taskId, dependsOnId])
+  @@index([taskId])
+  @@index([dependsOnId])
 }
 
 // Archivo del proyecto como link externo (la plataforma solo guarda URLs)
@@ -477,11 +529,32 @@ model ProjectChannel {
   project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   messages ChannelMessage[]
+  // Control de acceso por sala, ver ChannelMember
+  members  ChannelMember[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([projectId])
+}
+
+// Control de acceso por sala de proyecto. Semántica: un canal SIN filas de
+// ChannelMember es abierto a todos los miembros del proyecto (retrocompatible
+// con las salas existentes, creadas antes de este modelo); un canal CON al
+// menos una fila queda restringido a esos usuarios más el cliente dueño del
+// proyecto (connection.clientId), que siempre puede entrar sin importar si
+// tiene una fila propia. Ver requireChannelAccess en actions/channels.ts.
+model ChannelMember {
+  id        String         @id @default(cuid())
+  channelId String
+  channel   ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User           @relation("channelMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([channelId, userId])
+  @@index([channelId])
+  @@index([userId])
 }
 
 model ChannelMessage {

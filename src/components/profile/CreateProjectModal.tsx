@@ -13,6 +13,7 @@ import {
   IconButton,
   Input,
   Line,
+  RevealFx,
   Row,
   ScrollLock,
   ShineFx,
@@ -22,7 +23,7 @@ import {
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import {
   createPortfolioPiece,
@@ -485,12 +486,10 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   // MouseEvent SÍ llega en runtime (aunque `CardProps.onClick` lo tipe como
   // `() => void`); stopPropagation() ahí corta la burbuja hacia el externo
   // y deja que se agregue un único bloque por click.
-  const handleAddBlockTile =
-    (type: ContentBlockType) =>
-    (event: React.MouseEvent) => {
-      event.stopPropagation();
-      setBlocks((current) => [...current, createBlock(type)]);
-    };
+  const handleAddBlockTile = (type: ContentBlockType) => (event: React.MouseEvent) => {
+    event.stopPropagation();
+    insertBlock(type);
+  };
 
   const moveBlock = (id: string, direction: "up" | "down") => {
     setBlocks((current) => {
@@ -503,6 +502,173 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     });
   };
 
+  // --- Drag-and-drop del Canvas -------------------------------------------
+  // Dos orígenes posibles de arrastre comparten el mismo destino (el lienzo):
+  // reordenar un bloque ya existente (handle dedicado en ContentBlockCard) o
+  // instanciar uno nuevo arrastrando una herramienta del panel derecho. HTML5
+  // DnD nativo (no framer-motion/Reorder) porque el mismo dropzone necesita
+  // aceptar ambos orígenes con un único cómputo de índice de inserción; mezclar
+  // el motor de gestos de Reorder.Group (pointer events) con dragstart/dragover
+  // nativo del panel de herramientas duplicaría la lógica de la línea
+  // indicadora en dos sistemas de eventos distintos.
+  type BlockDragPayload =
+    | { kind: "block"; id: string }
+    | { kind: "tool"; blockType: ContentBlockType };
+
+  const [dragPayload, setDragPayload] = useState<BlockDragPayload | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  // Drag image custom: un chip compacto (icono+label) renderizado offscreen
+  // por cada tipo de herramienta (ver JSX más abajo), en vez del ghost gris
+  // por defecto que captura el navegador del tile completo del panel.
+  const dragPreviewRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Aterrizaje suave: el bloque instanciado por click O por drop se marca
+  // aquí para envolverse en RevealFx (ver render de `blocks.map` abajo) y
+  // hacer scrollIntoView una vez montado; se limpia sola tras la duración de
+  // la animación (RevealFx "fast" = 1000ms, ver dist/components/RevealFx.js).
+  const [justAddedId, setJustAddedId] = useState<string | null>(null);
+  const blockRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prevBlockRectsRef = useRef<Map<string, DOMRect>>(new Map());
+
+  const setBlockRef = (id: string) => (el: HTMLDivElement | null) => {
+    if (el) blockRefs.current.set(id, el);
+    else blockRefs.current.delete(id);
+  };
+
+  // Único punto de inserción de bloques nuevos (click en el panel derecho,
+  // click en el "+" del lienzo, o drop de una herramienta): centraliza el
+  // cómputo de índice y el marcado para la animación de aterrizaje.
+  const insertBlock = (type: ContentBlockType, atIndex?: number) => {
+    const block = createBlock(type);
+    setBlocks((current) => {
+      const next = [...current];
+      next.splice(atIndex === undefined ? next.length : atIndex, 0, block);
+      return next;
+    });
+    setJustAddedId(block.id);
+  };
+
+  useEffect(() => {
+    if (!justAddedId) return;
+    blockRefs.current.get(justAddedId)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const timeout = setTimeout(() => setJustAddedId(null), 1000);
+    return () => clearTimeout(timeout);
+  }, [justAddedId]);
+
+  // Transiciones de reorden (FLIP ligero, sin librería nueva): al cambiar el
+  // orden de `blocks` (drag-and-drop o botones subir/bajar), mide la nueva
+  // posición de cada tarjeta contra la que tenía en el render anterior y, si
+  // se movió, anima el delta con un transform que interpola a 0 — así el
+  // reordenamiento se ve como un desplazamiento suave en vez de un salto
+  // seco. Puramente DOM/refs (mismo patrón de medición que ResizableSplit),
+  // sin animación en el primer render de cada tarjeta (no hay rect previo).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `blocks` dispara la re-medición tras cada insert/remove/reorder; el efecto lee posiciones vía blockRefs (DOM), no el array en sí.
+  useLayoutEffect(() => {
+    const nextRects = new Map<string, DOMRect>();
+    blockRefs.current.forEach((el, id) => {
+      nextRects.set(id, el.getBoundingClientRect());
+    });
+    prevBlockRectsRef.current.forEach((prevRect, id) => {
+      const el = blockRefs.current.get(id);
+      const nextRect = nextRects.get(id);
+      if (!el || !nextRect) return;
+      const deltaY = prevRect.top - nextRect.top;
+      if (Math.abs(deltaY) < 1) return;
+      el.style.transition = "none";
+      el.style.transform = `translateY(${deltaY}px)`;
+      // Fuerza reflow antes de reactivar la transición para que el navegador
+      // no colapse los dos cambios de `transform` en uno solo.
+      el.getBoundingClientRect();
+      el.style.transition = "transform 220ms ease";
+      el.style.transform = "";
+      const clearTransition = () => {
+        el.style.transition = "";
+        el.removeEventListener("transitionend", clearTransition);
+      };
+      el.addEventListener("transitionend", clearTransition);
+    });
+    prevBlockRectsRef.current = nextRects;
+  }, [blocks]);
+
+  const handleBlockDragStart = (id: string) => (event: DragEvent<HTMLButtonElement>) => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+    setDragPayload({ kind: "block", id });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  };
+
+  const handleToolDragStart = (blockType: ContentBlockType) => (event: DragEvent) => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+    const previewEl = dragPreviewRefs.current[blockType];
+    if (previewEl) {
+      event.dataTransfer.setDragImage(
+        previewEl,
+        previewEl.offsetWidth / 2,
+        previewEl.offsetHeight / 2,
+      );
+    }
+    setDragPayload({ kind: "tool", blockType });
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("text/plain", blockType);
+  };
+
+  const handleDragEnd = () => {
+    setDragPayload(null);
+    setDropIndex(null);
+  };
+
+  // Sobre un bloque puntual: decide si la línea de inserción va antes o
+  // después según la mitad vertical del bloque sobre el que está el puntero.
+  const handleBlockDragOver = (index: number) => (event: DragEvent) => {
+    if (!dragPayload) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = dragPayload.kind === "block" ? "move" : "copy";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const isAfter = event.clientY - rect.top > rect.height / 2;
+    setDropIndex(isAfter ? index + 1 : index);
+  };
+
+  // Fallback del lienzo completo: cualquier punto que no sea un bloque
+  // puntual (huecos, lienzo vacío) inserta al final.
+  const handleCanvasDragOver = (event: DragEvent) => {
+    if (!dragPayload) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = dragPayload.kind === "block" ? "move" : "copy";
+    setDropIndex(blocks.length);
+  };
+
+  const handleCanvasDrop = (event: DragEvent) => {
+    event.preventDefault();
+    if (!dragPayload || dropIndex === null) {
+      handleDragEnd();
+      return;
+    }
+    if (dragPayload.kind === "block") {
+      const sourceId = dragPayload.id;
+      const targetIndex = dropIndex;
+      setBlocks((current) => {
+        const fromIndex = current.findIndex((b) => b.id === sourceId);
+        if (fromIndex === -1) return current;
+        const next = [...current];
+        const [moved] = next.splice(fromIndex, 1);
+        const insertAt = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        next.splice(insertAt, 0, moved);
+        return next;
+      });
+    } else {
+      insertBlock(dragPayload.blockType, dropIndex);
+    }
+    handleDragEnd();
+  };
+
   const handleSave = async (publish: boolean) => {
     if (!title.trim() || !markdown.trim()) {
       setError("El título y al menos una sección de contenido son obligatorios.");
@@ -511,6 +677,18 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setError(null);
     setSaving(publish ? "publish" : "draft");
     try {
+      // Los usernames de los bloques "Colaboradores" (avatarGroup) se suman
+      // al campo `collaborators` del guardado, sin duplicar lo ya escrito a
+      // mano en el TagInput del panel derecho (la action no valida/dedup).
+      const blockCollaboratorUsernames = blocks
+        .filter(
+          (b): b is Extract<ContentBlock, { type: "avatarGroup" }> => b.type === "avatarGroup",
+        )
+        .flatMap((b) => b.avatars.map((a) => a.username))
+        .filter((username): username is string => Boolean(username));
+      const mergedCollaborators = Array.from(
+        new Set([...collaborators, ...blockCollaboratorUsernames]),
+      );
       const payload = {
         title,
         content: markdown,
@@ -520,7 +698,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         isPublic: publish,
         gallery: attachments.map((attachment) => attachment.url),
         tags,
-        collaborators,
+        collaborators: mergedCollaborators,
         releaseDate,
       };
       if (pieceId) {
@@ -554,6 +732,46 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   return (
     <>
       <WideDialog isOpen={isOpen} onClose={handleAttemptClose}>
+        {/* Drag image custom: un chip compacto (icono+label) por cada tipo de
+            herramienta, renderizado fuera de pantalla pero SIN display:none
+            (el navegador necesita pintarlo para poder capturarlo como drag
+            image). `handleToolDragStart` llama a `setDragImage` con el nodo
+            correspondiente en vez de dejar el ghost gris por defecto. */}
+        <Row
+          position="fixed"
+          top="0"
+          left="0"
+          pointerEvents="none"
+          zIndex={-1}
+          style={{ transform: "translate(-200%, -200%)" }}
+        >
+          {BLOCK_TYPES.map(({ type, label, icon }) => (
+            <Row
+              key={type}
+              ref={(el) => {
+                dragPreviewRefs.current[type] = el;
+              }}
+              gap="8"
+              vertical="center"
+              padding="8"
+              radius="m"
+              background="surface"
+              border="neutral-alpha-medium"
+              shadow="l"
+            >
+              {type === "text" ? (
+                <Text variant="heading-strong-s" onBackground="neutral-weak">
+                  T
+                </Text>
+              ) : (
+                <Icon name={icon} size="s" onBackground="neutral-weak" />
+              )}
+              <Text variant="label-default-s" onBackground="neutral-strong">
+                {label}
+              </Text>
+            </Row>
+          ))}
+        </Row>
         <Row position="relative" fillWidth vertical="center">
           <Input
             id="project-title"
@@ -594,238 +812,332 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
             <Spinner size="l" ariaLabel="Cargando proyecto" />
           </Row>
         ) : (
-        <Column fillWidth flex={1} paddingTop="16" style={{ minHeight: 0 }}>
-          <ResizableSplit
-            defaultSplit={SPLIT_DEFAULT}
-            minSplit={SPLIT_MIN}
-            maxSplit={SPLIT_MAX}
-            leftPanel={
-              // Lienzo: el scroll y el ancho los reparte ResizableSplit
-              // (columna completa en mobile, caja con scroll propio en desktop).
-              <Column style={{ minWidth: 0 }}>
-                <Card
-                  fillWidth
-                  padding="24"
-                  radius="l"
-                  direction="column"
-                  gap="16"
-                  border="neutral-alpha-weak"
-                  style={{ minHeight: "100%" }}
-                >
-                  <Feedback
-                    variant="info"
-                    description="Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
-                  />
-
-                  <Input
-                    id="project-category"
-                    placeholder="Categoría (Branding, Motion, Web…)"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    disabled={disabled}
-                  />
-
-                  <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
-                    <Row gap="8" vertical="center">
-                      <Icon name="images" size="s" onBackground="neutral-weak" />
-                      <Text variant="label-strong-s" onBackground="neutral-weak">
-                        Portada
-                      </Text>
-                    </Row>
-                    <MediaUpload
-                      aspectRatio="16 / 9"
-                      accept="image/*"
-                      compress
-                      resizeMaxWidth={1600}
-                      resizeMaxHeight={1600}
-                      initialPreviewImage={coverUrl || null}
-                      emptyState="Subir"
-                      loading={coverUploading}
-                      onFileUpload={handleCoverUpload}
-                    />
-                  </Column>
-
-                  {blocks.map((block, index) => (
-                    <ContentBlockCard
-                      key={block.id}
-                      block={block}
-                      disabled={disabled}
-                      canMoveUp={index > 0}
-                      canMoveDown={index < blocks.length - 1}
-                      onMoveUp={() => moveBlock(block.id, "up")}
-                      onMoveDown={() => moveBlock(block.id, "down")}
-                      onChange={(next) =>
-                        setBlocks((current) => current.map((b) => (b.id === next.id ? next : b)))
-                      }
-                      onRemove={() =>
-                        setBlocks((current) => current.filter((b) => b.id !== block.id))
-                      }
-                    />
-                  ))}
-
-                  <Row horizontal="center" paddingTop="8">
-                    <BlockTypePicker
-                      disabled={disabled}
-                      onSelect={(type) =>
-                        setBlocks((current) => [...current, createBlock(type)])
-                      }
-                    />
-                  </Row>
-                </Card>
-              </Column>
-            }
-            rightPanel={
-              // El scroll y el ancho los reparte ResizableSplit (ver leftPanel).
-              <Column gap="16">
-                <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-                  <Text variant="label-strong-s" onBackground="neutral-weak">
-                    Añadir sección
-                  </Text>
-                  <Grid columns={2} gap="8">
-                    {BLOCK_TYPES.map(({ type, label, icon }) => (
-                      <Card
-                        key={type}
-                        fillWidth
-                        direction="column"
-                        gap="8"
-                        padding="12"
-                        radius="m"
-                        border="neutral-alpha-weak"
-                        horizontal="center"
-                        vertical="center"
-                        style={{ minHeight: "5rem" }}
-                        opacity={disabled ? 50 : 100}
-                        cursor={disabled ? "not-allowed" : "interactive"}
-                        onClick={
-                          disabled
-                            ? undefined
-                            : // `CardProps.onClick` se declara como `() => void` (sin
-                              // evento), pero `Card.js` en runtime ata ese mismo
-                              // handler TANTO al elemento externo (ElementType) COMO
-                              // al Flex interno (ver dist/components/Card.js): un
-                              // solo click burbujea por ambos y el handler corre 2
-                              // veces, agregando el bloque por duplicado. En runtime
-                              // sí llega el MouseEvent como primer argumento (React
-                              // se lo pasa al invocar el onClick nativo), así que se
-                              // castea para poder leerlo y cortar la burbuja con
-                              // stopPropagation() antes de que llegue al externo.
-                              ((handleAddBlockTile(type) as unknown) as () => void)
-                        }
-                      >
-                        <Row
-                          horizontal="center"
-                          vertical="center"
-                          style={{ width: "1.5rem", height: "1.5rem" }}
-                        >
-                          {type === "text" ? (
-                            <Text variant="heading-strong-m" onBackground="neutral-weak">
-                              T
-                            </Text>
-                          ) : (
-                            <Icon name={icon} size="m" onBackground="neutral-weak" />
-                          )}
-                        </Row>
-                        <Text
-                          variant="label-default-xs"
-                          onBackground="neutral-weak"
-                          align="center"
-                          wrap="balance"
-                        >
-                          {label}
-                        </Text>
-                      </Card>
-                    ))}
-                  </Grid>
-                </Card>
-
-                <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-                  <Text variant="label-strong-s" onBackground="neutral-weak">
-                    Adjuntar archivos
-                  </Text>
-                  <Button
+          <Column fillWidth flex={1} paddingTop="16" style={{ minHeight: 0 }}>
+            <ResizableSplit
+              defaultSplit={SPLIT_DEFAULT}
+              minSplit={SPLIT_MIN}
+              maxSplit={SPLIT_MAX}
+              leftPanel={
+                // Lienzo: el scroll y el ancho los reparte ResizableSplit
+                // (columna completa en mobile, caja con scroll propio en desktop).
+                <Column style={{ minWidth: 0 }}>
+                  <Card
                     fillWidth
-                    variant="secondary"
-                    prefixIcon="attach"
-                    onClick={() => setAttachOpen(true)}
-                    disabled={disabled}
+                    padding="24"
+                    radius="l"
+                    direction="column"
+                    gap="16"
+                    border="neutral-alpha-weak"
+                    style={{ minHeight: "100%" }}
                   >
-                    Adjuntar archivo
-                  </Button>
-                  <Line background="neutral-alpha-weak" />
-                  <Text variant="body-default-xs" onBackground="neutral-weak">
-                    Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
-                  </Text>
-                </Card>
+                    <Feedback
+                      variant="info"
+                      description="Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
+                    />
 
-                <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-                  <Text variant="label-strong-s" onBackground="neutral-weak">
-                    Editar proyecto
-                  </Text>
-                  <TagInput
-                    id="project-tags"
-                    label="Etiquetas"
-                    placeholder="Escribe y presiona coma (,) para agregar"
-                    description={`${tags.length}/${MAX_TAGS} etiquetas`}
-                    value={tags}
-                    onChange={(next) => setTags(next.slice(0, MAX_TAGS))}
-                    disabled={disabled}
-                  />
-                  <TagInput
-                    id="project-collaborators"
-                    label="Colaboradores"
-                    placeholder="Nombre de usuario y coma (,) para agregar"
-                    value={collaborators}
-                    onChange={setCollaborators}
-                    disabled={disabled}
-                  />
-                  <Row fillWidth gap="8" vertical="end">
-                    <Column fillWidth>
-                      <DateInput
-                        id="project-release-date"
-                        label="Fecha de lanzamiento (opcional)"
-                        value={releaseDate}
-                        onChange={setReleaseDate}
-                        disabled={disabled}
+                    <Input
+                      id="project-category"
+                      placeholder="Categoría (Branding, Motion, Web…)"
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      disabled={disabled}
+                    />
+
+                    <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
+                      <Row gap="8" vertical="center">
+                        <Icon name="images" size="s" onBackground="neutral-weak" />
+                        <Text variant="label-strong-s" onBackground="neutral-weak">
+                          Portada
+                        </Text>
+                      </Row>
+                      <MediaUpload
+                        aspectRatio="16 / 9"
+                        accept="image/*"
+                        compress
+                        resizeMaxWidth={1600}
+                        resizeMaxHeight={1600}
+                        initialPreviewImage={coverUrl || null}
+                        emptyState="Subir"
+                        loading={coverUploading}
+                        onFileUpload={handleCoverUpload}
                       />
                     </Column>
-                    {releaseDate && (
-                      <IconButton
-                        icon="close"
-                        variant="tertiary"
-                        tooltip="Quitar fecha"
-                        onClick={() => setReleaseDate(undefined)}
-                        disabled={disabled}
-                      />
-                    )}
-                  </Row>
-                </Card>
 
-                {error && <Feedback variant="danger" description={error} />}
+                    <Column
+                      fillWidth
+                      gap="16"
+                      radius="m"
+                      padding="8"
+                      // Feedback del canvas como dropzone: mientras hay un drag
+                      // activo (bloque existente O herramienta del panel), el
+                      // lienzo completo marca su borde/fondo para comunicar
+                      // "puedes soltar aquí"; `transition` (token nativo) anima
+                      // el cambio de color sin CSS manual.
+                      border={dragPayload ? "brand-alpha-medium" : "transparent"}
+                      background={dragPayload ? "brand-alpha-weak" : "transparent"}
+                      transition="micro-medium"
+                      onDragOver={handleCanvasDragOver}
+                      onDrop={handleCanvasDrop}
+                    >
+                      {blocks.length === 0 ? (
+                        <Column
+                          fillWidth
+                          horizontal="center"
+                          vertical="center"
+                          radius="m"
+                          border={dragPayload ? "brand-alpha-medium" : "neutral-alpha-weak"}
+                          borderStyle="dashed"
+                          padding="24"
+                          transition="micro-medium"
+                          style={{ minHeight: "4rem" }}
+                        >
+                          <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+                            Arrastra una herramienta del panel derecho aquí, o usa sus íconos
+                          </Text>
+                        </Column>
+                      ) : (
+                        blocks.map((block, index) => (
+                          <Column
+                            key={block.id}
+                            ref={setBlockRef(block.id)}
+                            fillWidth
+                            gap="16"
+                            onDragOver={handleBlockDragOver(index)}
+                          >
+                            {dragPayload && dropIndex === index && (
+                              <Row
+                                fillWidth
+                                radius="full"
+                                background="brand-strong"
+                                style={{ height: "0.1875rem" }}
+                              />
+                            )}
+                            {(() => {
+                              const card = (
+                                <ContentBlockCard
+                                  block={block}
+                                  disabled={disabled}
+                                  canMoveUp={index > 0}
+                                  canMoveDown={index < blocks.length - 1}
+                                  isDragging={
+                                    dragPayload?.kind === "block" && dragPayload.id === block.id
+                                  }
+                                  onMoveUp={() => moveBlock(block.id, "up")}
+                                  onMoveDown={() => moveBlock(block.id, "down")}
+                                  onDragHandleStart={handleBlockDragStart(block.id)}
+                                  onDragHandleEnd={handleDragEnd}
+                                  onChange={(next) =>
+                                    setBlocks((current) =>
+                                      current.map((b) => (b.id === next.id ? next : b)),
+                                    )
+                                  }
+                                  onRemove={() =>
+                                    setBlocks((current) => current.filter((b) => b.id !== block.id))
+                                  }
+                                />
+                              );
+                              // Aterrizaje suave solo para el bloque recién
+                              // instanciado (click o drop): el resto se
+                              // renderiza tal cual, sin volver a montar en cada
+                              // reorden (mismo `key`, React solo mueve el nodo).
+                              if (block.id !== justAddedId) return card;
+                              return (
+                                <RevealFx translateY="8" speed="fast">
+                                  {card}
+                                </RevealFx>
+                              );
+                            })()}
+                          </Column>
+                        ))
+                      )}
+                      {dragPayload && dropIndex === blocks.length && blocks.length > 0 && (
+                        <Row
+                          fillWidth
+                          radius="full"
+                          background="brand-strong"
+                          style={{ height: "0.1875rem" }}
+                        />
+                      )}
+                    </Column>
 
-                <Column gap="8">
-                  <Button
-                    fillWidth
-                    variant="primary"
-                    onClick={() => handleSave(true)}
-                    loading={saving === "publish"}
-                    disabled={disabled}
-                  >
-                    {pieceId ? "Guardar cambios" : "Publicar proyecto"}
-                  </Button>
-                  <Button
-                    fillWidth
-                    variant="secondary"
-                    onClick={() => handleSave(false)}
-                    loading={saving === "draft"}
-                    disabled={disabled}
-                  >
-                    Guardar como borrador
-                  </Button>
+                    <Row horizontal="center" paddingTop="8">
+                      <BlockTypePicker disabled={disabled} onSelect={(type) => insertBlock(type)} />
+                    </Row>
+                  </Card>
                 </Column>
-              </Column>
-            }
-          />
-        </Column>
+              }
+              rightPanel={
+                // El scroll y el ancho los reparte ResizableSplit (ver leftPanel).
+                <Column gap="16">
+                  <Card fillWidth padding="16" radius="l" direction="column" gap="12">
+                    <Text variant="label-strong-s" onBackground="neutral-weak">
+                      Añadir sección
+                    </Text>
+                    <Grid columns={2} gap="8">
+                      {BLOCK_TYPES.map(({ type, label, icon }) => {
+                        // Feedback de origen: la tarjeta arrastrada baja de
+                        // opacidad mientras dura el drag y el cursor pasa a
+                        // "grabbing" — comunica de dónde salió el bloque que se
+                        // está soltando en el lienzo.
+                        const isDraggingThisTool =
+                          dragPayload?.kind === "tool" && dragPayload.blockType === type;
+                        return (
+                          <Card
+                            key={type}
+                            fillWidth
+                            direction="column"
+                            gap="8"
+                            padding="12"
+                            radius="m"
+                            border="neutral-alpha-weak"
+                            horizontal="center"
+                            vertical="center"
+                            style={{ minHeight: "5rem" }}
+                            transition="micro-medium"
+                            opacity={disabled ? 50 : isDraggingThisTool ? 40 : 100}
+                            cursor={
+                              disabled ? "not-allowed" : isDraggingThisTool ? "grabbing" : "grab"
+                            }
+                            // Instanciación directa (además del click, que se conserva
+                            // abajo): arrastrar este tile y soltarlo en el lienzo agrega
+                            // el bloque en el índice exacto donde se suelta. `onDragStart`
+                            // no sufre el bug de doble disparo de `onClick` (ver comentario
+                            // abajo) porque Card.js solo esparce el resto de props UNA vez,
+                            // sobre el Flex interno.
+                            draggable={!disabled}
+                            onDragStart={disabled ? undefined : handleToolDragStart(type)}
+                            onDragEnd={handleDragEnd}
+                            onClick={
+                              disabled
+                                ? undefined
+                                : // `CardProps.onClick` se declara como `() => void` (sin
+                                  // evento), pero `Card.js` en runtime ata ese mismo
+                                  // handler TANTO al elemento externo (ElementType) COMO
+                                  // al Flex interno (ver dist/components/Card.js): un
+                                  // solo click burbujea por ambos y el handler corre 2
+                                  // veces, agregando el bloque por duplicado. En runtime
+                                  // sí llega el MouseEvent como primer argumento (React
+                                  // se lo pasa al invocar el onClick nativo), así que se
+                                  // castea para poder leerlo y cortar la burbuja con
+                                  // stopPropagation() antes de que llegue al externo.
+                                  (handleAddBlockTile(type) as unknown as () => void)
+                            }
+                          >
+                            <Row
+                              horizontal="center"
+                              vertical="center"
+                              style={{ width: "1.5rem", height: "1.5rem" }}
+                            >
+                              {type === "text" ? (
+                                <Text variant="heading-strong-m" onBackground="neutral-weak">
+                                  T
+                                </Text>
+                              ) : (
+                                <Icon name={icon} size="m" onBackground="neutral-weak" />
+                              )}
+                            </Row>
+                            <Text
+                              variant="label-default-xs"
+                              onBackground="neutral-weak"
+                              align="center"
+                              wrap="balance"
+                            >
+                              {label}
+                            </Text>
+                          </Card>
+                        );
+                      })}
+                    </Grid>
+                  </Card>
+
+                  <Card fillWidth padding="16" radius="l" direction="column" gap="12">
+                    <Text variant="label-strong-s" onBackground="neutral-weak">
+                      Adjuntar archivos
+                    </Text>
+                    <Button
+                      fillWidth
+                      variant="secondary"
+                      prefixIcon="attach"
+                      onClick={() => setAttachOpen(true)}
+                      disabled={disabled}
+                    >
+                      Adjuntar archivo
+                    </Button>
+                    <Line background="neutral-alpha-weak" />
+                    <Text variant="body-default-xs" onBackground="neutral-weak">
+                      Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
+                    </Text>
+                  </Card>
+
+                  <Card fillWidth padding="16" radius="l" direction="column" gap="12">
+                    <Text variant="label-strong-s" onBackground="neutral-weak">
+                      Editar proyecto
+                    </Text>
+                    <TagInput
+                      id="project-tags"
+                      label="Etiquetas"
+                      placeholder="Escribe y presiona coma (,) para agregar"
+                      description={`${tags.length}/${MAX_TAGS} etiquetas`}
+                      value={tags}
+                      onChange={(next) => setTags(next.slice(0, MAX_TAGS))}
+                      disabled={disabled}
+                    />
+                    <TagInput
+                      id="project-collaborators"
+                      label="Colaboradores"
+                      placeholder="Nombre de usuario y coma (,) para agregar"
+                      value={collaborators}
+                      onChange={setCollaborators}
+                      disabled={disabled}
+                    />
+                    <Row fillWidth gap="8" vertical="end">
+                      <Column fillWidth>
+                        <DateInput
+                          id="project-release-date"
+                          label="Fecha de lanzamiento (opcional)"
+                          value={releaseDate}
+                          onChange={setReleaseDate}
+                          disabled={disabled}
+                        />
+                      </Column>
+                      {releaseDate && (
+                        <IconButton
+                          icon="close"
+                          variant="tertiary"
+                          tooltip="Quitar fecha"
+                          onClick={() => setReleaseDate(undefined)}
+                          disabled={disabled}
+                        />
+                      )}
+                    </Row>
+                  </Card>
+
+                  {error && <Feedback variant="danger" description={error} />}
+
+                  <Column gap="8">
+                    <Button
+                      fillWidth
+                      variant="primary"
+                      onClick={() => handleSave(true)}
+                      loading={saving === "publish"}
+                      disabled={disabled}
+                    >
+                      {pieceId ? "Guardar cambios" : "Publicar proyecto"}
+                    </Button>
+                    <Button
+                      fillWidth
+                      variant="secondary"
+                      onClick={() => handleSave(false)}
+                      loading={saving === "draft"}
+                      disabled={disabled}
+                    >
+                      Guardar como borrador
+                    </Button>
+                  </Column>
+                </Column>
+              }
+            />
+          </Column>
         )}
       </WideDialog>
 

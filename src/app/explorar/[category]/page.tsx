@@ -51,6 +51,8 @@ export default async function ExplorarCategoryPage({
         cardQuote: true,
         headline: true,
         bio: true,
+        primaryRole: true,
+        secondaryRoles: true,
       },
     });
     return <DesignerDirectory platformDesigners={platformDesigners} />;

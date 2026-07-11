@@ -1,6 +1,7 @@
-import { ProjectMemberRole } from "@/generated/prisma/enums";
-import type { DirectMessageData } from "@/app/actions/directMessages";
 import type { ChannelMessageData } from "@/app/actions/channels";
+import type { DirectMessageData } from "@/app/actions/directMessages";
+import { ProjectMemberRole } from "@/generated/prisma/enums";
+import { derivePresence, type PresenceState } from "@/lib/presence";
 
 /* ══ Utilidades compartidas de MessengerView (chat-messenger-refactor.md) ══
    Helpers puros (sin JSX): formateo de tiempo, normalización de mensajes
@@ -139,4 +140,19 @@ export type RailScope = { type: "direct" } | { type: "project"; id: string };
 export function sameScope(a: RailScope, b: RailScope): boolean {
   if (a.type !== b.type) return false;
   return a.type === "project" && b.type === "project" ? a.id === b.id : true;
+}
+
+/* ══ Presencia: color de StatusIndicator/Avatar según derivePresence ═══ */
+
+export function presenceColor(state: PresenceState): "green" | "yellow" | "gray" {
+  if (state === "online") return "green";
+  if (state === "busy") return "yellow";
+  return "gray";
+}
+
+export function presenceOf(person: {
+  lastSeenAt: string | null;
+  presenceStatus: string | null;
+}): PresenceState {
+  return derivePresence(person.lastSeenAt, person.presenceStatus);
 }

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
+  Chip,
   Column,
   DateInput,
   Icon,
@@ -16,13 +15,17 @@ import {
   Textarea,
   useToast,
 } from "@once-ui-system/core";
-import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { createTaskFromMessage, resolveTaskApproval } from "@/app/actions/channels";
+import { getAssigneeSuggestions } from "@/app/actions/collab";
+import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import type { AssigneeSuggestion } from "@/lib/collab";
 import {
-  TASK_STATUS_LABELS,
-  TASK_STATUS_VARIANTS,
   personInitial,
   personLabel,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_VARIANTS,
 } from "./messengerUtils";
 
 /* ══ Tarjeta de tarea + modal de creación (adaptado de ProjectChat.tsx) ══
@@ -169,6 +172,7 @@ export function CreateTaskModal({
   partnerParticipants,
   assets,
   onCreated,
+  projectId,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -177,6 +181,9 @@ export function CreateTaskModal({
   partnerParticipants: TaskParticipant[];
   assets: { id: string; title: string }[];
   onCreated: () => void;
+  // Proyecto del canal, para pedir sugerencias de responsable (Fase 6b).
+  // Opcional: si no llega, simplemente no se muestran sugerencias.
+  projectId?: string | null;
 }) {
   const { addToast } = useToast();
   const [description, setDescription] = useState("");
@@ -184,6 +191,7 @@ export function CreateTaskModal({
   const [assetId, setAssetId] = useState("");
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [saving, setSaving] = useState(false);
+  const [suggestions, setSuggestions] = useState<AssigneeSuggestion[]>([]);
 
   useEffect(() => {
     if (isOpen && messageId) {
@@ -193,6 +201,20 @@ export function CreateTaskModal({
       setDueDate(undefined);
     }
   }, [isOpen, messageId, messageBody]);
+
+  useEffect(() => {
+    if (!isOpen || !projectId) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    getAssigneeSuggestions(projectId).then((result) => {
+      if (!cancelled && result.ok) setSuggestions(result.suggestions.slice(0, 3));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, projectId]);
 
   const handleClose = () => {
     if (saving) return;
@@ -246,6 +268,24 @@ export function CreateTaskModal({
           onChange={(e) => setDescription(e.target.value)}
           lines={4}
         />
+        {suggestions.length > 0 && (
+          <Column gap="8">
+            <Text variant="label-default-s" onBackground="neutral-weak">
+              Sugeridos
+            </Text>
+            <Row gap="8" wrap>
+              {suggestions.map((suggestion) => (
+                <Chip
+                  key={suggestion.userId}
+                  label={suggestion.name ?? suggestion.username ?? "Sin nombre"}
+                  prefixIcon="sparkles"
+                  selected={assigneeId === suggestion.userId}
+                  onClick={() => setAssigneeId(suggestion.userId)}
+                />
+              ))}
+            </Row>
+          </Column>
+        )}
         <Select
           id="task-from-message-assignee"
           label="Responsable"
