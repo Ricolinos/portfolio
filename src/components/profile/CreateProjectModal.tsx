@@ -66,6 +66,14 @@ const SPLIT_MIN = 0.7;
 const SPLIT_MAX = 0.8;
 const MAX_TAGS = 5;
 
+// FEATURE FUTURA (oculta a pedido, sin borrar código): el panel/botón
+// "Adjuntar archivo" del panel de herramientas se gatea con esta constante
+// en vez de eliminarse — `AttachFilesModal`/`isAttachOpen` siguen montados
+// tal cual (el modal nunca se abre porque el único trigger que llama
+// `setAttachOpen(true)` queda oculto), listos para reactivarse cambiando
+// este valor a `true`.
+const ATTACH_FILES_ENABLED = false;
+
 // gallery solo guarda URLs (sin bucket de Storage, ver AttachFilesModal): al
 // recargar una pieza para editarla, el tipo de adjunto se infiere del prefijo
 // de la data URL, y el nombre original no sobrevive al guardado.
@@ -1076,24 +1084,26 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                     </Grid>
                   </Card>
 
-                  <Card fillWidth padding="16" radius="l" direction="column" gap="12">
-                    <Text variant="label-strong-s" onBackground="neutral-weak">
-                      Adjuntar archivos
-                    </Text>
-                    <Button
-                      fillWidth
-                      variant="secondary"
-                      prefixIcon="attach"
-                      onClick={() => setAttachOpen(true)}
-                      disabled={disabled}
-                    >
-                      Adjuntar archivo
-                    </Button>
-                    <Line background="neutral-alpha-weak" />
-                    <Text variant="body-default-xs" onBackground="neutral-weak">
-                      Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
-                    </Text>
-                  </Card>
+                  {ATTACH_FILES_ENABLED && (
+                    <Card fillWidth padding="16" radius="l" direction="column" gap="12">
+                      <Text variant="label-strong-s" onBackground="neutral-weak">
+                        Adjuntar archivos
+                      </Text>
+                      <Button
+                        fillWidth
+                        variant="secondary"
+                        prefixIcon="attach"
+                        onClick={() => setAttachOpen(true)}
+                        disabled={disabled}
+                      >
+                        Adjuntar archivo
+                      </Button>
+                      <Line background="neutral-alpha-weak" />
+                      <Text variant="body-default-xs" onBackground="neutral-weak">
+                        Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
+                      </Text>
+                    </Card>
+                  )}
 
                   <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                     <Text variant="label-strong-s" onBackground="neutral-weak">
