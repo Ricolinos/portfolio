@@ -196,6 +196,17 @@ export const FloatingChatBubble = () => {
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onClick={() => {
+        // Con el pointer capturado sobre este Row, el click sintético (tanto de
+        // mouse/touch como el generado por activación de teclado del IconButton,
+        // que burbujea hasta aquí) siempre se dispara sobre el Row — nunca sobre
+        // el IconButton interno. Navegar aquí, no en el IconButton.
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          return;
+        }
+        router.push("/mensajes");
+      }}
     >
       <IconButton
         icon="chat"
@@ -204,13 +215,6 @@ export const FloatingChatBubble = () => {
         rounded
         aria-label="Mensajes"
         tooltip="Mensajes"
-        onClick={() => {
-          if (suppressClick.current) {
-            suppressClick.current = false;
-            return;
-          }
-          router.push("/mensajes");
-        }}
       />
     </Row>
   );

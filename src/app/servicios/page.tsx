@@ -1,9 +1,16 @@
-import { Card, Column, Heading, Icon, RevealFx, Row, Text } from "@once-ui-system/core";
+import type { IconName } from "@once-ui-system/core";
+import { Card, Column, Heading, Icon, RevealFx, Row, SmartLink, Text } from "@once-ui-system/core";
 
 export const metadata = {
   title: "Nuestros Servicios",
   description: "Diseño estratégico adaptado a tus necesidades.",
 };
+
+const SERVICE_CARDS: { icon: IconName; label: string; href: string }[] = [
+  { icon: "rocket", label: "Cotiza tu proyecto", href: "/servicios/cotizador" },
+  { icon: "infoCircle", label: "Información", href: "/servicios/informacion" },
+  { icon: "creditCard", label: "Facturación", href: "/servicios/facturacion" },
+];
 
 export default function ServiciosPage() {
   return (
@@ -23,25 +30,29 @@ export default function ServiciosPage() {
         <Card fillWidth padding="48">
           <Column fillWidth gap="32" horizontal="center" align="center">
             <Row gap="24" wrap horizontal="center">
-              {[
-                { icon: "rocket",     label: "Cotiza tu proyecto" },
-                { icon: "infoCircle", label: "Información"        },
-                { icon: "creditCard", label: "Facturación"        },
-              ].map(({ icon, label }) => (
-                <Column key={label} gap="12" horizontal="center" align="center" padding="24"
-                  style={{ minWidth: 160 }}>
-                  <Icon
-                    name={icon as any}
-                    size="l"
-                    padding="16"
-                    radius="l"
-                    background="neutral-alpha-weak"
-                    border="neutral-alpha-weak"
-                  />
-                  <Text variant="label-strong-m" onBackground="neutral-strong" align="center">
-                    {label}
-                  </Text>
-                </Column>
+              {SERVICE_CARDS.map(({ icon, label, href }) => (
+                <SmartLink key={label} href={href} unstyled>
+                  <Column
+                    gap="12"
+                    horizontal="center"
+                    align="center"
+                    padding="24"
+                    minWidth={10}
+                    cursor="pointer"
+                  >
+                    <Icon
+                      name={icon}
+                      size="l"
+                      padding="16"
+                      radius="l"
+                      background="neutral-alpha-weak"
+                      border="neutral-alpha-weak"
+                    />
+                    <Text variant="label-strong-m" onBackground="neutral-strong" align="center">
+                      {label}
+                    </Text>
+                  </Column>
+                </SmartLink>
               ))}
             </Row>
             <Column maxWidth="xs" horizontal="center">
