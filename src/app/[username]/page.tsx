@@ -157,6 +157,23 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   // está logueado como sí mismo.)
   const clientCollabData = ownerId ? await getClientCollabData(ownerId) : null;
 
+  // "Buscar más talento" (CollaboratorSearchModal): partners públicos con los
+  // que el cliente todavía no tiene ninguna Connection, para poder enviarles
+  // una solicitud de contacto directo desde el buscador.
+  const connectedPartnerIds = (clientCollabData?.connections ?? []).map((connection) => connection.partner.id);
+  const discoverablePartners = ownerId
+    ? await prisma.user.findMany({
+        where: {
+          role: "collaborator",
+          isPublic: true,
+          id: { notIn: [...connectedPartnerIds, ownerId] },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, username: true, headline: true },
+        take: 30,
+      })
+    : [];
+
   return (
     <ClientProfileView
       displayName={displayName}
@@ -180,6 +197,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       connections={clientCollabData?.connections}
       collabProjects={clientCollabData?.projects}
       resources={clientCollabData?.resources}
+      discoverablePartners={discoverablePartners}
     />
   );
 }

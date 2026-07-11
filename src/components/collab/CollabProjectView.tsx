@@ -13,7 +13,6 @@ import {
   Icon,
   IconButton,
   Input,
-  Kbar,
   Line,
   Modal,
   NumberInput,
@@ -31,6 +30,7 @@ import type {
   ProjectAssetTaskData,
 } from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
+import { TASK_STATUS_LABELS, TASK_STATUS_VARIANTS } from "@/lib/projectStatus";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import {
   addProjectCollaborator,
@@ -51,6 +51,7 @@ import {
   renameProjectAssetTask,
   toggleProjectAssetTask,
 } from "@/app/actions/projectAssets";
+import { CollaboratorSearchModal } from "@/components/collab/CollaboratorSearchModal";
 
 type ViewerRole = "client" | "partner";
 
@@ -92,21 +93,10 @@ const PROJECT_STATUS_OPTIONS = [
 // Estados de ProjectTask (pipeline mensaje->tarea, chat-requirements.md
 // 3.3/4.1): "pending"/"in_review" son los históricos del checklist manual,
 // "pending_approval"/"approved"/"rejected" llegan del chat del proyecto.
-const PROJECT_TASK_STATUS_LABELS: Record<string, string> = {
-  pending: "Pendiente",
-  in_review: "En revisión",
-  pending_approval: "Por aprobar",
-  approved: "Aprobada",
-  rejected: "Rechazada",
-};
-
-const PROJECT_TASK_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success" | "danger"> = {
-  pending: "neutral",
-  in_review: "neutral",
-  pending_approval: "warning",
-  approved: "success",
-  rejected: "danger",
-};
+// Mapa centralizado en src/lib/projectStatus.ts (también usado en el panel
+// de cliente para las tareas expandibles de "Proyectos en curso").
+const PROJECT_TASK_STATUS_LABELS = TASK_STATUS_LABELS;
+const PROJECT_TASK_STATUS_VARIANTS = TASK_STATUS_VARIANTS;
 
 const QUOTE_CURRENCY_OPTIONS = [
   { value: "MXN", label: "MXN" },
@@ -218,11 +208,9 @@ function CollaboratorBadge({
   );
 }
 
-// Command-palette estilo Kbar para elegir un colaborador entre los partners
-// aceptados por el cliente, agrupados visualmente por su puesto (headline).
-// `Kbar` (el único miembro del módulo que expone el paquete) envuelve su
-// propio trigger: le pasamos el botón "Agregar colaborador" como children y
-// el propio componente abre/cierra el buscador al hacer click en él.
+// Buscador de colaborador (CollaboratorSearchModal, compartido con el panel
+// de cliente) para elegir entre los partners aceptados por el cliente que
+// aún no están en este proyecto.
 function AddCollaboratorSearch({
   projectId,
   availablePartners,
@@ -244,35 +232,17 @@ function AddCollaboratorSearch({
     router.refresh();
   };
 
-  if (availablePartners.length === 0) {
-    return (
-      <>
-        <Button variant="tertiary" size="s" prefixIcon="plus" disabled>
+  return (
+    <CollaboratorSearchModal
+      people={availablePartners}
+      onSelect={handleSelect}
+      trigger={
+        <Button variant="tertiary" size="s" prefixIcon="plus">
           Agregar colaborador
         </Button>
-        <Text variant="label-default-s" onBackground="neutral-weak">
-          El cliente no tiene otros colaboradores aceptados.
-        </Text>
-      </>
-    );
-  }
-
-  const items = availablePartners.map((partner) => ({
-    id: partner.id,
-    name: partner.name ?? partner.username ?? "Sin nombre",
-    section: partner.headline ?? "Sin puesto",
-    shortcut: [] as string[],
-    keywords: [partner.username, partner.headline].filter(Boolean).join(" "),
-    icon: "person",
-    perform: () => handleSelect(partner.id),
-  }));
-
-  return (
-    <Kbar items={items} inputSize="s">
-      <Button variant="tertiary" size="s" prefixIcon="plus">
-        Agregar colaborador
-      </Button>
-    </Kbar>
+      }
+      emptyHint="El cliente no tiene otros colaboradores aceptados."
+    />
   );
 }
 
