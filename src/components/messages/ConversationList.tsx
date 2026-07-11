@@ -4,49 +4,32 @@ import {
   Avatar,
   Button,
   Column,
-  Feedback,
   Heading,
   Icon,
   IconButton,
   Input,
   Line,
-  Modal,
   Row,
   SegmentedControl,
-  Select,
   Tag,
   Text,
   useToast,
 } from "@once-ui-system/core";
 import { useEffect, useMemo, useState } from "react";
 import { createChannel } from "@/app/actions/channels";
-import { addProjectLink, deleteProjectLink } from "@/app/actions/collab";
-import {
-  type EligibleRecipientData,
-  getEligibleRecipients,
-  startDirectThread,
-} from "@/app/actions/directMessages";
+import { addProjectLink, deleteProjectLink, updateProjectLogo } from "@/app/actions/collab";
 import {
   type ChannelContextData,
   type ConversationSummary,
   getChannelContext,
 } from "@/app/actions/inbox";
 import { setPresenceStatus } from "@/app/actions/presence";
-import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { ProjectLogoControl } from "@/components/collab/ProjectLogoControl";
 import { RolesSection } from "./DetailsPanel";
-import {
-  formatShortTime,
-  personInitial,
-  personLabel,
-  presenceColor,
-  presenceOf,
-  type RailScope,
-} from "./messengerUtils";
+import { formatShortTime, presenceColor, presenceOf, type RailScope } from "./messengerUtils";
+import { NewConversationModal } from "./NewConversationModal";
 
 /* ══ Panel izquierdo: bandeja de conversaciones (2.1) ═══════════════════ */
-
-const modalBackdrop = <BrandModalBackdrop />;
 
 type SegmentFilter = "all" | "unread" | "projects";
 
@@ -55,121 +38,6 @@ const BASE_SEGMENTS = [
   { value: "unread", label: "No leídos" },
 ];
 const DIRECT_SEGMENTS = [...BASE_SEGMENTS, { value: "projects", label: "Proyectos" }];
-
-function NewConversationModal({
-  isOpen,
-  onClose,
-  onCreated,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onCreated: (threadId: string) => void;
-}) {
-  const [recipients, setRecipients] = useState<EligibleRecipientData[]>([]);
-  const [loadingRecipients, setLoadingRecipients] = useState(false);
-  const [recipientId, setRecipientId] = useState("");
-  const [firstMessage, setFirstMessage] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setLoadingRecipients(true);
-    setError(null);
-    (async () => {
-      const result = await getEligibleRecipients();
-      if (result.ok) setRecipients(result.recipients);
-      else setError(result.error);
-      setLoadingRecipients(false);
-    })();
-  }, [isOpen]);
-
-  const handleClose = () => {
-    if (sending) return;
-    setRecipientId("");
-    setFirstMessage("");
-    setError(null);
-    onClose();
-  };
-
-  const handleStart = async () => {
-    if (!recipientId || !firstMessage.trim()) return;
-    setSending(true);
-    setError(null);
-    const result = await startDirectThread(recipientId, firstMessage);
-    setSending(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    setRecipientId("");
-    setFirstMessage("");
-    onCreated(result.threadId);
-  };
-
-  const options = recipients.map((recipient) => ({
-    value: recipient.id,
-    label: personLabel(recipient),
-    description: recipient.headline ?? undefined,
-    hasPrefix: (
-      <Avatar
-        size="xs"
-        {...(recipient.imageUrl
-          ? { src: recipient.imageUrl }
-          : { value: personInitial(recipient) })}
-      />
-    ),
-  }));
-
-  return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Nuevo mensaje" backdrop={modalBackdrop}>
-      <Column gap="16" fillWidth paddingTop="12">
-        <Select
-          id="new-message-recipient"
-          label="Destinatario"
-          placeholder={loadingRecipients ? "Cargando..." : "Selecciona a quién escribir"}
-          value={recipientId}
-          onSelect={(value) => setRecipientId(value as string)}
-          options={options}
-          searchable
-          disabled={loadingRecipients}
-        />
-        <Input
-          id="new-message-body"
-          label="Mensaje"
-          placeholder="Escribe tu primer mensaje..."
-          value={firstMessage}
-          onChange={(e) => setFirstMessage(e.target.value)}
-        />
-
-        {error && (
-          <Feedback
-            variant="danger"
-            description={error}
-            onClose={() => setError(null)}
-            showCloseButton
-            fillWidth
-          />
-        )}
-
-        <Row fillWidth gap="8" horizontal="end">
-          <Button variant="secondary" size="m" onClick={handleClose} disabled={sending}>
-            Cancelar
-          </Button>
-          <Button
-            variant="primary"
-            size="m"
-            onClick={handleStart}
-            loading={sending}
-            disabled={!recipientId || !firstMessage.trim()}
-          >
-            Enviar
-          </Button>
-        </Row>
-      </Column>
-    </Modal>
-  );
-}
 
 /* ══ Overlay de ajustes (engrane del panel) ══════════════════════════════
    Cubre el panel de lista (Column position="absolute" — Once UI ya pone
@@ -275,11 +143,11 @@ function ProjectSettingsPanel({
           Imagen del proyecto
         </Text>
         <ProjectLogoControl
-          projectId={projectId}
           logoUrl={context.project.logoUrl}
           title={context.project.title}
           canEdit
           size="l"
+          onUpload={(dataUrl) => updateProjectLogo(projectId, dataUrl)}
           onSaved={() => {
             refetchContext();
             onLogoChanged();
@@ -451,7 +319,13 @@ function SettingsOverlay({
       top="0"
       left="0"
       fill
-      background="surface"
+      // GOTCHA: el theme del sitio usa surface="translucent" (once-ui.config.ts),
+      // así que background="surface" es semitransparente (--surface-background
+      // resuelve a static-white/black-medium con alpha) — apilar dos paneles
+      // "surface" (este overlay sobre el panel de lista, ambos translúcidos)
+      // dejaba ver el contenido de atrás mezclado. "page" resuelve a un color
+      // neutro sólido (--neutral-background-weak, sin alpha): opaco de verdad.
+      background="page"
       zIndex={2}
       overflowY="auto"
       padding="16"

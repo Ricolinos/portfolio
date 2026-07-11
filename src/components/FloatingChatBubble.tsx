@@ -33,6 +33,11 @@ const PANEL_RADIUS = 16;
 // primero y luego colapsa la forma.
 const CONTENT_FADE_IN_MS = 260;
 const CONTENT_FADE_OUT_MS = 140;
+// Ventana de espera antes de navegar a /mensajes tras iniciar el morph
+// panel->pantalla completa: cubre la transición más larga (left 0.42s) con
+// margen; se complementa con un listener de `transitionend` que navega antes
+// si el navegador ya terminó de animar `width`.
+const EXPAND_TRANSITION_FALLBACK_MS = 450;
 
 type Side = "left" | "right";
 
@@ -88,6 +93,20 @@ function restingLeft(side: Side): number {
   return side === "left" ? EDGE_MARGIN : window.innerWidth - BUBBLE_SIZE - EDGE_MARGIN;
 }
 
+// Rectángulo de destino al expandir a /mensajes: casi pantalla completa,
+// respetando el header y un margen uniforme (mismo EDGE_MARGIN que clampea
+// la burbuja). Reutiliza el mismo mecanismo de transición CSS (left/top/
+// width/height/border-radius) que el morph burbuja->panel: basta con
+// cambiar `panelRect` mientras `open` sigue true para que anime "en sitio".
+function computeExpandRect(): PanelRect {
+  const headerBottom = getHeaderBottom();
+  const left = EDGE_MARGIN;
+  const top = headerBottom + EDGE_MARGIN;
+  const width = window.innerWidth - EDGE_MARGIN * 2;
+  const height = window.innerHeight - headerBottom - EDGE_MARGIN * 2;
+  return { left, top, width, height };
+}
+
 // Rectángulo del panel morphed, anclado al costado de reposo de la burbuja
 // (crece hacia el lado contrario para no salirse del viewport) y hacia
 // arriba desde la burbuja (bottom del panel ~= bottom de la burbuja). Ambos
@@ -135,6 +154,10 @@ export const FloatingChatBubble = () => {
   // Tras un arrastre real, el navegador dispara igualmente el click sintético
   // sobre el botón: se suprime para que soltar la burbuja no navegue.
   const suppressClick = useRef(false);
+  // Nodo del Row raíz (burbuja/panel): permite escuchar `transitionend` para
+  // navegar a /mensajes justo cuando el morph panel->pantalla completa
+  // termina de animar, en vez de adivinar la duración con un timeout fijo.
+  const shapeRef = useRef<HTMLDivElement>(null);
 
   // Restaura la posición guardada (re-clampeada contra el viewport actual) o
   // cae a la posición por defecto si no hay nada guardado / localStorage falla.
@@ -238,12 +261,35 @@ export const FloatingChatBubble = () => {
     window.setTimeout(() => setOpen(false), CONTENT_FADE_OUT_MS);
   }, []);
 
-  // Expandir a /mensajes: cierra el morph de inmediato (la burbuja se
-  // desmonta igualmente al llegar a esa ruta) y navega.
+  // Expandir a /mensajes: replica el morph burbuja->panel pero de panel a
+  // (casi) pantalla completa. El contenido actual se desvanece primero
+  // (mismo patrón que handleClose), y `panelRect` se anima hacia
+  // computeExpandRect() reutilizando la transición CSS ya declarada en el
+  // Row raíz (left/top/width/height/border-radius) — `open` se mantiene
+  // true durante toda la animación. Solo se navega a /mensajes cuando esa
+  // transición termina (transitionend en `width`, con un timeout de
+  // respaldo por si el navegador no lo dispara).
   const handleExpand = useCallback(() => {
     setContentVisible(false);
-    setOpen(false);
-    router.push("/mensajes");
+    setPanelRect(computeExpandRect());
+
+    let navigated = false;
+    const goToMensajes = () => {
+      if (navigated) return;
+      navigated = true;
+      router.push("/mensajes");
+    };
+
+    const node = shapeRef.current;
+    if (node) {
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.target !== node || event.propertyName !== "width") return;
+        node.removeEventListener("transitionend", onTransitionEnd);
+        goToMensajes();
+      };
+      node.addEventListener("transitionend", onTransitionEnd);
+    }
+    window.setTimeout(goToMensajes, EXPAND_TRANSITION_FALLBACK_MS);
   }, [router]);
 
   // Fade-in del contenido del panel una vez que el morph de apertura ya
@@ -289,6 +335,7 @@ export const FloatingChatBubble = () => {
 
   return (
     <Row
+      ref={shapeRef}
       position="fixed"
       zIndex={8}
       shadow={open ? "xl" : "l"}

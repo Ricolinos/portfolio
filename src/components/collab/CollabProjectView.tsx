@@ -29,6 +29,7 @@ import {
   deleteProjectLink,
   removeProjectCollaborator,
   updateCollabProject,
+  updateProjectLogo,
 } from "@/app/actions/collab";
 import type { AssetCategoryData } from "@/app/actions/projectAssets";
 import {
@@ -1168,10 +1169,10 @@ export function CollabProjectView({
         <Row fillWidth gap="16" horizontal="between" vertical="start" wrap>
           <Row gap="16" vertical="start" style={{ minWidth: 0 }}>
             <ProjectLogoControl
-              projectId={project.id}
               logoUrl={project.logoUrl}
               title={project.title}
               canEdit
+              onUpload={(dataUrl) => updateProjectLogo(project.id, dataUrl)}
               onSaved={() => router.refresh()}
             />
             <Column gap="12" style={{ minWidth: 0 }}>

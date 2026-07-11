@@ -2,16 +2,18 @@
 
 import { Avatar, Column, IconButton, Row, Text } from "@once-ui-system/core";
 import { useRef, useState } from "react";
-import { updateProjectLogo } from "@/app/actions/collab";
+
+type UploadResult = { ok: true } | { ok: false; error: string };
 
 /* ══ Logotipo del proyecto (Fase 6b) ═══════════════════════════════════
    Extraído de CollabProjectView para reutilizarse también en el overlay de
-   ajustes de proyecto de /mensajes (ConversationList). Sin bucket de
-   Storage: se comprime a JPEG en el cliente y viaja como data URL, mismo
-   patrón que la imagen destacada del perfil de partner. Recorte central
-   cuadrado, un solo paso. `onSaved` la dispara el caller tras un cambio
-   exitoso (router.refresh() en la página de proyecto, refetch del inbox
-   en el messenger). ═══════════════════════════════════════════════════ */
+   ajustes de proyecto de /mensajes (ConversationList) y en la imagen de
+   sala del panel de detalles (DetailsPanel). Sin bucket de Storage: se
+   comprime a JPEG en el cliente y viaja como data URL, mismo patrón que la
+   imagen destacada del perfil de partner. Recorte central cuadrado, un
+   solo paso. `onUpload` recibe la data URL (o null al quitar) y decide qué
+   server action llamar (updateProjectLogo / updateChannelInfo); `onSaved`
+   la dispara el caller tras un cambio exitoso. ═══════════════════════ */
 
 const LOGO_SIDE = 256;
 const LOGO_JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
@@ -27,17 +29,17 @@ function compressLogoCanvas(canvas: HTMLCanvasElement): string | null {
 }
 
 export function ProjectLogoControl({
-  projectId,
   logoUrl,
   title,
   canEdit,
+  onUpload,
   onSaved,
   size = "xl",
 }: {
-  projectId: string;
   logoUrl: string | null;
   title: string;
   canEdit: boolean;
+  onUpload: (dataUrl: string | null) => Promise<UploadResult>;
   onSaved: () => void;
   size?: "xs" | "s" | "m" | "l" | "xl";
 }) {
@@ -72,7 +74,7 @@ export function ProjectLogoControl({
         setSaving(false);
         return;
       }
-      const result = await updateProjectLogo(projectId, dataUrl);
+      const result = await onUpload(dataUrl);
       setSaving(false);
       if (!result.ok) {
         setError(result.error);
@@ -91,7 +93,7 @@ export function ProjectLogoControl({
   const handleRemove = async () => {
     setSaving(true);
     setError(null);
-    const result = await updateProjectLogo(projectId, null);
+    const result = await onUpload(null);
     setSaving(false);
     if (!result.ok) {
       setError(result.error);

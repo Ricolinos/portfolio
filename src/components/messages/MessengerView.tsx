@@ -424,6 +424,7 @@ export function MessengerView({
         }
         onSelectScope={handleScopeSelect}
         onSelectUser={handleSelectUser}
+        onConversationCreated={handleConversationCreated}
         mobileView={mobileView}
       />
 
