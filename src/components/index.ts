@@ -1,10 +1,12 @@
 export { DesignerStrip } from "@/components/DesignerStrip";
+export { FloatingChatBubble } from "@/components/FloatingChatBubble";
 export { Footer } from "@/components/layout/Footer";
 export { Header } from "@/components/Header";
 export { HeadingLink } from "@/components/HeadingLink";
 export { HomeCreatorsCTA } from "@/components/home/HomeCreatorsCTA";
 export { HomeHero } from "@/components/home/HomeHero";
 export { HomeShowcase } from "@/components/home/HomeShowcase";
+export { LayoutShell } from "@/components/LayoutShell";
 export { Mailchimp } from "@/components/Mailchimp";
 export { CustomMDX } from "@/components/mdx";
 export { ProjectCard } from "@/components/ProjectCard";
