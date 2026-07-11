@@ -5,7 +5,6 @@ import { useRef, useState } from "react";
 import {
   Arrow,
   Avatar,
-  Badge,
   BlobFx,
   Button,
   Card,
@@ -36,6 +35,7 @@ import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
 import type { IconName } from "@/resources/icons";
 import { respondContactRequest } from "@/app/actions/collab";
+import { RoleTag } from "@/components/RoleTag";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import {
   FeaturedImageUploadDialog,
@@ -800,28 +800,9 @@ export function ProfileView({
                 </Row>
                 {(primaryRole || secondaryRoles.length > 0) && (
                   <Row fillWidth gap="8" wrap horizontal="center" vertical="center">
-                    {primaryRole && (
-                      <Badge
-                        background="brand-alpha-weak"
-                        onBackground="brand-strong"
-                        border="brand-alpha-medium"
-                        textVariant="label-strong-s"
-                        effect
-                      >
-                        {primaryRole}
-                      </Badge>
-                    )}
+                    {primaryRole && <RoleTag role={primaryRole} variant="primary" />}
                     {secondaryRoles.map((role) => (
-                      <Badge
-                        key={role}
-                        background="neutral-alpha-weak"
-                        onBackground="neutral-medium"
-                        border="neutral-alpha-medium"
-                        textVariant="label-default-s"
-                        effect={false}
-                      >
-                        {role}
-                      </Badge>
+                      <RoleTag key={role} role={role} variant="secondary" />
                     ))}
                   </Row>
                 )}

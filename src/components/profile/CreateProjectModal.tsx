@@ -13,6 +13,7 @@ import {
   IconButton,
   Input,
   Line,
+  Media,
   RevealFx,
   Row,
   ScrollLock,
@@ -387,6 +388,10 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [category, setCategory] = useState("");
   const [coverUrl, setCoverUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
+  // Colapso puramente de UI (mismo criterio que ContentBlockCard): la
+  // portada sigue siendo obligatoria, esto solo minimiza su sección en el
+  // lienzo cuando ya se subió la imagen.
+  const [coverCollapsed, setCoverCollapsed] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
   const [tags, setTags] = useState<string[]>([]);
@@ -844,23 +849,44 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                     />
 
                     <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
-                      <Row gap="8" vertical="center">
-                        <Icon name="images" size="s" onBackground="neutral-weak" />
-                        <Text variant="label-strong-s" onBackground="neutral-weak">
-                          Portada
-                        </Text>
+                      <Row fillWidth horizontal="between" vertical="center">
+                        <Row gap="8" vertical="center">
+                          <IconButton
+                            icon={coverCollapsed ? "chevronRight" : "chevronDown"}
+                            variant="tertiary"
+                            size="s"
+                            tooltip={coverCollapsed ? "Expandir portada" : "Colapsar portada"}
+                            onClick={() => setCoverCollapsed((current) => !current)}
+                            disabled={disabled}
+                          />
+                          <Icon name="images" size="s" onBackground="neutral-weak" />
+                          <Text variant="label-strong-s" onBackground="neutral-weak">
+                            Portada
+                          </Text>
+                        </Row>
+                        {coverCollapsed && coverUrl && (
+                          <Media
+                            src={coverUrl}
+                            alt="Portada"
+                            aspectRatio="16 / 9"
+                            width={64}
+                            radius="s"
+                          />
+                        )}
                       </Row>
-                      <MediaUpload
-                        aspectRatio="16 / 9"
-                        accept="image/*"
-                        compress
-                        resizeMaxWidth={1600}
-                        resizeMaxHeight={1600}
-                        initialPreviewImage={coverUrl || null}
-                        emptyState="Subir"
-                        loading={coverUploading}
-                        onFileUpload={handleCoverUpload}
-                      />
+                      {!coverCollapsed && (
+                        <MediaUpload
+                          aspectRatio="16 / 9"
+                          accept="image/*"
+                          compress
+                          resizeMaxWidth={1600}
+                          resizeMaxHeight={1600}
+                          initialPreviewImage={coverUrl || null}
+                          emptyState="Subir"
+                          loading={coverUploading}
+                          onFileUpload={handleCoverUpload}
+                        />
+                      )}
                     </Column>
 
                     <Column
