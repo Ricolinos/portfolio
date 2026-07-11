@@ -60,6 +60,10 @@ export function ConversationPanel({
   };
 
   const isGroup = conversation?.kind === "group";
+  const headerTitle =
+    isGroup && conversation?.project
+      ? `${conversation.title} — ${conversation.project.title}`
+      : (conversation?.title ?? "");
 
   return (
     <Column
@@ -69,8 +73,8 @@ export function ConversationPanel({
       radius="l"
       overflow="hidden"
       style={{ flex: 1, minWidth: 0 }}
-      s={{ hide: mobileView !== "conversation" }}
-      xs={{ hide: mobileView !== "conversation" }}
+      s={mobileView !== "conversation" ? { hide: true } : undefined}
+      xs={mobileView !== "conversation" ? { hide: true } : undefined}
     >
       {!conversation ? (
         <Column fillWidth fillHeight center gap="12" padding="24">
@@ -114,9 +118,9 @@ export function ConversationPanel({
                   truncate
                   style={{ minWidth: 0 }}
                 >
-                  {conversation.title}
+                  {headerTitle}
                 </Text>
-                {conversation.subtitle && (
+                {!isGroup && conversation.subtitle && (
                   <Text
                     variant="label-default-s"
                     onBackground="neutral-weak"

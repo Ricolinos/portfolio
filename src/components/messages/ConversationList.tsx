@@ -221,12 +221,14 @@ function ConversationRow({
 
 export function ConversationList({
   conversations,
+  scopeTitle,
   loading,
   selectedKey,
   onSelect,
   onCreated,
 }: {
   conversations: ConversationSummary[];
+  scopeTitle?: string | null;
   loading: boolean;
   selectedKey: string | null;
   onSelect: (conversation: ConversationSummary) => void;
@@ -252,7 +254,14 @@ export function ConversationList({
   return (
     <Column fillHeight fillWidth gap="12" padding="16" style={{ minWidth: 0 }}>
       <Row fillWidth horizontal="between" vertical="center">
-        <Heading variant="heading-strong-m">Chats</Heading>
+        <Column gap="0">
+          <Heading variant="heading-strong-m">Chats</Heading>
+          {scopeTitle && (
+            <Text variant="label-default-s" onBackground="neutral-weak" truncate>
+              {scopeTitle}
+            </Text>
+          )}
+        </Column>
         <Row gap="4">
           <IconButton
             icon="settings"

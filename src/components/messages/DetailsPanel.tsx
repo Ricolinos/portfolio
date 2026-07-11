@@ -573,8 +573,8 @@ export function DetailsPanel({
       border="neutral-alpha-weak"
       radius="l"
       style={{ width: 320, minWidth: 0, flexShrink: 0 }}
-      s={{ hide: mobileView !== "info" }}
-      xs={{ hide: mobileView !== "info" }}
+      s={mobileView !== "info" ? { hide: true } : undefined}
+      xs={mobileView !== "info" ? { hide: true } : undefined}
     >
       <Row fillWidth gap="8" vertical="center">
         <Row hide s={{ hide: false }} xs={{ hide: false }}>

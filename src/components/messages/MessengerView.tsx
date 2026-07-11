@@ -22,7 +22,13 @@ import {
 import { ConversationList } from "./ConversationList";
 import { ConversationPanel } from "./ConversationPanel";
 import { DetailsPanel } from "./DetailsPanel";
-import { fromChannelMessage, fromDirectMessage, type StreamMessage } from "./messengerUtils";
+import { ProjectRail, type RailProject } from "./ProjectRail";
+import {
+  fromChannelMessage,
+  fromDirectMessage,
+  type RailScope,
+  type StreamMessage,
+} from "./messengerUtils";
 
 /* ══ Vista maestra de /mensajes: layout Messenger de 3 paneles ══════════
    (chat-messenger-refactor.md 2.1/2.2/2.3). Orquesta la bandeja unificada
@@ -56,10 +62,31 @@ export function MessengerView({
 
   const [infoOpen, setInfoOpen] = useState(true);
   const [mobileView, setMobileView] = useState<MobileView>("list");
+  const [scope, setScope] = useState<RailScope>({ type: "direct" });
 
-  const deepLinkApplied = useRef(false);
+  const initApplied = useRef(false);
 
   const selectedConversation = conversations.find((c) => c.key === selectedKey) ?? null;
+
+  const projects: RailProject[] = [];
+  const seenProjects = new Set<string>();
+  for (const conversation of conversations) {
+    if (
+      conversation.kind === "group" &&
+      conversation.project &&
+      !seenProjects.has(conversation.project.id)
+    ) {
+      seenProjects.add(conversation.project.id);
+      projects.push({ id: conversation.project.id, title: conversation.project.title });
+    }
+  }
+  const scopedConversations = conversations.filter((c) =>
+    scope.type === "direct"
+      ? c.kind === "direct"
+      : c.kind === "group" && c.project?.id === scope.id,
+  );
+  const scopeTitle =
+    scope.type === "project" ? (projects.find((p) => p.id === scope.id)?.title ?? null) : null;
 
   /* ── Bandeja: polling de getInbox + deep link ?project= ─────────────── */
 
@@ -80,14 +107,27 @@ export function MessengerView({
       if (cancelled) return;
       if (result.ok) {
         setConversations(result.conversations);
-        if (!deepLinkApplied.current && initialProjectId) {
-          deepLinkApplied.current = true;
-          const target = result.conversations.find(
-            (c) => c.kind === "group" && c.project?.id === initialProjectId,
-          );
+        if (!initApplied.current) {
+          initApplied.current = true;
+          const target = initialProjectId
+            ? result.conversations.find(
+                (c) => c.kind === "group" && c.project?.id === initialProjectId,
+              )
+            : undefined;
           if (target) {
             setSelectedKey(target.key);
             setMobileView("conversation");
+            setScope({ type: "project", id: initialProjectId! });
+          } else {
+            const hasDirect = result.conversations.some((c) => c.kind === "direct");
+            const firstProject = result.conversations.find(
+              (c) => c.kind === "group" && c.project,
+            )?.project;
+            if (hasDirect) {
+              setScope({ type: "direct" });
+            } else if (firstProject) {
+              setScope({ type: "project", id: firstProject.id });
+            }
           }
         }
       }
@@ -195,6 +235,12 @@ export function MessengerView({
     setMobileView("list");
   };
 
+  const handleScopeSelect = (next: RailScope) => {
+    setScope(next);
+    setSelectedKey(null);
+    setMobileView("list");
+  };
+
   const handleToggleInfo = () => {
     setInfoOpen((prev) => {
       const next = !prev;
@@ -279,17 +325,25 @@ export function MessengerView({
 
   return (
     <Row fillWidth fillHeight gap="8" padding="8" style={{ minWidth: 0 }}>
+      <ProjectRail
+        projects={projects}
+        scope={scope}
+        onSelect={handleScopeSelect}
+        mobileView={mobileView}
+      />
+
       <Column
         background="surface"
         border="neutral-alpha-weak"
         radius="l"
         overflow="hidden"
         style={{ width: 320, minWidth: 0, flexShrink: 0 }}
-        s={{ hide: mobileView !== "list" }}
-        xs={{ hide: mobileView !== "list" }}
+        s={mobileView !== "list" ? { hide: true } : undefined}
+        xs={mobileView !== "list" ? { hide: true } : undefined}
       >
         <ConversationList
-          conversations={conversations}
+          conversations={scopedConversations}
+          scopeTitle={scopeTitle}
           loading={loadingConversations}
           selectedKey={selectedKey}
           onSelect={handleSelect}

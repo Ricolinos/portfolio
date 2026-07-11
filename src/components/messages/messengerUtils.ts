@@ -131,3 +131,12 @@ export const ROLE_LABELS: Record<ProjectMemberRole, string> = {
 };
 
 export const ROLE_OPTIONS = Object.values(ProjectMemberRole);
+
+/* ══ Riel de proyectos: scope activo de la bandeja (Directos vs. proyecto) ══ */
+
+export type RailScope = { type: "direct" } | { type: "project"; id: string };
+
+export function sameScope(a: RailScope, b: RailScope): boolean {
+  if (a.type !== b.type) return false;
+  return a.type === "project" && b.type === "project" ? a.id === b.id : true;
+}
