@@ -1,13 +1,25 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { MessagesInbox } from "@/components/messages/MessagesInbox";
+import { Column } from "@once-ui-system/core";
+import { MessengerView } from "@/components/messages/MessengerView";
 
-// Inbox Light: hilos de mensajería directa 1-a-1 fuera de proyectos
-// colaborativos. Ver src/app/actions/directMessages.ts y chat-requirements.md
-// sección 4.1.
-export default async function MessagesPage() {
+// Vista maestra de mensajería (chat-messenger-refactor.md): layout Messenger
+// de 3 paneles que unifica hilos directos (DirectThread) y canales de
+// proyecto (ProjectChannel) vía src/app/actions/inbox.ts. ?project=<id>
+// preselecciona el primer canal de grupo de ese proyecto.
+export default async function MessagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ project?: string }>;
+}) {
   const { userId } = await auth();
   if (!userId) redirect("/sign-in");
 
-  return <MessagesInbox viewerId={userId} />;
+  const { project } = await searchParams;
+
+  return (
+    <Column fillWidth fillHeight>
+      <MessengerView viewerId={userId} initialProjectId={project} />
+    </Column>
+  );
 }

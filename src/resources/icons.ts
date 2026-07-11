@@ -49,6 +49,7 @@ import {
   HiOutlinePaintBrush,
   HiOutlinePaperClip,
   HiOutlinePencilSquare,
+  HiOutlinePhone,
   HiOutlinePlus,
   HiOutlinePuzzlePiece,
   HiOutlineQuestionMarkCircle,
@@ -57,6 +58,7 @@ import {
   HiOutlineSquares2X2,
   HiOutlineTrash,
   HiOutlineUserGroup,
+  HiOutlineVideoCamera,
   HiOutlineWindow,
   HiOutlineXCircle,
 } from "react-icons/hi2";
@@ -128,6 +130,8 @@ export const iconLibrary: Record<string, IconType> = {
   audio: HiOutlineMusicalNote,
   trash: HiOutlineTrash,
   bell: HiOutlineBell,
+  phone: HiOutlinePhone,
+  video: HiOutlineVideoCamera,
   check: HiOutlineCheckCircle,
   shield: HiOutlineShieldCheck,
   // Icono que el componente Feedback busca para variant="warning"

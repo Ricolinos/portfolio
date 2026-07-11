@@ -38,6 +38,7 @@ export interface DirectThreadData {
     username: string | null;
     imageUrl: string | null;
     role: string;
+    headline: string | null;
   };
   lastMessage: { id: string; body: string; senderId: string; createdAt: string } | null;
   unreadCount: number;
@@ -179,8 +180,26 @@ export async function getDirectThreads(): Promise<Result<{ threads: DirectThread
   const threads = await prisma.directThread.findMany({
     where: { OR: [{ initiatorId: userId }, { recipientId: userId }] },
     include: {
-      initiator: { select: { id: true, name: true, username: true, imageUrl: true, role: true } },
-      recipient: { select: { id: true, name: true, username: true, imageUrl: true, role: true } },
+      initiator: {
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          imageUrl: true,
+          role: true,
+          headline: true,
+        },
+      },
+      recipient: {
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          imageUrl: true,
+          role: true,
+          headline: true,
+        },
+      },
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });

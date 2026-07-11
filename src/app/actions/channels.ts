@@ -20,7 +20,7 @@ async function requireAuth(): Promise<string | null> {
   return userId ?? null;
 }
 
-interface ProjectMemberAuth {
+export interface ProjectMemberAuth {
   ok: boolean;
   error?: string;
   isClient?: boolean;
@@ -33,7 +33,10 @@ interface ProjectMemberAuth {
 // clientId), el partner fundador (connection.partnerId) o un colaborador
 // adicional (ProjectCollaborator). Devuelve status y la lista completa de
 // participantes para reutilizar en notificaciones masivas.
-async function requireProjectMember(projectId: string, userId: string): Promise<ProjectMemberAuth> {
+export async function requireProjectMember(
+  projectId: string,
+  userId: string,
+): Promise<ProjectMemberAuth> {
   const project = await prisma.collabProject.findUnique({
     where: { id: projectId },
     select: {
