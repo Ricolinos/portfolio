@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
 import { useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { IconButton, Row } from "@once-ui-system/core";
+import { usePathname, useRouter } from "next/navigation";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 // Ancho/alto real de IconButton size="l" (--static-space-40 = 2.5rem = 40px),
 // usado para clampear la burbuja dentro del viewport.
@@ -74,6 +74,7 @@ function restingLeft(side: Side): number {
 export const FloatingChatBubble = () => {
   const { isLoaded, isSignedIn } = useUser();
   const router = useRouter();
+  const pathname = usePathname();
   const [pos, setPos] = useState<StoredPos | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragState = useRef<{ offsetX: number; offsetY: number; moved: boolean } | null>(null);
@@ -166,7 +167,10 @@ export const FloatingChatBubble = () => {
   );
 
   // Solo sesiones Clerk válidas montan la burbuja; visitantes anónimos nunca la ven.
-  if (!isLoaded || !isSignedIn || !pos) return null;
+  // Dentro de /mensajes (o cualquier subruta) la burbuja es redundante: ya se está
+  // en el centro de mensajes al que ella misma navega.
+  const onMensajes = pathname === "/mensajes" || pathname?.startsWith("/mensajes/");
+  if (!isLoaded || !isSignedIn || !pos || onMensajes) return null;
 
   const dragging = dragPos !== null;
   const sideStyle: React.CSSProperties = dragging
@@ -188,9 +192,7 @@ export const FloatingChatBubble = () => {
         ...sideStyle,
         touchAction: "none",
         cursor: dragging ? "grabbing" : "grab",
-        transition: dragging
-          ? "none"
-          : `left 0.42s ${ELASTIC_EASE}, top 0.32s ${ELASTIC_EASE}`,
+        transition: dragging ? "none" : `left 0.42s ${ELASTIC_EASE}, top 0.32s ${ELASTIC_EASE}`,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

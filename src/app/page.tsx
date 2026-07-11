@@ -1,20 +1,25 @@
 import { Column, Meta, Schema } from "@once-ui-system/core";
 import { HomeCreatorsCTA, HomeHero, HomeShowcase } from "@/components";
-import { about, baseURL, home, person } from "@/resources";
-import { getPortfolioFeed } from "@/lib/portfolio";
 import { caseStudyHref } from "@/lib/caseStudies";
+import { getPortfolioFeed } from "@/lib/portfolio";
+import { about, baseURL, home, person } from "@/resources";
 
 // El showcase consulta la base de datos: evita congelar el fetch en build.
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata() {
-  return Meta.generate({
+  // home.title ya es "Hub-Nerds" (la marca): se descarta la clave `title`
+  // (no basta con asignarle undefined: Next.js la trataría como "title
+  // resuelto vacío" y no renderizaría ningún <title>) para heredar el
+  // default del layout raíz en vez de duplicarlo ("Hub-Nerds · Hub-Nerds").
+  const { title: _homeTitle, ...metadata } = Meta.generate({
     title: home.title,
     description: home.description,
     baseURL: baseURL,
     path: home.path,
     image: home.image,
   });
+  return metadata;
 }
 
 export default async function Home() {

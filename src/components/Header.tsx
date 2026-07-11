@@ -276,7 +276,9 @@ const AuthZone = ({
   );
 };
 
-// ─── Logo compartido (layoutId anima la posición entre móvil y escritorio) ────
+// ─── Logo compartido entre el header de escritorio y el de móvil ─────────────
+// (sin layoutId: cada header hace crossfade de opacidad vía su propio
+// motion.div, ver comentario junto a AnimatePresence más abajo)
 const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
   <Row position="relative" fitWidth fitHeight>
     <SmartLink href="/" onClick={onClick}>
@@ -357,8 +359,17 @@ export const Header = () => {
 
   return (
     <>
-      {/* Header: fade entre escritorio ↔ móvil. layoutId="site-logo" anima
-          la posición del logo entre los dos headers sin salto. */}
+      {/* Header: fade entre escritorio ↔ móvil (crossfade de opacidad, ver
+          transition={{ duration: 0.15 }} en cada motion.div de abajo).
+          Antes el logo compartía layoutId="site-logo" entre ambas ramas
+          para que framer-motion hiciera un FLIP (interpolar posición/tamaño)
+          entre la posición del logo en escritorio y en móvil. Esa animación
+          resultaba demasiado llamativa ("el logo vuela" por la pantalla) —
+          se quitó el layoutId compartido a propósito y se deja solo el
+          fundido de opacidad ya existente en cada motion.div contenedor.
+          El logo no cambia de posición DENTRO de un mismo header (ni con
+          scroll ni con isCompact), así que no hace falta layout animation
+          local; con esto basta un fundido discreto en vez de un vuelo. */}
       <AnimatePresence initial={false}>
         {!isMobile ? (
           <motion.div
@@ -385,9 +396,7 @@ export const Header = () => {
               <HeaderBackdrop scrolled={scrolled} />
               <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
                 <Row vertical="center" paddingLeft="4" paddingRight="8">
-                  <motion.div layoutId="site-logo">
-                    <SiteLogo />
-                  </motion.div>
+                  <SiteLogo />
                 </Row>
                 <Row vertical="center" gap="4">
                   <div style={{ flexShrink: 0, position: "relative" }}>
@@ -423,9 +432,7 @@ export const Header = () => {
               className={styles.mobileBar}
             >
               <HeaderBackdrop scrolled={scrolled || mobileOpen} />
-              <motion.div layoutId="site-logo">
-                <SiteLogo onClick={() => setMobileOpen(false)} />
-              </motion.div>
+              <SiteLogo onClick={() => setMobileOpen(false)} />
               <NavIcon
                 isActive={mobileOpen}
                 onClick={() => setMobileOpen((v) => !v)}

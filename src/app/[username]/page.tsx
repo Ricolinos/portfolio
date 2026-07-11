@@ -1,14 +1,45 @@
-import { notFound } from "next/navigation";
 import { currentUser } from "@clerk/nextjs/server";
-import { ProfileView } from "@/components/profile/ProfileView";
+import { Meta } from "@once-ui-system/core";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import { ClientProfileView } from "@/components/profile/ClientProfileView";
-import { getOrCreateUser } from "@/lib/syncUser";
-import { prisma } from "@/lib/prisma";
+import { ProfileView } from "@/components/profile/ProfileView";
 import { caseStudyHref } from "@/lib/caseStudies";
 import { getClientCollabData, getPartnerCollabData } from "@/lib/collab";
+import { prisma } from "@/lib/prisma";
+import { getOrCreateUser } from "@/lib/syncUser";
+import { baseURL } from "@/resources";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
+}
+
+// Igual que la página: perfiles de cliente son privados y los de partner no
+// públicos no deben filtrar nombre/avatar en la tarjeta de preview al
+// compartir el link (mismo criterio de privacidad, ver comentario abajo).
+export async function generateMetadata({ params }: UserProfilePageProps): Promise<Metadata> {
+  const { username } = await params;
+  const profileUser = await prisma.user.findUnique({ where: { username } });
+
+  if (profileUser?.role !== "collaborator" || !profileUser.isPublic) {
+    return {};
+  }
+
+  const displayName = profileUser.name || username;
+  // imageUrl de Clerk siempre es una URL http(s) pública; por si acaso
+  // alguna vez trae una data: URL (no debería) se cae al generador.
+  const image =
+    profileUser.imageUrl && !profileUser.imageUrl.startsWith("data:")
+      ? profileUser.imageUrl
+      : `/api/og/generate?title=${encodeURIComponent(displayName)}`;
+
+  return Meta.generate({
+    title: displayName,
+    description: `Perfil de ${displayName} (@${username}) en Hub-Nerds`,
+    baseURL,
+    path: `/${username}`,
+    image,
+  });
 }
 
 export default async function UserProfilePage({ params }: UserProfilePageProps) {
@@ -27,9 +58,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   const displayName = isOwnProfile
     ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
     : profileUser?.name || username;
-  const avatarUrl = isOwnProfile
-    ? viewer?.imageUrl
-    : profileUser?.imageUrl ?? undefined;
+  const avatarUrl = isOwnProfile ? viewer?.imageUrl : (profileUser?.imageUrl ?? undefined);
 
   // Rol del dueño del perfil: BD primero; para perfil propio aún sin fila, metadata de Clerk.
   const viewerRole = viewer?.publicMetadata?.role;
@@ -112,7 +141,10 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     let viewerCanContact = false;
     let viewerConnectionStatus: "PENDING" | "ACCEPTED" | "REJECTED" | null = null;
     if (!isOwnProfile && viewer && ownerId) {
-      const viewerUser = await prisma.user.findUnique({ where: { id: viewer.id }, select: { role: true } });
+      const viewerUser = await prisma.user.findUnique({
+        where: { id: viewer.id },
+        select: { role: true },
+      });
       if (viewerUser?.role === "client") {
         viewerCanContact = true;
         const existingConnection = await prisma.connection.findUnique({
@@ -162,7 +194,9 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   // "Buscar más talento" (CollaboratorSearchModal): partners públicos con los
   // que el cliente todavía no tiene ninguna Connection, para poder enviarles
   // una solicitud de contacto directo desde el buscador.
-  const connectedPartnerIds = (clientCollabData?.connections ?? []).map((connection) => connection.partner.id);
+  const connectedPartnerIds = (clientCollabData?.connections ?? []).map(
+    (connection) => connection.partner.id,
+  );
   const discoverablePartners = ownerId
     ? await prisma.user.findMany({
         where: {

@@ -44,6 +44,72 @@ export interface PortfolioPieceForEdit {
 }
 
 const MAX_TAGS = 5;
+const MAX_PARTNER_RESULTS = 24;
+
+export interface PublicPartnerResult {
+  id: string;
+  username: string;
+  name: string | null;
+  imageUrl: string | null;
+  headline: string | null;
+  primaryRole: string | null;
+}
+
+// Busca partners públicos por nombre/username/headline/rol para la
+// herramienta "Colaboradores" del Canvas Markdown. Requiere sesión: solo
+// usuarios logueados (client o collaborator) pueden buscar para etiquetar
+// colaboradores en una pieza de portafolio.
+export async function searchPublicPartners(
+  query: string,
+  limit = 12,
+): Promise<PublicPartnerResult[]> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("No autenticado");
+
+  const take = Math.min(Math.max(limit, 1), MAX_PARTNER_RESULTS);
+  const q = query.trim();
+
+  const partners = await prisma.user.findMany({
+    where: {
+      role: "collaborator",
+      isPublic: true,
+      username: { not: null },
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { username: { contains: q, mode: "insensitive" } },
+              { headline: { contains: q, mode: "insensitive" } },
+              { primaryRole: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      username: true,
+      name: true,
+      imageUrl: true,
+      headline: true,
+      primaryRole: true,
+    },
+    take,
+  });
+
+  return partners
+    .filter(
+      (partner): partner is typeof partner & { username: string } => partner.username !== null,
+    )
+    .map((partner) => ({
+      id: partner.id,
+      username: partner.username,
+      name: partner.name,
+      imageUrl: partner.imageUrl,
+      headline: partner.headline,
+      primaryRole: partner.primaryRole,
+    }));
+}
 
 // Crea una pieza de portafolio desde el editor de Markdown del Partner.
 // El contenido se guarda como texto plano; siempre queda ligada al usuario
