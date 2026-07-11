@@ -48,8 +48,10 @@ export async function generateMetadata() {
 
 export default async function RootLayout({
   children,
+  modal,
 }: Readonly<{
   children: React.ReactNode;
+  modal: React.ReactNode;
 }>) {
   return (
     <Flex
@@ -143,6 +145,7 @@ export default async function RootLayout({
             <RouteGuard>{children}</RouteGuard>
           </LayoutShell>
           <FloatingChatBubble />
+          {modal}
         </Column>
       </Providers>
     </Flex>
