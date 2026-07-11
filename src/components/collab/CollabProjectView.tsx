@@ -194,9 +194,15 @@ function CollaboratorBadge({
       paddingY="8"
       background="neutral-alpha-weak"
       radius="full"
+      wrap
       style={{ minWidth: 0 }}
     >
       <Avatar size="xs" {...(person.imageUrl ? { src: person.imageUrl } : { value: initials })} />
+      {/* wrap en el Row (arriba): con nombre + headline + 2 IconButton en una
+          sola línea, en móvil el nombre se comía todo el shrink (minWidth 0 +
+          overflowWrap anywhere) y terminaba partido letra por letra. Con wrap
+          el headline/IconButtons bajan a una segunda línea de la píldora en
+          vez de aplastar el nombre. */}
       <Text
         variant="label-default-s"
         onBackground="neutral-strong"
@@ -1758,7 +1764,13 @@ export function CollabProjectView({
         fillWidth
       >
         <Row fillWidth gap="16" horizontal="between" vertical="start" wrap>
-          <Row gap="16" vertical="start" style={{ minWidth: 0 }}>
+          <Row
+            gap="16"
+            vertical="start"
+            fillWidth
+            s={{ direction: "column" }}
+            style={{ minWidth: 0 }}
+          >
             <ProjectLogoControl
               logoUrl={project.logoUrl}
               title={project.title}
@@ -1766,7 +1778,12 @@ export function CollabProjectView({
               onUpload={(dataUrl) => updateProjectLogo(project.id, dataUrl)}
               onSaved={() => router.refresh()}
             />
-            <Column gap="12" style={{ minWidth: 0 }}>
+            {/* fillWidth: en móvil el Row de arriba pasa a columna (avatar
+                "xl" fijo ~150px + este bloque de texto ya no caben en la
+                misma fila) — sin fillWidth el Column heredaba solo el ancho
+                sobrante junto al avatar (~88px) y forzaba overflowWrap
+                "anywhere" a partir texto por caracter, ej. nombre de cliente. */}
+            <Column gap="12" fillWidth style={{ minWidth: 0 }}>
               <Row gap="8" vertical="center" wrap>
                 <Heading
                   variant="heading-strong-l"
