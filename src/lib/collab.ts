@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { ConnectionStatus } from "@/generated/prisma/client";
+import type { ConnectionStatus, ProjectMemberRole, TaskPriority } from "@/generated/prisma/client";
 
 /* ══ Tipos compartidos (fechas serializadas como ISO string para Server → ══
    ══ Client Components) ═══════════════════════════════════════════════ */
@@ -45,6 +45,15 @@ export interface CollabTaskAsset {
   title: string;
 }
 
+// Dependencia cruzada de una tarea (Fase 6): id de la fila TaskDependency y
+// datos mínimos de la tarea de la que depende, para renderizar el link sin
+// otro round-trip.
+export interface CollabTaskDependency {
+  id: string;
+  dependsOnId: string;
+  dependsOnTitle: string;
+}
+
 export interface CollabTask {
   id: string;
   title: string;
@@ -59,6 +68,12 @@ export interface CollabTask {
   dueDate: string | null;
   assignee: CollabTaskAssignee | null;
   asset: CollabTaskAsset | null;
+  // Atributos ricos (Fase 6): prioridad, avance, rango de fechas y categoría
+  priority: TaskPriority;
+  progress: number;
+  startDate: string | null;
+  category: string | null;
+  dependencies: CollabTaskDependency[];
 }
 
 export interface CollabLink {
@@ -101,6 +116,8 @@ export interface CollabProjectData {
   quoteNotes: string | null;
   startDate: string | null;
   dueDate: string | null;
+  // Imagen corporativa/logotipo del proyecto (data URL comprimida)
+  logoUrl: string | null;
   connectionId: string;
   createdAt: string;
   updatedAt: string;
@@ -202,6 +219,11 @@ function toTask(task: {
   dueDate: Date | null;
   assignee: CollabTaskAssignee | null;
   asset: CollabTaskAsset | null;
+  priority: TaskPriority;
+  progress: number;
+  startDate: Date | null;
+  category: string | null;
+  dependencies: { id: string; dependsOnId: string; dependsOn: { id: string; title: string } }[];
 }): CollabTask {
   return {
     id: task.id,
@@ -215,6 +237,15 @@ function toTask(task: {
     dueDate: task.dueDate === null ? null : task.dueDate.toISOString(),
     assignee: task.assignee,
     asset: task.asset,
+    priority: task.priority,
+    progress: task.progress,
+    startDate: task.startDate === null ? null : task.startDate.toISOString(),
+    category: task.category,
+    dependencies: task.dependencies.map((dependency) => ({
+      id: dependency.id,
+      dependsOnId: dependency.dependsOnId,
+      dependsOnTitle: dependency.dependsOn.title,
+    })),
   };
 }
 
@@ -299,6 +330,7 @@ function toProject(project: {
   quoteNotes: string | null;
   startDate: Date | null;
   dueDate: Date | null;
+  logoUrl: string | null;
   connectionId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -318,6 +350,7 @@ function toProject(project: {
     quoteNotes: project.quoteNotes,
     startDate: project.startDate === null ? null : project.startDate.toISOString(),
     dueDate: project.dueDate === null ? null : project.dueDate.toISOString(),
+    logoUrl: project.logoUrl,
     connectionId: project.connectionId,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
@@ -358,6 +391,7 @@ const PROJECT_INCLUDE = {
     include: {
       assignee: { select: { id: true, name: true, username: true, imageUrl: true } },
       asset: { select: { id: true, title: true } },
+      dependencies: { include: { dependsOn: { select: { id: true, title: true } } } },
     },
   },
   links: { orderBy: { createdAt: "asc" as const } },
@@ -513,4 +547,113 @@ export async function getCollabProject(
   }
 
   return toProject(project);
+}
+
+/* ══ Sugerencias de asignación (Fase 6) ═══════════════════════════════ */
+
+export interface AssigneeSuggestion {
+  userId: string;
+  name: string | null;
+  username: string | null;
+  imageUrl: string | null;
+  // Afinidad con la categoría solicitada: 3 = coincide con el rol principal,
+  // 2 = coincide con un rol secundario, 1 = coincide con un
+  // ProjectRoleAssignment del proyecto, 0 = sin match (o sin categoría).
+  score: number;
+  // Tareas activas (no approved/rejected) que ya tiene asignadas en este
+  // proyecto; desempata a igualdad de score (menor carga primero).
+  activeTaskCount: number;
+}
+
+const INACTIVE_TASK_STATUSES = ["approved", "rejected"];
+
+// Miembros del proyecto (partner fundador + colaboradores adicionales)
+// ordenados por afinidad con `category` (User.primaryRole/secondaryRoles y
+// ProjectRoleAssignment del proyecto) y, a igualdad de score, por menor
+// número de tareas activas ya asignadas en este proyecto. Puro read, no
+// escribe nada; pensado para alimentar un selector de responsable al crear
+// o editar una tarea.
+export async function suggestAssignees(
+  projectId: string,
+  category?: string | null,
+): Promise<AssigneeSuggestion[]> {
+  const project = await prisma.collabProject.findUnique({
+    where: { id: projectId },
+    select: {
+      connection: { select: { partnerId: true } },
+      collaborators: { select: { userId: true } },
+      roleAssignments: { select: { userId: true, role: true } },
+    },
+  });
+  if (!project) return [];
+
+  const memberIds = [
+    ...new Set([project.connection.partnerId, ...project.collaborators.map((c) => c.userId)]),
+  ];
+  if (memberIds.length === 0) return [];
+
+  const [members, activeTasks] = await Promise.all([
+    prisma.user.findMany({
+      where: { id: { in: memberIds } },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        imageUrl: true,
+        primaryRole: true,
+        secondaryRoles: true,
+      },
+    }),
+    prisma.projectTask.findMany({
+      where: {
+        projectId,
+        assigneeId: { in: memberIds },
+        status: { notIn: INACTIVE_TASK_STATUSES },
+      },
+      select: { assigneeId: true },
+    }),
+  ]);
+
+  const activeTaskCountByUser = new Map<string, number>();
+  for (const task of activeTasks) {
+    if (!task.assigneeId) continue;
+    activeTaskCountByUser.set(
+      task.assigneeId,
+      (activeTaskCountByUser.get(task.assigneeId) ?? 0) + 1,
+    );
+  }
+
+  const rolesByUser = new Map<string, Set<ProjectMemberRole>>();
+  for (const assignment of project.roleAssignments) {
+    const roles = rolesByUser.get(assignment.userId) ?? new Set<ProjectMemberRole>();
+    roles.add(assignment.role);
+    rolesByUser.set(assignment.userId, roles);
+  }
+
+  const normalizedCategory = category?.trim().toLowerCase() || null;
+
+  function affinityScore(member: (typeof members)[number]): number {
+    if (!normalizedCategory) return 0;
+    if (member.primaryRole?.trim().toLowerCase() === normalizedCategory) return 3;
+    if (member.secondaryRoles.some((role) => role.trim().toLowerCase() === normalizedCategory))
+      return 2;
+    const assignedRoles = rolesByUser.get(member.id);
+    if (
+      assignedRoles &&
+      [...assignedRoles].some((role) => role.toLowerCase() === normalizedCategory)
+    )
+      return 1;
+    return 0;
+  }
+
+  return members
+    .map((member) => ({
+      userId: member.id,
+      name: member.name,
+      username: member.username,
+      imageUrl: member.imageUrl,
+      score: affinityScore(member),
+      activeTaskCount: activeTaskCountByUser.get(member.id) ?? 0,
+    }))
+    .sort((a, b) => b.score - a.score || a.activeTaskCount - b.activeTaskCount);
 }

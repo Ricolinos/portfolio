@@ -16,11 +16,10 @@ export const STATUS_LABELS: Record<ProjectStatus, string> = {
    "Proyectos en curso") ═══════════════════════════════════════════════
    Las etiquetas VISIBLES de estado de proyecto se limitan estrictamente a
    estas 4, sin importar el modelo de origen (ProjectQuote o CollabProject).
-   Valores reales en BD de CollabProject.status hoy: active | completed |
-   archived (ver schema.prisma). "paused" y "pending_approval" quedan
-   habilitados aquí como valores válidos para cuando las server actions los
-   acepten (updateCollabProject sigue validando solo active|completed|archived
-   por ahora) — NO se migran datos existentes. */
+   Valores reales en BD de CollabProject.status: active | paused |
+   pending_approval | completed | archived (ver schema.prisma). Desde la
+   Fase 6, updateCollabProject (src/app/actions/collab.ts) ya valida los 5
+   contra esa whitelist — NO se migran datos existentes. */
 export type CollabStatusLabel = "EN_PROGRESO" | "EN_PAUSA" | "PENDIENTE_APROBACION" | "COMPLETADO";
 
 export const COLLAB_STATUS_TEXT: Record<CollabStatusLabel, string> = {

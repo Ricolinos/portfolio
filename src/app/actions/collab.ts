@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { detectProvider, validateExternalUrl } from "@/lib/externalLink";
 import { sendCollabNotification } from "@/lib/collabNotify";
+import { TaskPriority } from "@/generated/prisma/client";
 import type { ConnectionStatus } from "@/generated/prisma/client";
 
 /* ══ Colaboración cliente ↔ partner: solicitudes de contacto, proyectos ══
@@ -17,7 +18,9 @@ type Result<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 const TASK_STATUSES = ["pending", "in_review", "approved"] as const;
 type TaskStatus = (typeof TASK_STATUSES)[number];
 
-const COLLAB_PROJECT_STATUSES = ["active", "completed", "archived"] as const;
+// Vocabulario homologado (Fase 3/6, ver src/lib/projectStatus.ts): "paused" y
+// "pending_approval" ya se aceptaban en el mapeo de etiquetas pero no aquí.
+const COLLAB_PROJECT_STATUSES = ["active", "paused", "pending_approval", "completed", "archived"] as const;
 type CollabProjectStatus = (typeof COLLAB_PROJECT_STATUSES)[number];
 
 async function requireAuth(): Promise<string | null> {
@@ -377,6 +380,36 @@ export async function updateCollabProject(
   return { ok: true };
 }
 
+// Sin bucket de Storage disponible: el logotipo viaja como data URL JPEG ya
+// comprimida en el cliente. Mismo límite que User.coverImageUrl
+// (src/app/actions/updateProfile.ts) para proteger el peso de la fila en BD.
+const MAX_LOGO_DATA_URL_CHARS = 700_000; // ≈ 500KB de imagen
+
+// Actualiza (o quita, con null) el logotipo del proyecto. Misma autorización
+// que editar el proyecto: cliente o cualquier partner/colaborador.
+export async function updateProjectLogo(projectId: string, dataUrl: string | null): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  if (dataUrl !== null) {
+    if (!dataUrl.startsWith("data:image/jpeg;base64,")) {
+      return { ok: false, error: "Formato de imagen no válido." };
+    }
+    if (dataUrl.length > MAX_LOGO_DATA_URL_CHARS) {
+      return { ok: false, error: "El logotipo es demasiado pesado." };
+    }
+  }
+
+  const auth = await getProjectAuth(projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  if (!auth.isClient && !auth.isPartner) return { ok: false, error: "No autorizado" };
+
+  await prisma.collabProject.update({ where: { id: projectId }, data: { logoUrl: dataUrl } });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
 /* ══ Tareas ═══════════════════════════════════════════════════════════ */
 
 // Solo el partner agrega tareas; el orden se calcula al final de la lista.
@@ -469,6 +502,182 @@ export async function deleteProjectTask(taskId: string): Promise<Result> {
   }
 
   await prisma.projectTask.delete({ where: { id: taskId } });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
+const TASK_PRIORITIES = Object.values(TaskPriority);
+const MAX_TASK_CATEGORY_CHARS = 40;
+
+export interface UpdateTaskDetailsInput {
+  priority?: TaskPriority;
+  progress?: number;
+  startDate?: string | null;
+  dueDate?: string | null;
+  category?: string | null;
+}
+
+// Atributos ricos de la tarea (Fase 6): prioridad, avance, rango de fechas y
+// categoría. Misma autorización que agregar/eliminar tareas (solo el
+// partner), y una tarea approved queda inmutable, igual que en
+// updateTaskStatus/deleteProjectTask.
+export async function updateTaskDetails(taskId: string, data: UpdateTaskDetailsInput): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  if (data.priority !== undefined && !TASK_PRIORITIES.includes(data.priority)) {
+    return { ok: false, error: "Prioridad de tarea inválida." };
+  }
+  if (data.progress !== undefined && (!Number.isInteger(data.progress) || data.progress < 0 || data.progress > 100)) {
+    return { ok: false, error: "El avance debe ser un entero entre 0 y 100." };
+  }
+
+  let category: string | null | undefined;
+  if (data.category !== undefined) {
+    const trimmed = data.category === null ? null : data.category.trim() || null;
+    if (trimmed && trimmed.length > MAX_TASK_CATEGORY_CHARS) {
+      return { ok: false, error: `La categoría no puede exceder ${MAX_TASK_CATEGORY_CHARS} caracteres.` };
+    }
+    category = trimmed;
+  }
+
+  const task = await prisma.projectTask.findUnique({
+    where: { id: taskId },
+    select: { status: true, projectId: true, startDate: true, dueDate: true },
+  });
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+
+  const auth = await getProjectAuth(task.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede editar los detalles de la tarea." };
+  if (task.status === "approved") {
+    return { ok: false, error: "La tarea ya fue aprobada y no puede editarse." };
+  }
+
+  // Fusiona con los valores actuales para validar el rango aunque solo se
+  // envíe una de las dos fechas en esta llamada.
+  let nextStartDate = task.startDate;
+  if (data.startDate !== undefined) {
+    nextStartDate = data.startDate === null ? null : new Date(data.startDate);
+    if (nextStartDate !== null && Number.isNaN(nextStartDate.getTime())) {
+      return { ok: false, error: "La fecha de inicio no es válida." };
+    }
+  }
+  let nextDueDate = task.dueDate;
+  if (data.dueDate !== undefined) {
+    nextDueDate = data.dueDate === null ? null : new Date(data.dueDate);
+    if (nextDueDate !== null && Number.isNaN(nextDueDate.getTime())) {
+      return { ok: false, error: "La fecha límite no es válida." };
+    }
+  }
+  if (nextStartDate && nextDueDate && nextStartDate.getTime() > nextDueDate.getTime()) {
+    return { ok: false, error: "La fecha de inicio no puede ser posterior a la fecha límite." };
+  }
+
+  await prisma.projectTask.update({
+    where: { id: taskId },
+    data: {
+      priority: data.priority !== undefined ? data.priority : undefined,
+      progress: data.progress !== undefined ? data.progress : undefined,
+      startDate: data.startDate !== undefined ? nextStartDate : undefined,
+      dueDate: data.dueDate !== undefined ? nextDueDate : undefined,
+      category: data.category !== undefined ? category : undefined,
+    },
+  });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
+/* ══ Dependencias cruzadas entre tareas ═══════════════════════════════ */
+
+// BFS sobre TaskDependency siguiendo los edges "dependsOn" a partir de
+// `fromId`: si se alcanza `targetId`, agregar la arista taskId->dependsOnId
+// original cerraría un ciclo. El grafo por proyecto es pequeño, así que un
+// findMany por nivel es suficiente (sin necesidad de una extensión recursiva
+// de SQL).
+async function hasTransitiveDependency(fromId: string, targetId: string): Promise<boolean> {
+  const visited = new Set<string>([fromId]);
+  let frontier = [fromId];
+
+  while (frontier.length > 0) {
+    const edges = await prisma.taskDependency.findMany({
+      where: { taskId: { in: frontier } },
+      select: { dependsOnId: true },
+    });
+
+    const next: string[] = [];
+    for (const edge of edges) {
+      if (edge.dependsOnId === targetId) return true;
+      if (!visited.has(edge.dependsOnId)) {
+        visited.add(edge.dependsOnId);
+        next.push(edge.dependsOnId);
+      }
+    }
+    frontier = next;
+  }
+
+  return false;
+}
+
+// Solo el partner define dependencias. Ambas tareas deben ser del mismo
+// proyecto, sin auto-dependencia, y se rechaza si dependsOnId ya depende
+// (transitivamente) de taskId, porque cerraría un ciclo.
+export async function addTaskDependency(
+  taskId: string,
+  dependsOnId: string,
+): Promise<Result<{ dependencyId: string }>> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+  if (taskId === dependsOnId) return { ok: false, error: "Una tarea no puede depender de sí misma." };
+
+  const [task, dependsOnTask] = await Promise.all([
+    prisma.projectTask.findUnique({ where: { id: taskId }, select: { projectId: true, status: true } }),
+    prisma.projectTask.findUnique({ where: { id: dependsOnId }, select: { projectId: true } }),
+  ]);
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+  if (!dependsOnTask) return { ok: false, error: "La tarea de la que depende no existe." };
+  if (task.projectId !== dependsOnTask.projectId) {
+    return { ok: false, error: "Ambas tareas deben pertenecer al mismo proyecto." };
+  }
+
+  const auth = await getProjectAuth(task.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede definir dependencias." };
+  if (task.status === "approved") {
+    return { ok: false, error: "La tarea ya fue aprobada y no puede editarse." };
+  }
+
+  if (await hasTransitiveDependency(dependsOnId, taskId)) {
+    return { ok: false, error: "Esa dependencia crearía un ciclo entre tareas." };
+  }
+
+  try {
+    const dependency = await prisma.taskDependency.create({
+      data: { taskId, dependsOnId },
+      select: { id: true },
+    });
+    revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+    return { ok: true, dependencyId: dependency.id };
+  } catch {
+    return { ok: false, error: "Esa dependencia ya existe." };
+  }
+}
+
+// Solo el partner quita dependencias.
+export async function removeTaskDependency(taskId: string, dependsOnId: string): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const task = await prisma.projectTask.findUnique({ where: { id: taskId }, select: { projectId: true } });
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+
+  const auth = await getProjectAuth(task.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
+  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede quitar dependencias." };
+
+  await prisma.taskDependency.deleteMany({ where: { taskId, dependsOnId } });
 
   revalidateUsernames(auth.clientUsername, auth.partnerUsername);
   return { ok: true };
