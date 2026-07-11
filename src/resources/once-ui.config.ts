@@ -23,6 +23,7 @@ const routes: RoutesConfig = {
   "/servicios": true,
   "/ejercicios": true,
   "/proyectos": true,
+  "/mensajes": true,
   // "/about": true,
   // "/work": true,
   // "/blog": true,
@@ -147,7 +148,8 @@ const effects: EffectsConfig = {
 };
 
 const mailchimp: MailchimpConfig = {
-  action: "https://ricolinos.us22.list-manage.com/subscribe/post?u=9260e7fd950d886533eb4441e&amp;id=0cec3fea9b&amp;f_id=00f1c2e1f0",
+  action:
+    "https://ricolinos.us22.list-manage.com/subscribe/post?u=9260e7fd950d886533eb4441e&amp;id=0cec3fea9b&amp;f_id=00f1c2e1f0",
   effects: {
     mask: {
       cursor: true,

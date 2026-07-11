@@ -24,9 +24,15 @@ import {
   Text,
   Textarea,
 } from "@once-ui-system/core";
-import type { CollabLink, CollabProjectData, ProjectAssetData, ProjectAssetTaskData } from "@/lib/collab";
+import type {
+  CollabLink,
+  CollabProjectData,
+  ProjectAssetData,
+  ProjectAssetTaskData,
+} from "@/lib/collab";
 import { validateExternalUrl } from "@/lib/externalLink";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { ProjectChat } from "@/components/collab/ProjectChat";
 import {
   addProjectCollaborator,
   addProjectLink,
@@ -85,6 +91,25 @@ const PROJECT_STATUS_OPTIONS = [
   { value: "completed", label: "Completado" },
   { value: "archived", label: "Archivado" },
 ];
+
+// Estados de ProjectTask (pipeline mensaje->tarea, chat-requirements.md
+// 3.3/4.1): "pending"/"in_review" son los históricos del checklist manual,
+// "pending_approval"/"approved"/"rejected" llegan del chat del proyecto.
+const PROJECT_TASK_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  in_review: "En revisión",
+  pending_approval: "Por aprobar",
+  approved: "Aprobada",
+  rejected: "Rechazada",
+};
+
+const PROJECT_TASK_STATUS_VARIANTS: Record<string, "neutral" | "warning" | "success" | "danger"> = {
+  pending: "neutral",
+  in_review: "neutral",
+  pending_approval: "warning",
+  approved: "success",
+  rejected: "danger",
+};
 
 const QUOTE_CURRENCY_OPTIONS = [
   { value: "MXN", label: "MXN" },
@@ -323,7 +348,9 @@ function ProjectSettingsDialog({
   const [description, setDescription] = useState(project.description ?? "");
   const [status, setStatus] = useState(project.status);
   const [clientNotes, setClientNotes] = useState(project.clientNotes ?? "");
-  const [quoteAmount, setQuoteAmount] = useState<number | undefined>(project.quoteAmount ?? undefined);
+  const [quoteAmount, setQuoteAmount] = useState<number | undefined>(
+    project.quoteAmount ?? undefined,
+  );
   const [quoteCurrency, setQuoteCurrency] = useState(project.quoteCurrency || "MXN");
   const [quoteNotes, setQuoteNotes] = useState(project.quoteNotes ?? "");
   const [startDate, setStartDate] = useState<Date | undefined>(
@@ -364,9 +391,19 @@ function ProjectSettingsDialog({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Configuración del proyecto" backdrop={modalBackdrop}>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Configuración del proyecto"
+      backdrop={modalBackdrop}
+    >
       <Column gap="16" fillWidth paddingTop="12">
-        <Input id="collab-project-title" label="Título" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <Input
+          id="collab-project-title"
+          label="Título"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
         <Textarea
           id="collab-project-description"
           label="Descripción"
@@ -458,13 +495,7 @@ function ProjectSettingsDialog({
   );
 }
 
-function AssetTaskRow({
-  task,
-  canEdit,
-}: {
-  task: ProjectAssetTaskData;
-  canEdit: boolean;
-}) {
+function AssetTaskRow({ task, canEdit }: { task: ProjectAssetTaskData; canEdit: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -722,7 +753,11 @@ function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole:
 
         <Row gap="8" vertical="center">
           {total > 0 && (
-            <Tag size="s" variant={done === total ? "success" : "neutral"} label={`${done}/${total}`} />
+            <Tag
+              size="s"
+              variant={done === total ? "success" : "neutral"}
+              label={`${done}/${total}`}
+            />
           )}
           {isPartner && (
             <IconButton
@@ -750,7 +785,15 @@ function AssetCard({ asset, viewerRole }: { asset: ProjectAssetData; viewerRole:
         </Row>
       </Row>
 
-      {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
+      {error && (
+        <Feedback
+          variant="danger"
+          description={error}
+          onClose={() => setError(null)}
+          showCloseButton
+          fillWidth
+        />
+      )}
 
       {asset.tasks.length > 0 && (
         <Column fillWidth border="neutral-alpha-weak" radius="m" overflow="hidden">
@@ -1048,7 +1091,10 @@ const MESSAGE_POLL_INTERVAL_MS = 4000;
 
 function MessageBubble({ message, own }: { message: MessageData; own: boolean }) {
   const senderLabel = message.sender.name ?? message.sender.username ?? "Usuario";
-  const time = new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(message.createdAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   return (
     <Row fillWidth horizontal={own ? "end" : "start"}>
@@ -1135,7 +1181,14 @@ function MessageThread({ connectionId, viewerId }: { connectionId: string; viewe
   };
 
   return (
-    <Column fillWidth border="neutral-alpha-weak" radius="l" background="surface" padding="16" gap="12">
+    <Column
+      fillWidth
+      border="neutral-alpha-weak"
+      radius="l"
+      background="surface"
+      padding="16"
+      gap="12"
+    >
       <Column ref={scrollRef} fillWidth gap="8" overflowY="auto" style={{ maxHeight: 320 }}>
         {!loading && messages.length === 0 ? (
           <Row fillWidth center paddingY="32">
@@ -1150,7 +1203,15 @@ function MessageThread({ connectionId, viewerId }: { connectionId: string; viewe
         )}
       </Column>
 
-      {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
+      {error && (
+        <Feedback
+          variant="danger"
+          description={error}
+          onClose={() => setError(null)}
+          showCloseButton
+          fillWidth
+        />
+      )}
 
       <Row fillWidth gap="8" vertical="end">
         <Column style={{ flex: 1, minWidth: 0 }}>
@@ -1273,15 +1334,46 @@ export function CollabProjectView({
     (sum, asset) => sum + asset.tasks.filter((task) => task.done).length,
     0,
   );
-  const assetProgressPercent = totalAssetTasks > 0 ? Math.round((doneAssetTasks / totalAssetTasks) * 100) : 0;
+  const assetProgressPercent =
+    totalAssetTasks > 0 ? Math.round((doneAssetTasks / totalAssetTasks) * 100) : 0;
 
   const brandLinks = project.links.filter((link) => link.type === "brand");
   const finalLinks = project.links.filter((link) => link.type === "final");
 
+  // Participantes del proyecto para el chat robusto: cliente + partner
+  // fundador + colaboradores adicionales (chat-requirements.md 3.2).
+  const chatParticipants = [
+    { id: client.id, name: client.name, username: client.username, imageUrl: client.imageUrl },
+    { id: partner.id, name: partner.name, username: partner.username, imageUrl: partner.imageUrl },
+    ...project.collaborators.map((collaborator) => ({
+      id: collaborator.id,
+      name: collaborator.name,
+      username: collaborator.username,
+      imageUrl: collaborator.imageUrl,
+    })),
+  ];
+  const chatPartnerParticipants = chatParticipants.filter((person) => person.id !== client.id);
+  const chatAssets = project.assets.map((asset) => ({ id: asset.id, title: asset.title }));
+
   return (
-    <Column fillWidth maxWidth="l" horizontal="center" paddingX="32" paddingTop="40" paddingBottom="80" gap="24">
+    <Column
+      fillWidth
+      maxWidth="l"
+      horizontal="center"
+      paddingX="32"
+      paddingTop="40"
+      paddingBottom="80"
+      gap="24"
+    >
       {/* ── Cabecera ─────────────────────────────────────────────────────── */}
-      <Column background="surface" border="neutral-alpha-weak" radius="l" padding="24" gap="16" fillWidth>
+      <Column
+        background="surface"
+        border="neutral-alpha-weak"
+        radius="l"
+        padding="24"
+        gap="16"
+        fillWidth
+      >
         <Row fillWidth gap="16" horizontal="between" vertical="start" wrap>
           <Column gap="12" style={{ minWidth: 0 }}>
             <Row gap="8" vertical="center" wrap>
@@ -1346,20 +1438,115 @@ export function CollabProjectView({
         {viewerRole === "client" && project.clientNotes && (
           <Column background="neutral-alpha-weak" padding="12" radius="m" gap="4">
             <Text variant="label-strong-s">Tus notas</Text>
-            <Text variant="body-default-s" onBackground="neutral-weak" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+            <Text
+              variant="body-default-s"
+              onBackground="neutral-weak"
+              style={{ minWidth: 0, overflowWrap: "anywhere" }}
+            >
               {project.clientNotes}
             </Text>
           </Column>
         )}
       </Column>
 
-      {error && <Feedback variant="danger" description={error} onClose={() => setError(null)} showCloseButton fillWidth />}
+      {error && (
+        <Feedback
+          variant="danger"
+          description={error}
+          onClose={() => setError(null)}
+          showCloseButton
+          fillWidth
+        />
+      )}
 
       {/* ── Mensajes ─────────────────────────────────────────────────────── */}
       <Column gap="16" fillWidth>
         <Heading variant="heading-strong-m">Mensajes</Heading>
         <MessageThread connectionId={project.connectionId} viewerId={viewerId} />
       </Column>
+
+      {/* ── Chat del proyecto (mensajería robusta por canales + pipeline ──
+          mensaje->tarea). Módulo entero inaccesible si el proyecto no está
+          activo (chat-requirements.md 3.2). ──────────────────────────── */}
+      {project.status === "active" && (
+        <ProjectChat
+          projectId={project.id}
+          viewerId={viewerId}
+          viewerRole={viewerRole}
+          participants={chatParticipants}
+          partnerParticipants={chatPartnerParticipants}
+          assets={chatAssets}
+        />
+      )}
+
+      {/* ── Tareas del proyecto ──────────────────────────────────────────── */}
+      {project.tasks.length > 0 && (
+        <Column gap="16" fillWidth>
+          <Heading variant="heading-strong-m">Tareas del proyecto</Heading>
+          <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
+            {project.tasks.map((task, index) => (
+              <Column key={task.id} fillWidth>
+                {index > 0 && <Line background="neutral-alpha-weak" />}
+                <Column fillWidth gap="8" paddingX="16" paddingY="12">
+                  <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
+                    <Text
+                      variant="label-default-m"
+                      onBackground="neutral-strong"
+                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                    >
+                      {task.title}
+                    </Text>
+                    <Tag
+                      size="s"
+                      variant={PROJECT_TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
+                      label={PROJECT_TASK_STATUS_LABELS[task.status] ?? task.status}
+                    />
+                  </Row>
+                  {(task.assignee || task.dueDate || task.asset) && (
+                    <Row gap="16" vertical="center" wrap>
+                      {task.assignee && (
+                        <Row gap="8" vertical="center">
+                          <Avatar
+                            size="xs"
+                            {...(task.assignee.imageUrl
+                              ? { src: task.assignee.imageUrl }
+                              : {
+                                  value: (
+                                    task.assignee.name?.[0] ??
+                                    task.assignee.username?.[0] ??
+                                    "U"
+                                  ).toUpperCase(),
+                                })}
+                          />
+                          <Text variant="label-default-s" onBackground="neutral-weak">
+                            {task.assignee.name ?? task.assignee.username ?? "Sin asignar"}
+                          </Text>
+                        </Row>
+                      )}
+                      {task.dueDate && (
+                        <Row gap="4" vertical="center">
+                          <Icon name="calendar" size="xs" onBackground="neutral-weak" />
+                          <Text variant="label-default-s" onBackground="neutral-weak">
+                            {new Date(task.dueDate).toLocaleDateString()}
+                          </Text>
+                        </Row>
+                      )}
+                      {task.asset && (
+                        <Row gap="4" vertical="center">
+                          <Icon name="shapes" size="xs" onBackground="neutral-weak" />
+                          <Text variant="label-default-s" onBackground="neutral-weak">
+                            {task.asset.title}
+                          </Text>
+                        </Row>
+                      )}
+                    </Row>
+                  )}
+                </Column>
+              </Column>
+            ))}
+          </Column>
+        </Column>
+      )}
 
       {/* ── Activos del proyecto ─────────────────────────────────────────── */}
       <Column gap="16" fillWidth>
@@ -1402,7 +1589,12 @@ export function CollabProjectView({
         )}
 
         <Row fillWidth horizontal="end">
-          <Button variant="secondary" size="m" prefixIcon="plus" onClick={() => setAddAssetOpen(true)}>
+          <Button
+            variant="secondary"
+            size="m"
+            prefixIcon="plus"
+            onClick={() => setAddAssetOpen(true)}
+          >
             Agregar activo
           </Button>
         </Row>

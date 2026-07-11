@@ -31,6 +31,20 @@ export interface CollabCollaboratorSummary {
   headline: string | null;
 }
 
+// Responsable asignado a una tarea del pipeline mensaje->tarea (chat-requirements.md).
+export interface CollabTaskAssignee {
+  id: string;
+  name: string | null;
+  username: string | null;
+  imageUrl: string | null;
+}
+
+// Activo del proyecto vinculado a una tarea (ProjectTask.assetId).
+export interface CollabTaskAsset {
+  id: string;
+  title: string;
+}
+
 export interface CollabTask {
   id: string;
   title: string;
@@ -39,6 +53,12 @@ export interface CollabTask {
   projectId: string;
   createdAt: string;
   updatedAt: string;
+  // Campos del pipeline mensaje->tarea, todos opcionales/nulos en tareas
+  // creadas manualmente desde el panel (sin origen en el chat).
+  description: string | null;
+  dueDate: string | null;
+  assignee: CollabTaskAssignee | null;
+  asset: CollabTaskAsset | null;
 }
 
 export interface CollabLink {
@@ -178,6 +198,10 @@ function toTask(task: {
   projectId: string;
   createdAt: Date;
   updatedAt: Date;
+  description: string | null;
+  dueDate: Date | null;
+  assignee: CollabTaskAssignee | null;
+  asset: CollabTaskAsset | null;
 }): CollabTask {
   return {
     id: task.id,
@@ -187,6 +211,10 @@ function toTask(task: {
     projectId: task.projectId,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
+    description: task.description,
+    dueDate: task.dueDate === null ? null : task.dueDate.toISOString(),
+    assignee: task.assignee,
+    asset: task.asset,
   };
 }
 
@@ -325,7 +353,13 @@ function toResource(resource: {
 }
 
 const PROJECT_INCLUDE = {
-  tasks: { orderBy: { order: "asc" as const } },
+  tasks: {
+    orderBy: { order: "asc" as const },
+    include: {
+      assignee: { select: { id: true, name: true, username: true, imageUrl: true } },
+      asset: { select: { id: true, title: true } },
+    },
+  },
   links: { orderBy: { createdAt: "asc" as const } },
   assets: {
     include: { tasks: { orderBy: { order: "asc" as const } } },
@@ -471,7 +505,9 @@ export async function getCollabProject(
 
   const isClient = project.connection.clientId === userId;
   const isPartner = project.connection.partnerId === userId;
-  const isCollaborator = project.collaborators.some((collaborator) => collaborator.userId === userId);
+  const isCollaborator = project.collaborators.some(
+    (collaborator) => collaborator.userId === userId,
+  );
   if (!isClient && !isPartner && !isCollaborator) {
     return null;
   }
