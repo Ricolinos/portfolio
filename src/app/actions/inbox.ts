@@ -3,7 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { ProjectMemberRole } from "@/generated/prisma/client";
-import { requireProjectMember } from "./channels";
+import { requireChannelAccess, requireProjectMember } from "./channels";
 
 /* ══ Bandeja unificada de /mensajes (chat-messenger-refactor.md 2/3) ═════
    Combina hilos directos (DirectThread) y canales de proyecto activos
@@ -19,6 +19,8 @@ export interface ConversationParticipant {
   imageUrl: string | null;
   headline: string | null;
   role: string;
+  lastSeenAt: string | null;
+  presenceStatus: string | null;
 }
 
 export interface ConversationSummary {
@@ -42,6 +44,8 @@ export interface ChannelContextParticipant {
   username: string | null;
   imageUrl: string | null;
   roles: ProjectMemberRole[];
+  lastSeenAt: string | null;
+  presenceStatus: string | null;
 }
 
 export interface ChannelContextTask {
@@ -90,6 +94,8 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
             imageUrl: true,
             role: true,
             headline: true,
+            lastSeenAt: true,
+            presenceStatus: true,
           },
         },
         recipient: {
@@ -100,6 +106,8 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
             imageUrl: true,
             role: true,
             headline: true,
+            lastSeenAt: true,
+            presenceStatus: true,
           },
         },
         messages: {
@@ -184,7 +192,10 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
       title: otherParticipant.name ?? otherParticipant.username ?? "Usuario",
       subtitle: otherParticipant.headline,
       avatarUrl: otherParticipant.imageUrl,
-      participant: otherParticipant,
+      participant: {
+        ...otherParticipant,
+        lastSeenAt: otherParticipant.lastSeenAt ? otherParticipant.lastSeenAt.toISOString() : null,
+      },
       lastMessage: lastMessage
         ? {
             body: lastMessage.body,
@@ -255,6 +266,9 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
   const member = await requireProjectMember(channel.projectId, userId);
   if (!member.ok) return { ok: false, error: member.error ?? "No autorizado" };
 
+  const accessCheck = await requireChannelAccess(channelId, userId, member.isClient ?? false);
+  if (!accessCheck.ok) return accessCheck;
+
   const project = await prisma.collabProject.findUnique({
     where: { id: channel.projectId },
     select: {
@@ -265,12 +279,41 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
         select: {
           clientId: true,
           partnerId: true,
-          client: { select: { id: true, name: true, username: true, imageUrl: true } },
-          partner: { select: { id: true, name: true, username: true, imageUrl: true } },
+          client: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              imageUrl: true,
+              lastSeenAt: true,
+              presenceStatus: true,
+            },
+          },
+          partner: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              imageUrl: true,
+              lastSeenAt: true,
+              presenceStatus: true,
+            },
+          },
         },
       },
       collaborators: {
-        select: { user: { select: { id: true, name: true, username: true, imageUrl: true } } },
+        select: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              imageUrl: true,
+              lastSeenAt: true,
+              presenceStatus: true,
+            },
+          },
+        },
       },
       roleAssignments: { select: { userId: true, role: true } },
       assets: { select: { id: true, title: true } },
@@ -297,13 +340,28 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
     rolesByUser.set(assignment.userId, current);
   }
 
+  const toParticipant = (
+    user: {
+      id: string;
+      name: string | null;
+      username: string | null;
+      imageUrl: string | null;
+      lastSeenAt: Date | null;
+      presenceStatus: string | null;
+    },
+    roles: ProjectMemberRole[],
+  ): ChannelContextParticipant => ({
+    ...user,
+    lastSeenAt: user.lastSeenAt ? user.lastSeenAt.toISOString() : null,
+    roles,
+  });
+
   const participants: ChannelContextParticipant[] = [
-    { ...project.connection.client, roles: [] },
-    { ...project.connection.partner, roles: rolesByUser.get(project.connection.partnerId) ?? [] },
-    ...project.collaborators.map((collaborator) => ({
-      ...collaborator.user,
-      roles: rolesByUser.get(collaborator.user.id) ?? [],
-    })),
+    toParticipant(project.connection.client, []),
+    toParticipant(project.connection.partner, rolesByUser.get(project.connection.partnerId) ?? []),
+    ...project.collaborators.map((collaborator) =>
+      toParticipant(collaborator.user, rolesByUser.get(collaborator.user.id) ?? []),
+    ),
   ];
 
   const partnerParticipants = [

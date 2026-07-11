@@ -57,6 +57,13 @@ model User {
   // secundarios. Máx. 2 secundarios, validado en la server action, no en el schema.
   primaryRole       String?
   secondaryRoles    String[] @default([])
+  // Presencia del messenger (heartbeat del cliente cada ~60s vía
+  // presenceHeartbeat): null = nunca reportó actividad. La derivación a
+  // online/busy/offline vive en src/lib/presence.ts (derivePresence).
+  lastSeenAt        DateTime?
+  // Estado manual de presencia: null = automático (según lastSeenAt);
+  // "busy" = ocupado, fijado a mano por el propio usuario.
+  presenceStatus    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -80,6 +87,8 @@ model User {
   projectRoles        ProjectRoleAssignment[] @relation("projectRoles")
   assignedTasks       ProjectTask[]           @relation("assignedTasks")
   notifications       Notification[]          @relation("notifications")
+  // Control de acceso por sala (canales restringidos, ver ChannelMember)
+  channelMemberships  ChannelMember[]         @relation("channelMemberships")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -520,11 +529,32 @@ model ProjectChannel {
   project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   messages ChannelMessage[]
+  // Control de acceso por sala, ver ChannelMember
+  members  ChannelMember[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([projectId])
+}
+
+// Control de acceso por sala de proyecto. Semántica: un canal SIN filas de
+// ChannelMember es abierto a todos los miembros del proyecto (retrocompatible
+// con las salas existentes, creadas antes de este modelo); un canal CON al
+// menos una fila queda restringido a esos usuarios más el cliente dueño del
+// proyecto (connection.clientId), que siempre puede entrar sin importar si
+// tiene una fila propia. Ver requireChannelAccess en actions/channels.ts.
+model ChannelMember {
+  id        String         @id @default(cuid())
+  channelId String
+  channel   ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User           @relation("channelMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@unique([channelId, userId])
+  @@index([channelId])
+  @@index([userId])
 }
 
 model ChannelMessage {

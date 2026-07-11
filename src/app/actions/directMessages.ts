@@ -39,6 +39,8 @@ export interface DirectThreadData {
     imageUrl: string | null;
     role: string;
     headline: string | null;
+    lastSeenAt: string | null;
+    presenceStatus: string | null;
   };
   lastMessage: { id: string; body: string; senderId: string; createdAt: string } | null;
   unreadCount: number;
@@ -50,6 +52,8 @@ export interface EligibleRecipientData {
   username: string | null;
   imageUrl: string | null;
   headline: string | null;
+  lastSeenAt: string | null;
+  presenceStatus: string | null;
 }
 
 async function requireAuth(): Promise<string | null> {
@@ -100,11 +104,25 @@ export async function getEligibleRecipients(): Promise<
       id: { not: userId },
       username: { not: null },
     },
-    select: { id: true, name: true, username: true, imageUrl: true, headline: true },
+    select: {
+      id: true,
+      name: true,
+      username: true,
+      imageUrl: true,
+      headline: true,
+      lastSeenAt: true,
+      presenceStatus: true,
+    },
     orderBy: { name: "asc" },
   });
 
-  return { ok: true, recipients };
+  return {
+    ok: true,
+    recipients: recipients.map((recipient) => ({
+      ...recipient,
+      lastSeenAt: recipient.lastSeenAt ? recipient.lastSeenAt.toISOString() : null,
+    })),
+  };
 }
 
 export async function startDirectThread(
@@ -188,6 +206,8 @@ export async function getDirectThreads(): Promise<Result<{ threads: DirectThread
           imageUrl: true,
           role: true,
           headline: true,
+          lastSeenAt: true,
+          presenceStatus: true,
         },
       },
       recipient: {
@@ -198,6 +218,8 @@ export async function getDirectThreads(): Promise<Result<{ threads: DirectThread
           imageUrl: true,
           role: true,
           headline: true,
+          lastSeenAt: true,
+          presenceStatus: true,
         },
       },
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
@@ -224,7 +246,10 @@ export async function getDirectThreads(): Promise<Result<{ threads: DirectThread
       recipientId: thread.recipientId,
       createdAt: thread.createdAt.toISOString(),
       updatedAt: thread.updatedAt.toISOString(),
-      otherParticipant,
+      otherParticipant: {
+        ...otherParticipant,
+        lastSeenAt: otherParticipant.lastSeenAt ? otherParticipant.lastSeenAt.toISOString() : null,
+      },
       lastMessage: lastMessage
         ? {
             id: lastMessage.id,
