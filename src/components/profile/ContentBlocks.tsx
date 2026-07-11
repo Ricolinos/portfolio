@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Avatar,
   AvatarGroup,
   Badge,
   Carousel,
@@ -18,6 +19,7 @@ import {
   Row,
   Scroller,
   Select,
+  Spinner,
   StatusIndicator,
   Switch,
   Tag,
@@ -26,6 +28,7 @@ import {
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { type DragEvent, useEffect, useRef, useState } from "react";
+import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
 import { readFileAsDataUrl } from "@/lib/files";
 
 // El Canvas no edita un .md crudo: el usuario arma bloques estructurados y
@@ -77,7 +80,16 @@ export type ContentBlock =
   | {
       id: string;
       type: "avatarGroup";
-      avatars: { id: string; url: string; initials: string }[];
+      // `username`/`name` son opcionales y retrocompatibles: los bloques
+      // guardados antes de la herramienta "Colaboradores" (edición manual de
+      // URL/iniciales) no los tienen y siguen renderizando igual (sin link).
+      avatars: {
+        id: string;
+        url: string;
+        initials: string;
+        username?: string;
+        name?: string;
+      }[];
     }
   | { id: string; type: "logoCloud"; logos: { id: string; url: string }[]; columns: number }
   | { id: string; type: "scroller"; items: { id: string; text: string }[] }
@@ -102,7 +114,7 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
   { type: "badge", label: "Insignia", icon: "sparkles" },
   { type: "status", label: "Estado", icon: "infoCircle" },
   { type: "progress", label: "Barra de progreso", icon: "refreshCw" },
-  { type: "avatarGroup", label: "Grupo de avatares", icon: "userGroup" },
+  { type: "avatarGroup", label: "Colaboradores", icon: "userGroup" },
   { type: "logoCloud", label: "Nube de logos", icon: "grid" },
   { type: "scroller", label: "Tira deslizable", icon: "arrowRight" },
   { type: "masonry", label: "Cuadrícula de fotos", icon: "gallery" },
@@ -282,13 +294,21 @@ function blockToMarkdown(block: ContentBlock): string {
       // pasar por este pipeline (ver GOTCHA arriba) — verificado en
       // pantalla que el prop llega undefined y truena en "avatars.map".
       // Se sustituye por Avatar individuales (mismo componente real de
-      // Once UI, props planas) dentro de una Row.
+      // Once UI, props planas) dentro de una Row. Los colaboradores
+      // agregados vía búsqueda (con `username`) se envuelven en `SmartLink`
+      // (ya registrado en el mapa de components de MDX, mismo patrón que el
+      // bloque "link") para enlazar a su perfil `/${username}`; los
+      // avatares viejos sin `username` quedan igual que antes, sin link.
       const items = avatars
-        .map((a) =>
-          a.url
-            ? `  <Avatar src="${escapeAttr(a.url)}" size="m" />`
-            : `  <Avatar value="${escapeAttr(a.initials.trim())}" size="m" />`,
-        )
+        .map((a) => {
+          const avatarTag = a.url
+            ? `<Avatar src="${escapeAttr(a.url)}" size="m" />`
+            : `<Avatar value="${escapeAttr(a.initials.trim())}" size="m" />`;
+          if (a.username) {
+            return `  <SmartLink href="/${escapeAttr(a.username)}">${avatarTag}</SmartLink>`;
+          }
+          return `  ${avatarTag}`;
+        })
         .join("\n");
       return `<Row gap="8">\n${items}\n</Row>`;
     }
@@ -326,10 +346,7 @@ function blockToMarkdown(block: ContentBlock): string {
       const images = block.images.filter((i) => i.url);
       if (images.length === 0) return "";
       const items = images
-        .map(
-          (i) =>
-            `  <Media src="${escapeAttr(i.url)}" alt="${escapeAttr(i.alt)}" radius="m" />`,
-        )
+        .map((i) => `  <Media src="${escapeAttr(i.url)}" alt="${escapeAttr(i.alt)}" radius="m" />`)
         .join("\n");
       return `<MasonryGrid columns="${block.columns}">\n${items}\n</MasonryGrid>`;
     }
@@ -394,6 +411,140 @@ const STATUS_COLOR_OPTIONS: { label: string; value: StatusColor }[] = [
   { label: "Cian", value: "cyan" },
   { label: "Gris", value: "gray" },
 ];
+
+// --- Herramienta "Colaboradores" (bloque avatarGroup) -----------------------
+const MAX_COLLABORATORS = 8;
+
+// Iniciales para el fallback de `Avatar` cuando el partner no tiene foto de
+// perfil: primeras letras de las 2 primeras palabras del nombre (o del
+// username si no hay nombre).
+function computeInitials(name: string | null, username: string): string {
+  const source = (name || username).trim();
+  if (!source) return "";
+  const letters = source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+  return letters || source[0]?.toUpperCase() || "";
+}
+
+function partnerToAvatar(partner: PublicPartnerResult): {
+  id: string;
+  url: string;
+  initials: string;
+  username?: string;
+  name?: string;
+} {
+  return {
+    id: partner.id,
+    url: partner.imageUrl ?? "",
+    initials: computeInitials(partner.name, partner.username),
+    username: partner.username,
+    name: partner.name ?? undefined,
+  };
+}
+
+interface CollaboratorSearchProps {
+  disabled?: boolean;
+  excludeIds: string[];
+  onAdd: (partner: PublicPartnerResult) => void;
+}
+
+// Buscador de perfiles reales (server action `searchPublicPartners`) con
+// debounce, usado por el editor del bloque "Colaboradores" en vez de la
+// antigua subida manual de foto/iniciales.
+function CollaboratorSearch({ disabled, excludeIds, onAdd }: CollaboratorSearchProps) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PublicPartnerResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    const handle = setTimeout(() => {
+      searchPublicPartners(query, 8)
+        .then((partners) => setResults(partners))
+        .catch(() => setResults([]))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [query, open]);
+
+  const visibleResults = results.filter((partner) => !excludeIds.includes(partner.id));
+
+  return (
+    <Column fillWidth gap="8" style={{ position: "relative" }}>
+      <Input
+        id="collaborator-search"
+        placeholder="Buscar por nombre o usuario…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // Retraso corto: deja que el onMouseDown de la opción (que ya hizo
+          // preventDefault) dispare su onClick antes de cerrar el popover.
+          setTimeout(() => setOpen(false), 150);
+        }}
+        disabled={disabled}
+      />
+      {open && (loading || visibleResults.length > 0) && (
+        <Column
+          fillWidth
+          gap="2"
+          radius="m"
+          border="neutral-alpha-weak"
+          padding="4"
+          background="page"
+          shadow="l"
+          style={{ maxHeight: "14rem", overflowY: "auto" }}
+        >
+          {loading && (
+            <Row fillWidth horizontal="center" padding="8">
+              <Spinner size="s" ariaLabel="Buscando colaboradores" />
+            </Row>
+          )}
+          {!loading &&
+            visibleResults.map((partner) => (
+              <Row
+                key={partner.id}
+                fillWidth
+                gap="8"
+                vertical="center"
+                padding="8"
+                radius="s"
+                cursor="interactive"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onAdd(partner);
+                  setQuery("");
+                  setResults([]);
+                }}
+              >
+                {partner.imageUrl ? (
+                  <Avatar src={partner.imageUrl} size="s" />
+                ) : (
+                  <Avatar value={computeInitials(partner.name, partner.username)} size="s" />
+                )}
+                <Column gap="2">
+                  <Text variant="label-default-s" onBackground="neutral-strong">
+                    {partner.name || partner.username}
+                  </Text>
+                  {partner.headline && (
+                    <Text variant="body-default-xs" onBackground="neutral-weak">
+                      {partner.headline}
+                    </Text>
+                  )}
+                </Column>
+              </Row>
+            ))}
+        </Column>
+      )}
+    </Column>
+  );
+}
 
 // Envuelve la selección actual en `tag` (con atributos opcionales, ej. href).
 // Si la selección cruza límites de nodos, surroundContents falla: el
@@ -1013,90 +1164,58 @@ export function ContentBlockCard({
 
       {!collapsed && block.type === "avatarGroup" && (
         <Column gap="12">
-          <Row gap="12" wrap>
-            {block.avatars.map((avatar) => (
-              <Column key={avatar.id} gap="8" style={{ width: "8rem" }}>
-                <MediaUpload
-                  aspectRatio="1"
-                  accept="image/*"
-                  compress
-                  resizeMaxWidth={400}
-                  resizeMaxHeight={400}
-                  initialPreviewImage={avatar.url || null}
-                  emptyState="Foto"
-                  onFileUpload={async (file) => {
-                    const url = await readFileAsDataUrl(file);
-                    onChange({
-                      ...block,
-                      avatars: block.avatars.map((a) => (a.id === avatar.id ? { ...a, url } : a)),
-                    });
-                  }}
-                />
-                <Input
-                  id={`block-${block.id}-${avatar.id}-initials`}
-                  placeholder="Iniciales"
-                  value={avatar.initials}
-                  onChange={(e) =>
-                    onChange({
-                      ...block,
-                      avatars: block.avatars.map((a) =>
-                        a.id === avatar.id ? { ...a, initials: e.target.value } : a,
-                      ),
-                    })
-                  }
-                  disabled={disabled}
-                />
-                <IconButton
-                  icon="trash"
-                  variant="tertiary"
-                  size="s"
-                  tooltip="Quitar avatar"
-                  disabled={disabled}
-                  onClick={() =>
-                    onChange({
-                      ...block,
-                      avatars: block.avatars.filter((a) => a.id !== avatar.id),
-                    })
-                  }
-                />
-              </Column>
-            ))}
-            {/* GOTCHA (defecto "logo duplicado" reportado por el usuario, mismo
-                patrón en avatarGroup/masonry): este tile estático de "Agregar"
-                convive en el mismo Row que los tiles de `.map()` (esos sí
-                llevan `key={item.id}`), pero al no tener `key` propio, React
-                lo reconcilia por posición: cuando el array crece, el
-                MediaUpload que YA estaba montado en el slot vacío ES el que
-                recibió el archivo (su estado interno `previewImage` ya
-                apunta al blob recién seleccionado, seteado de forma síncrona
-                antes de que `onFileUpload` complete la subida y dispare este
-                re-render) — verificado con Playwright: tras un solo upload,
-                este tile de "Agregar" sigue mostrando esa preview en vez de
-                resetear al ícono "+". Si el usuario, viendo el tile de
-                "Agregar" ya "ocupado", vuelve a seleccionar el MISMO archivo
-                pensando que no se guardó, sí crea una segunda entrada real
-                duplicada (eso es lo que terminó guardado en la pieza real).
-                `key` dependiente de la longitud del array fuerza un
-                remount limpio (estado `previewImage` en null) cada vez que
-                se agrega/quita un ítem. */}
-            <Column key={`add-${block.avatars.length}`} gap="8" style={{ width: "8rem" }}>
-              <MediaUpload
-                aspectRatio="1"
-                accept="image/*"
-                compress
-                resizeMaxWidth={400}
-                resizeMaxHeight={400}
-                emptyState="Agregar"
-                onFileUpload={async (file) => {
-                  const url = await readFileAsDataUrl(file);
-                  onChange({
-                    ...block,
-                    avatars: [...block.avatars, { id: newId(), url, initials: "" }],
-                  });
-                }}
-              />
-            </Column>
-          </Row>
+          {block.avatars.length > 0 && (
+            <Row gap="8" wrap>
+              {block.avatars.map((avatar) => (
+                <Row
+                  key={avatar.id}
+                  gap="8"
+                  vertical="center"
+                  radius="full"
+                  border="neutral-alpha-weak"
+                  paddingLeft="8"
+                  paddingRight="4"
+                  paddingY="4"
+                  background="surface"
+                >
+                  {avatar.url ? (
+                    <Avatar src={avatar.url} size="xs" />
+                  ) : (
+                    <Avatar value={avatar.initials || "?"} size="xs" />
+                  )}
+                  <Text variant="label-default-s" onBackground="neutral-strong">
+                    {avatar.name || avatar.username || avatar.initials || "Colaborador"}
+                  </Text>
+                  <IconButton
+                    icon="close"
+                    variant="tertiary"
+                    size="s"
+                    tooltip="Quitar colaborador"
+                    disabled={disabled}
+                    onClick={() =>
+                      onChange({
+                        ...block,
+                        avatars: block.avatars.filter((a) => a.id !== avatar.id),
+                      })
+                    }
+                  />
+                </Row>
+              ))}
+            </Row>
+          )}
+          {block.avatars.length < MAX_COLLABORATORS ? (
+            <CollaboratorSearch
+              disabled={disabled}
+              excludeIds={block.avatars.map((a) => a.id)}
+              onAdd={(partner) =>
+                onChange({ ...block, avatars: [...block.avatars, partnerToAvatar(partner)] })
+              }
+            />
+          ) : (
+            <Text variant="body-default-xs" onBackground="neutral-weak">
+              Máximo {MAX_COLLABORATORS} colaboradores por sección.
+            </Text>
+          )}
           {block.avatars.filter((a) => a.url || a.initials).length > 0 && (
             <AvatarGroup
               size="m"
