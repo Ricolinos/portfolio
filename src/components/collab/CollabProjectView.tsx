@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
@@ -23,23 +21,16 @@ import {
   Text,
   Textarea,
 } from "@once-ui-system/core";
-import type {
-  CollabLink,
-  CollabProjectData,
-  ProjectAssetData,
-  ProjectAssetTaskData,
-} from "@/lib/collab";
-import { validateExternalUrl } from "@/lib/externalLink";
-import { TASK_STATUS_LABELS, TASK_STATUS_VARIANTS } from "@/lib/projectStatus";
-import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import {
   addProjectCollaborator,
   addProjectLink,
   deleteProjectLink,
   removeProjectCollaborator,
   updateCollabProject,
+  updateProjectLogo,
 } from "@/app/actions/collab";
-import type { CollabCollaboratorSummary } from "@/lib/collab";
 import type { AssetCategoryData } from "@/app/actions/projectAssets";
 import {
   addCustomProjectAsset,
@@ -51,7 +42,17 @@ import {
   renameProjectAssetTask,
   toggleProjectAssetTask,
 } from "@/app/actions/projectAssets";
+import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { CollaboratorSearchModal } from "@/components/collab/CollaboratorSearchModal";
+import { ProjectTaskRow } from "@/components/collab/ProjectTaskRow";
+import type {
+  CollabCollaboratorSummary,
+  CollabLink,
+  CollabProjectData,
+  ProjectAssetData,
+  ProjectAssetTaskData,
+} from "@/lib/collab";
+import { validateExternalUrl } from "@/lib/externalLink";
 
 type ViewerRole = "client" | "partner";
 
@@ -93,10 +94,8 @@ const PROJECT_STATUS_OPTIONS = [
 // Estados de ProjectTask (pipeline mensaje->tarea, chat-requirements.md
 // 3.3/4.1): "pending"/"in_review" son los históricos del checklist manual,
 // "pending_approval"/"approved"/"rejected" llegan del chat del proyecto.
-// Mapa centralizado en src/lib/projectStatus.ts (también usado en el panel
-// de cliente para las tareas expandibles de "Proyectos en curso").
-const PROJECT_TASK_STATUS_LABELS = TASK_STATUS_LABELS;
-const PROJECT_TASK_STATUS_VARIANTS = TASK_STATUS_VARIANTS;
+// Mapa centralizado en src/lib/projectStatus.ts, usado directamente por
+// ProjectTaskRow (Fase 6b) y por el panel de cliente (ClientProfileView).
 
 const QUOTE_CURRENCY_OPTIONS = [
   { value: "MXN", label: "MXN" },
@@ -205,6 +204,147 @@ function CollaboratorBadge({
         />
       )}
     </Row>
+  );
+}
+
+// ─── Logotipo del proyecto (Fase 6b) ──────────────────────────────────────
+// Sin bucket de Storage: se comprime a JPEG en el cliente y viaja como data
+// URL, mismo patrón que la imagen destacada del perfil de partner (ver
+// canvasToDataUrl en PartnerProfileEditDialogs.tsx), pero sin encuadre
+// arrastrable: recorte central cuadrado, un solo paso.
+const LOGO_SIDE = 256;
+const LOGO_JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
+// Debe caber bajo MAX_LOGO_DATA_URL_CHARS de updateProjectLogo (collab.ts).
+const MAX_LOGO_DATA_URL_CHARS = 700_000;
+
+function compressLogoCanvas(canvas: HTMLCanvasElement): string | null {
+  for (const quality of LOGO_JPEG_QUALITIES) {
+    const dataUrl = canvas.toDataURL("image/jpeg", quality);
+    if (dataUrl.length <= MAX_LOGO_DATA_URL_CHARS) return dataUrl;
+  }
+  return null;
+}
+
+function ProjectLogoControl({
+  projectId,
+  logoUrl,
+  title,
+  canEdit,
+}: {
+  projectId: string;
+  logoUrl: string | null;
+  title: string;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const initial = (title[0] ?? "P").toUpperCase();
+
+  const handleFile = (file: File) => {
+    setError(null);
+    setSaving(true);
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = async () => {
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const sx = (img.naturalWidth - side) / 2;
+      const sy = (img.naturalHeight - side) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = LOGO_SIDE;
+      canvas.height = LOGO_SIDE;
+      const ctx = canvas.getContext("2d");
+      URL.revokeObjectURL(objectUrl);
+      if (!ctx) {
+        setError("No se pudo procesar la imagen.");
+        setSaving(false);
+        return;
+      }
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, LOGO_SIDE, LOGO_SIDE);
+      const dataUrl = compressLogoCanvas(canvas);
+      if (!dataUrl) {
+        setError("La imagen es demasiado pesada incluso comprimida.");
+        setSaving(false);
+        return;
+      }
+      const result = await updateProjectLogo(projectId, dataUrl);
+      setSaving(false);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      setError("No se pudo cargar la imagen.");
+      setSaving(false);
+    };
+    img.src = objectUrl;
+  };
+
+  const handleRemove = async () => {
+    setSaving(true);
+    setError(null);
+    const result = await updateProjectLogo(projectId, null);
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    router.refresh();
+  };
+
+  return (
+    <Column gap="4">
+      <Row gap="8" vertical="center">
+        <Avatar size="xl" {...(logoUrl ? { src: logoUrl } : { value: initial })} />
+        {canEdit && (
+          <Column gap="4">
+            <IconButton
+              icon="camera"
+              size="s"
+              variant="tertiary"
+              tooltip="Cambiar logotipo"
+              tooltipPosition="top"
+              loading={saving}
+              disabled={saving}
+              onClick={() => inputRef.current?.click()}
+            />
+            {logoUrl && (
+              <IconButton
+                icon="trash"
+                size="s"
+                variant="tertiary"
+                tooltip="Quitar logotipo"
+                tooltipPosition="top"
+                loading={saving}
+                disabled={saving}
+                onClick={handleRemove}
+              />
+            )}
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              disabled={saving}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) handleFile(file);
+              }}
+            />
+          </Column>
+        )}
+      </Row>
+      {error && (
+        <Text variant="label-default-s" onBackground="danger-weak">
+          {error}
+        </Text>
+      )}
+    </Column>
   );
 }
 
@@ -1167,30 +1307,41 @@ export function CollabProjectView({
         fillWidth
       >
         <Row fillWidth gap="16" horizontal="between" vertical="start" wrap>
-          <Column gap="12" style={{ minWidth: 0 }}>
-            <Row gap="8" vertical="center" wrap>
-              <Heading variant="heading-strong-l" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                {project.title}
-              </Heading>
-              <Tag
-                size="m"
-                variant={PROJECT_STATUS_VARIANTS[project.status] ?? "neutral"}
-                label={PROJECT_STATUS_LABELS[project.status] ?? project.status}
-              />
-            </Row>
-            {project.description && (
-              <Text
-                variant="body-default-m"
-                onBackground="neutral-weak"
-                style={{ minWidth: 0, overflowWrap: "anywhere" }}
-              >
-                {project.description}
-              </Text>
-            )}
-            <Row gap="16" wrap style={{ minWidth: 0 }}>
-              <PersonBadge label="Cliente" person={client} />
-            </Row>
-          </Column>
+          <Row gap="16" vertical="start" style={{ minWidth: 0 }}>
+            <ProjectLogoControl
+              projectId={project.id}
+              logoUrl={project.logoUrl}
+              title={project.title}
+              canEdit
+            />
+            <Column gap="12" style={{ minWidth: 0 }}>
+              <Row gap="8" vertical="center" wrap>
+                <Heading
+                  variant="heading-strong-l"
+                  style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                >
+                  {project.title}
+                </Heading>
+                <Tag
+                  size="m"
+                  variant={PROJECT_STATUS_VARIANTS[project.status] ?? "neutral"}
+                  label={PROJECT_STATUS_LABELS[project.status] ?? project.status}
+                />
+              </Row>
+              {project.description && (
+                <Text
+                  variant="body-default-m"
+                  onBackground="neutral-weak"
+                  style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                >
+                  {project.description}
+                </Text>
+              )}
+              <Row gap="16" wrap style={{ minWidth: 0 }}>
+                <PersonBadge label="Cliente" person={client} />
+              </Row>
+            </Column>
+          </Row>
           <IconButton
             icon="settings"
             size="m"
@@ -1286,61 +1437,12 @@ export function CollabProjectView({
             {project.tasks.map((task, index) => (
               <Column key={task.id} fillWidth>
                 {index > 0 && <Line background="neutral-alpha-weak" />}
-                <Column fillWidth gap="8" paddingX="16" paddingY="12">
-                  <Row fillWidth horizontal="between" vertical="center" gap="12" wrap>
-                    <Text
-                      variant="label-default-m"
-                      onBackground="neutral-strong"
-                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
-                    >
-                      {task.title}
-                    </Text>
-                    <Tag
-                      size="s"
-                      variant={PROJECT_TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
-                      label={PROJECT_TASK_STATUS_LABELS[task.status] ?? task.status}
-                    />
-                  </Row>
-                  {(task.assignee || task.dueDate || task.asset) && (
-                    <Row gap="16" vertical="center" wrap>
-                      {task.assignee && (
-                        <Row gap="8" vertical="center">
-                          <Avatar
-                            size="xs"
-                            {...(task.assignee.imageUrl
-                              ? { src: task.assignee.imageUrl }
-                              : {
-                                  value: (
-                                    task.assignee.name?.[0] ??
-                                    task.assignee.username?.[0] ??
-                                    "U"
-                                  ).toUpperCase(),
-                                })}
-                          />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {task.assignee.name ?? task.assignee.username ?? "Sin asignar"}
-                          </Text>
-                        </Row>
-                      )}
-                      {task.dueDate && (
-                        <Row gap="4" vertical="center">
-                          <Icon name="calendar" size="xs" onBackground="neutral-weak" />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {new Date(task.dueDate).toLocaleDateString()}
-                          </Text>
-                        </Row>
-                      )}
-                      {task.asset && (
-                        <Row gap="4" vertical="center">
-                          <Icon name="shapes" size="xs" onBackground="neutral-weak" />
-                          <Text variant="label-default-s" onBackground="neutral-weak">
-                            {task.asset.title}
-                          </Text>
-                        </Row>
-                      )}
-                    </Row>
-                  )}
-                </Column>
+                <ProjectTaskRow
+                  task={task}
+                  allTasks={project.tasks}
+                  canEdit={viewerRole === "partner" && task.status !== "approved"}
+                  onChanged={() => router.refresh()}
+                />
               </Column>
             ))}
           </Column>

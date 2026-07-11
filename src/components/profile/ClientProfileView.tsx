@@ -1,7 +1,5 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
-import { useRouter } from "next/navigation";
 import {
   Avatar,
   Button,
@@ -19,18 +17,15 @@ import {
   Tag,
   Text,
 } from "@once-ui-system/core";
-import {
-  projectStatusTag,
-  TASK_STATUS_LABELS,
-  TASK_STATUS_VARIANTS,
-  type ProjectStatus,
-} from "@/lib/projectStatus";
-import { RESOURCE_CATEGORY_SLUGS } from "@/components/resources/categories";
+import { LinearGauge } from "@once-ui-system/core/modules";
+import { useRouter } from "next/navigation";
+import { type MouseEvent, useState } from "react";
 import { sendContactRequest } from "@/app/actions/collab";
 import {
   CollaboratorSearchModal,
   type CollaboratorSearchPerson,
 } from "@/components/collab/CollaboratorSearchModal";
+import { RESOURCE_CATEGORY_SLUGS } from "@/components/resources/categories";
 import type {
   ClientConnectionData,
   ClientResourceData,
@@ -38,19 +33,25 @@ import type {
   CollabProjectData,
 } from "@/lib/collab";
 import {
-  AvatarUploadDialog,
-  EditInfoDialog,
-  SecurityPrivacyDialog,
-  type EditProfileInitial,
-} from "./ClientProfileEditDialogs";
+  type ProjectStatus,
+  projectStatusTag,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_VARIANTS,
+} from "@/lib/projectStatus";
 import {
   AddClientResourceDialog,
+  type ConnectionOption,
   DeleteClientResourceDialog,
   NewCollabProjectDialog,
-  ShareClientResourceDialog,
-  type ConnectionOption,
   type ShareablePartner,
+  ShareClientResourceDialog,
 } from "./ClientCollabDialogs";
+import {
+  AvatarUploadDialog,
+  EditInfoDialog,
+  type EditProfileInitial,
+  SecurityPrivacyDialog,
+} from "./ClientProfileEditDialogs";
 import styles from "./ClientProfileView.module.scss";
 
 export interface ClientProject {
@@ -109,10 +110,20 @@ function formatTotal(total: number | null, currency: string) {
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
-function ProjectRow({ project, designer }: { project: ClientProject; designer?: CollabPartnerSummary }) {
+function ProjectRow({
+  project,
+  designer,
+}: {
+  project: ClientProject;
+  designer?: CollabPartnerSummary;
+}) {
   const statusTag = projectStatusTag(project.status);
 
   return (
@@ -167,7 +178,14 @@ function ProjectGroup({
 
   return (
     <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-      <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" background="neutral-alpha-weak">
+      <Row
+        fillWidth
+        paddingX="20"
+        paddingY="12"
+        horizontal="between"
+        vertical="center"
+        background="neutral-alpha-weak"
+      >
         <Row gap="8" vertical="center">
           <Tag size="s" variant={variant} label={title} />
         </Row>
@@ -186,23 +204,39 @@ function ProjectGroup({
 }
 
 // Fila de una tarea activa (checklist) de un proyecto en colaboración,
-// dentro del contenedor expandible de CollabProjectRow.
+// dentro del contenedor expandible de CollabProjectRow. El avance
+// (LinearGauge) es de solo lectura aquí: la edición vive en el panel del
+// partner (CollabProjectView/ProjectTaskRow, Fase 6b).
 function TaskRow({ task }: { task: CollabProjectData["tasks"][number] }) {
   return (
-    <Row fillWidth paddingX="16" paddingY="8" horizontal="between" vertical="center" gap="12">
-      <Text
-        variant="label-default-s"
-        onBackground="neutral-strong"
-        style={{ minWidth: 0, overflowWrap: "anywhere" }}
-      >
-        {task.title}
-      </Text>
-      <Tag
-        size="s"
-        variant={TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
-        label={TASK_STATUS_LABELS[task.status] ?? task.status}
-      />
-    </Row>
+    <Column fillWidth paddingX="16" paddingY="8" gap="8">
+      <Row fillWidth horizontal="between" vertical="center" gap="12">
+        <Text
+          variant="label-default-s"
+          onBackground="neutral-strong"
+          style={{ minWidth: 0, overflowWrap: "anywhere" }}
+        >
+          {task.title}
+        </Text>
+        <Tag
+          size="s"
+          variant={TASK_STATUS_VARIANTS[task.status] ?? "neutral"}
+          label={TASK_STATUS_LABELS[task.status] ?? task.status}
+        />
+      </Row>
+      <Row gap="8" vertical="center">
+        <Column flex={1} height="24" style={{ minWidth: 60 }}>
+          <LinearGauge
+            value={task.progress}
+            hue={task.progress >= 100 ? "success" : "neutral"}
+            line={{ count: 20, length: 16 }}
+          />
+        </Column>
+        <Text variant="label-default-s" onBackground="neutral-weak">
+          {task.progress}%
+        </Text>
+      </Row>
+    </Column>
   );
 }
 
@@ -217,7 +251,9 @@ function CollabProjectRow({ project }: { project: CollabProjectData }) {
     (task) => task.status === "in_review" || task.status === "pending_approval",
   ).length;
   const statusTag = projectStatusTag(project.status);
-  const activeTasks = project.tasks.filter((task) => task.status !== "approved" && task.status !== "rejected");
+  const activeTasks = project.tasks.filter(
+    (task) => task.status !== "approved" && task.status !== "rejected",
+  );
 
   return (
     <Column fillWidth>
@@ -244,11 +280,7 @@ function CollabProjectRow({ project }: { project: CollabProjectData }) {
 
         <Row gap="8" vertical="center">
           {pendingReview > 0 && (
-            <Tag
-              size="s"
-              variant="warning"
-              label={`${pendingReview} por aprobar`}
-            />
+            <Tag size="s" variant="warning" label={`${pendingReview} por aprobar`} />
           )}
           <Tag size="s" variant={statusTag.variant} label={statusTag.label} />
           {project.tasks.length > 0 && (
@@ -306,7 +338,14 @@ function InProgressProjectsGroup({
 
   return (
     <Column fillWidth border="neutral-alpha-medium" radius="l" overflow="hidden">
-      <Row fillWidth paddingX="20" paddingY="12" horizontal="between" vertical="center" background="neutral-alpha-weak">
+      <Row
+        fillWidth
+        paddingX="20"
+        paddingY="12"
+        horizontal="between"
+        vertical="center"
+        background="neutral-alpha-weak"
+      >
         <Row gap="8" vertical="center">
           <Tag size="s" variant="brand" label="Proyectos en curso" />
         </Row>
@@ -357,11 +396,7 @@ function ResourceRow({
       <Row gap="8" vertical="center">
         <Tag size="s" variant="neutral" label={PROVIDER_LABELS[resource.provider] ?? "Link"} />
         {resource.sharedWith.length > 0 && (
-          <Tag
-            size="s"
-            variant="info"
-            label={`Compartido con ${resource.sharedWith.length}`}
-          />
+          <Tag size="s" variant="info" label={`Compartido con ${resource.sharedWith.length}`} />
         )}
         <IconButton
           icon="arrowUpRightFromSquare"
@@ -499,7 +534,12 @@ export function ClientProfileView({
               variant="label-default-s"
               onBackground="neutral-weak"
               title={email}
-              style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+              style={{
+                minWidth: 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
             >
               {email}
             </Text>
@@ -511,7 +551,11 @@ export function ClientProfileView({
           </Text>
         )}
         {motto && (
-          <Text variant="body-default-s" onBackground="neutral-weak" style={{ fontStyle: "italic" }}>
+          <Text
+            variant="body-default-s"
+            onBackground="neutral-weak"
+            style={{ fontStyle: "italic" }}
+          >
             “{motto}”
           </Text>
         )}
@@ -523,17 +567,33 @@ export function ClientProfileView({
     <RevealFx fillWidth horizontal="center" revealedByDefault>
       <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
         <Column fillWidth paddingX="32" paddingTop="40" gap="24">
-
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
           {(() => {
             const headerContent = (
-              <Row fillWidth gap="20" vertical="center" horizontal="between" wrap s={{ direction: "column", horizontal: "start" }}>
+              <Row
+                fillWidth
+                gap="20"
+                vertical="center"
+                horizontal="between"
+                wrap
+                s={{ direction: "column", horizontal: "start" }}
+              >
                 {identity}
-                <Row gap="20" vertical="center" wrap s={{ direction: "column", style: { width: "100%" } }}>
+                <Row
+                  gap="20"
+                  vertical="center"
+                  wrap
+                  s={{ direction: "column", style: { width: "100%" } }}
+                >
                   {isOwnProfile && (
                     <>
                       {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
-                      <Line vert background="neutral-alpha-medium" style={{ alignSelf: "stretch" }} s={{ hide: true }} />
+                      <Line
+                        vert
+                        background="neutral-alpha-medium"
+                        style={{ alignSelf: "stretch" }}
+                        s={{ hide: true }}
+                      />
                       {/* Mismo patrón que "Administra tus proyectos" del perfil de Partner */}
                       <Row
                         background="brand-alpha-weak"
@@ -549,8 +609,9 @@ export function ClientProfileView({
                         <Column gap="4" style={{ minWidth: 0 }}>
                           <Text variant="heading-strong-s">Administra tu cuenta</Text>
                           <Text variant="body-default-s" onBackground="neutral-weak">
-                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas táctiles) para
-                            cambiar tu imagen, editar tu perfil o ajustar tu seguridad y privacidad.
+                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas
+                            táctiles) para cambiar tu imagen, editar tu perfil o ajustar tu
+                            seguridad y privacidad.
                           </Text>
                         </Column>
                       </Row>
@@ -602,8 +663,17 @@ export function ClientProfileView({
           {/* ── Resumen de actividad ───────────────────────────────────────── */}
           <Row fillWidth horizontal="end" vertical="center" gap="8" wrap>
             <Tag size="m" variant="warning" label={`${inProgress.length} en curso`} />
-            <Tag size="m" variant="success" label={`${finished.filter((p) => p.status === "completed").length} completados`} />
-            <Tag size="m" variant="info" prefixIcon="bell" label={`${notificationCount} notificaciones`} />
+            <Tag
+              size="m"
+              variant="success"
+              label={`${finished.filter((p) => p.status === "completed").length} completados`}
+            />
+            <Tag
+              size="m"
+              variant="info"
+              prefixIcon="bell"
+              label={`${notificationCount} notificaciones`}
+            />
           </Row>
 
           {/* ── Nuevo proyecto: panel principal de creación, toda la tarjeta ── */}
@@ -630,7 +700,14 @@ export function ClientProfileView({
               </Column>
             </Card>
           ) : (
-            <Column fillWidth padding="20" radius="l" background="surface" border="neutral-alpha-weak" gap="12">
+            <Column
+              fillWidth
+              padding="20"
+              radius="l"
+              background="surface"
+              border="neutral-alpha-weak"
+              gap="12"
+            >
               <Icon name="plus" size="m" onBackground="brand-weak" />
               <Column gap="4">
                 <Text variant="heading-strong-s">Nuevo proyecto</Text>
@@ -643,7 +720,6 @@ export function ClientProfileView({
 
           {/* ── Tablero de proyectos + paneles laterales ───────────────────── */}
           <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
-
             {/* Tablero tipo Monday */}
             <Column gap="40" fillWidth>
               <Column gap="16" fillWidth>
@@ -664,7 +740,12 @@ export function ClientProfileView({
                     <Text variant="body-default-m" onBackground="neutral-weak" align="center">
                       Aún no has contratado proyectos.
                     </Text>
-                    <Button href="/servicios/cotizador" variant="primary" size="m" prefixIcon="plus">
+                    <Button
+                      href="/servicios/cotizador"
+                      variant="primary"
+                      size="m"
+                      prefixIcon="plus"
+                    >
                       Cotizar mi primer proyecto
                     </Button>
                   </Column>
@@ -675,7 +756,12 @@ export function ClientProfileView({
                       quoteProjects={inProgress}
                       designer={mainDesigner}
                     />
-                    <ProjectGroup title="Finalizados" variant="success" projects={finished} designer={mainDesigner} />
+                    <ProjectGroup
+                      title="Finalizados"
+                      variant="success"
+                      projects={finished}
+                      designer={mainDesigner}
+                    />
                   </Column>
                 )}
               </Column>
@@ -705,7 +791,8 @@ export function ClientProfileView({
                   >
                     <Icon name="folder" size="l" onBackground="neutral-weak" />
                     <Text variant="body-default-m" onBackground="neutral-weak" align="center">
-                      Aún no agregas recursos. Sube tus assets a tu nube favorita y comparte el link aquí.
+                      Aún no agregas recursos. Sube tus assets a tu nube favorita y comparte el link
+                      aquí.
                     </Text>
                   </Column>
                 ) : (
@@ -727,9 +814,14 @@ export function ClientProfileView({
 
             {/* Paneles laterales */}
             <Column gap="16" fillWidth style={{ maxWidth: 320 }}>
-
               {/* Diseñadores contratados */}
-              <Column background="neutral-alpha-weak" border="neutral-alpha-weak" padding="16" radius="m" gap="12">
+              <Column
+                background="neutral-alpha-weak"
+                border="neutral-alpha-weak"
+                padding="16"
+                radius="m"
+                gap="12"
+              >
                 <Row gap="8" vertical="center">
                   <Icon name="userGroup" size="s" onBackground="neutral-weak" />
                   <Text variant="label-strong-s">Tus diseñadores</Text>
@@ -741,7 +833,13 @@ export function ClientProfileView({
                 ) : (
                   <>
                     {acceptedConnections.map(({ partner }) => (
-                      <Row key={partner.id} fillWidth horizontal="between" vertical="center" gap="8">
+                      <Row
+                        key={partner.id}
+                        fillWidth
+                        horizontal="between"
+                        vertical="center"
+                        gap="8"
+                      >
                         <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
                           <Avatar
                             size="s"
@@ -825,7 +923,13 @@ export function ClientProfileView({
               </Column>
 
               {/* Recursos por categoría */}
-              <Column background="neutral-alpha-weak" border="neutral-alpha-weak" padding="16" radius="m" gap="12">
+              <Column
+                background="neutral-alpha-weak"
+                border="neutral-alpha-weak"
+                padding="16"
+                radius="m"
+                gap="12"
+              >
                 <Row gap="8" vertical="center">
                   <Icon name="download" size="s" onBackground="neutral-weak" />
                   <Text variant="label-strong-s">Recursos compartidos</Text>
@@ -841,7 +945,6 @@ export function ClientProfileView({
                   ))}
                 </Row>
               </Column>
-
             </Column>
           </Row>
         </Column>

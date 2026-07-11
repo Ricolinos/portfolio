@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
   Avatar,
   Column,
@@ -12,10 +11,11 @@ import {
   Row,
   Text,
 } from "@once-ui-system/core";
+import { useEffect, useRef, useState } from "react";
 import type { ConversationSummary } from "@/app/actions/inbox";
 import { MessageBubble } from "./MessageBubble";
-import { CreateTaskModal, type TaskParticipant } from "./TaskCard";
 import { personInitial, type StreamMessage } from "./messengerUtils";
+import { CreateTaskModal, type TaskParticipant } from "./TaskCard";
 
 /* ══ Panel central: conversación activa (2.2) ═══════════════════════════ */
 
@@ -241,6 +241,7 @@ export function ConversationPanel({
               partnerParticipants={partnerParticipants}
               assets={assets}
               onCreated={onTaskChanged}
+              projectId={conversation?.project?.id ?? null}
             />
           )}
         </>
