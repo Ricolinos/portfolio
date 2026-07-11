@@ -1,6 +1,5 @@
 "use client";
 
-import { Fragment, useState } from "react";
 import {
   Accordion,
   Avatar,
@@ -16,41 +15,48 @@ import {
   Modal,
   Row,
   SmartLink,
+  Switch,
   Tag,
   Text,
   useToast,
 } from "@once-ui-system/core";
-import { ProjectMemberRole } from "@/generated/prisma/enums";
-import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { Fragment, useEffect, useState } from "react";
+import {
+  assignProjectRole,
+  type ChannelMemberData,
+  createChannel,
+  deleteChannel,
+  getChannelMembers,
+  removeProjectRole,
+  renameChannel,
+  setChannelMembers,
+} from "@/app/actions/channels";
 import type {
   ChannelContextData,
   ChannelContextParticipant,
   ConversationSummary,
 } from "@/app/actions/inbox";
+import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import type { ProjectMemberRole } from "@/generated/prisma/enums";
 import {
-  assignProjectRole,
-  createChannel,
-  deleteChannel,
-  removeProjectRole,
-  renameChannel,
-} from "@/app/actions/channels";
-import { TaskCard } from "./TaskCard";
-import {
-  ROLE_LABELS,
-  ROLE_OPTIONS,
   parseMessageBody,
   personInitial,
   personLabel,
+  ROLE_LABELS,
+  ROLE_OPTIONS,
   type StreamMessage,
 } from "./messengerUtils";
+import { TaskCard } from "./TaskCard";
 
 /* ══ Panel derecho: metadatos del chat y gestión de proyecto (2.3) ══════ */
 
 const modalBackdrop = <BrandModalBackdrop />;
 
 /* ── Sección: Roles del proyecto ─────────────────────────────────────── */
+// Exportado para reutilizarse en el overlay de ajustes de proyecto de
+// ConversationList (mismo patrón de asignación, sin duplicar la UI).
 
-function RolesSection({
+export function RolesSection({
   context,
   onChanged,
 }: {
@@ -186,6 +192,150 @@ function RolesSection({
             </Column>
           )}
         </>
+      )}
+    </Column>
+  );
+}
+
+/* ── Sección: Acceso a la sala (ChannelMember) ────────────────────────── */
+// Solo la ve quien puede configurarla (cliente dueño o partner fundador —
+// canManage viene ya resuelto por el caller a partir de isAdmin/
+// founderPartnerId). Una sala sin ChannelMember queda "abierta a todos".
+
+function AccessSection({
+  channelId,
+  partners,
+  canManage,
+}: {
+  channelId: string;
+  partners: ChannelContextParticipant[];
+  canManage: boolean;
+}) {
+  const { addToast } = useToast();
+  const [members, setMembers] = useState<ChannelMemberData[]>([]);
+  const [restricted, setRestricted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch solo debe correr al cambiar de sala o de permiso, no en cada render por addToast.
+  useEffect(() => {
+    if (!canManage) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      const result = await getChannelMembers(channelId);
+      if (cancelled) return;
+      if (result.ok) {
+        setMembers(result.members);
+        setRestricted(result.restricted);
+      } else {
+        addToast({ variant: "danger", message: result.error });
+      }
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, canManage]);
+
+  if (!canManage) {
+    return (
+      <Text variant="body-default-s" onBackground="neutral-weak">
+        Solo el cliente dueño del proyecto o el partner fundador pueden configurar el acceso a esta
+        sala.
+      </Text>
+    );
+  }
+  if (loading) {
+    return (
+      <Text variant="label-default-s" onBackground="neutral-weak">
+        Cargando...
+      </Text>
+    );
+  }
+
+  const memberIds = new Set(members.map((entry) => entry.userId));
+  const hasAccess = (userId: string) => !restricted || memberIds.has(userId);
+
+  const applyMemberIds = async (nextUserIds: string[]) => {
+    const result = await setChannelMembers(channelId, nextUserIds);
+    if (!result.ok) {
+      addToast({ variant: "danger", message: result.error });
+      return false;
+    }
+    const refreshed = await getChannelMembers(channelId);
+    if (refreshed.ok) {
+      setMembers(refreshed.members);
+      setRestricted(refreshed.restricted);
+    }
+    return true;
+  };
+
+  const handleToggle = async (userId: string) => {
+    if (busyKey) return;
+    setBusyKey(userId);
+    // Al pasar de "abierta" a restringida por primera vez, se parte del set
+    // completo de partners actuales y se quita solo al que se está tocando.
+    const base = restricted ? members.map((entry) => entry.userId) : partners.map((p) => p.id);
+    const next = hasAccess(userId)
+      ? base.filter((id) => id !== userId)
+      : Array.from(new Set([...base, userId]));
+    await applyMemberIds(next);
+    setBusyKey(null);
+  };
+
+  const handleOpenToAll = async () => {
+    if (busyKey) return;
+    setBusyKey("__all__");
+    await applyMemberIds([]);
+    setBusyKey(null);
+  };
+
+  return (
+    <Column gap="12" fillWidth>
+      <Text variant="body-default-s" onBackground="neutral-weak">
+        {restricted
+          ? "Sala restringida: solo entran los colaboradores marcados abajo (el cliente siempre tiene acceso)."
+          : "Sala abierta a todo el equipo del proyecto."}
+      </Text>
+      {restricted && (
+        <Button
+          variant="secondary"
+          size="s"
+          onClick={handleOpenToAll}
+          loading={busyKey === "__all__"}
+        >
+          Abrir a todo el equipo
+        </Button>
+      )}
+      {partners.length === 0 ? (
+        <Text variant="body-default-s" onBackground="neutral-weak">
+          Todavía no hay partners en este proyecto.
+        </Text>
+      ) : (
+        partners.map((person) => (
+          <Row key={person.id} fillWidth gap="8" vertical="center" horizontal="between">
+            <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
+              <Avatar
+                size="xs"
+                {...(person.imageUrl ? { src: person.imageUrl } : { value: personInitial(person) })}
+              />
+              <Text variant="body-default-s" onBackground="neutral-strong" truncate>
+                {personLabel(person)}
+              </Text>
+            </Row>
+            <Switch
+              isChecked={hasAccess(person.id)}
+              onToggle={() => handleToggle(person.id)}
+              loading={busyKey === person.id}
+              disabled={busyKey !== null}
+              ariaLabel={`Acceso de ${personLabel(person)} a la sala`}
+            />
+          </Row>
+        ))
       )}
     </Column>
   );
@@ -538,6 +688,23 @@ export function DetailsPanel({
             ) : (
               <RolesSection context={channelContext} onChanged={onContextRefresh} />
             ),
+          },
+          {
+            title: "Acceso a la sala",
+            content:
+              !channelContext || !conversation.channelId ? (
+                <Text variant="label-default-s" onBackground="neutral-weak">
+                  {loadingContext ? "Cargando..." : "Sin datos."}
+                </Text>
+              ) : (
+                <AccessSection
+                  channelId={conversation.channelId}
+                  partners={channelContext.participants.filter((person) =>
+                    channelContext.partnerParticipants.includes(person.id),
+                  )}
+                  canManage={channelContext.isAdmin || viewerId === channelContext.founderPartnerId}
+                />
+              ),
           },
           {
             title: "Gestión de tareas",

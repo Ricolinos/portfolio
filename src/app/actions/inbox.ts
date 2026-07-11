@@ -1,8 +1,8 @@
 "use server";
 
 import { auth } from "@clerk/nextjs/server";
+import type { ProjectMemberRole } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ProjectMemberRole } from "@/generated/prisma/client";
 import { requireChannelAccess, requireProjectMember } from "./channels";
 
 /* ══ Bandeja unificada de /mensajes (chat-messenger-refactor.md 2/3) ═════
@@ -32,7 +32,12 @@ export interface ConversationSummary {
   subtitle: string | null;
   avatarUrl: string | null;
   participant?: ConversationParticipant;
-  project?: { id: string; title: string };
+  project?: { id: string; title: string; logoUrl: string | null };
+  // Solo se calcula para conversaciones "direct": true si el otro
+  // participante también forma parte de al menos un proyecto activo del
+  // viewer (cliente/partner/colaborador). Usado por el filtro "Proyectos"
+  // del SegmentedControl en modo de mensajes directos (ConversationList).
+  sharesProject?: boolean;
   lastMessage: { body: string; createdAt: string; senderName: string | null } | null;
   unreadCount: number;
   lastActivityAt: string;
@@ -63,14 +68,28 @@ export interface ChannelContextTask {
   asset: { id: string; title: string } | null;
 }
 
+export interface ChannelContextLink {
+  id: string;
+  label: string;
+  url: string;
+  type: string;
+  provider: string;
+  addedById: string;
+}
+
 export interface ChannelContextData {
   channel: { id: string; name: string };
-  project: { id: string; title: string; status: string };
+  project: { id: string; title: string; status: string; logoUrl: string | null };
   isAdmin: boolean;
+  // Partner "fundador" de la Connection (partnerParticipants[0]): junto al
+  // cliente (isAdmin), es el único que puede configurar el acceso a salas
+  // (setChannelMembers) — ver DetailsPanel "Acceso a la sala".
+  founderPartnerId: string;
   participants: ChannelContextParticipant[];
   partnerParticipants: string[];
   tasks: ChannelContextTask[];
   assets: { id: string; title: string }[];
+  links: ChannelContextLink[];
 }
 
 async function requireAuth(): Promise<string | null> {
@@ -129,6 +148,9 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
       select: {
         id: true,
         title: true,
+        logoUrl: true,
+        connection: { select: { clientId: true, partnerId: true } },
+        collaborators: { select: { userId: true } },
         channels: {
           select: {
             id: true,
@@ -157,6 +179,18 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
       })
     : [];
   const unreadMap = new Map(unreadCounts.map((entry) => [entry.threadId, entry._count._all]));
+
+  // Set de todos los usuarios con quienes el viewer comparte al menos un
+  // proyecto activo (cliente/partner fundador/colaborador de cualquiera de
+  // sus proyectos), excluyéndose a sí mismo. Alimenta ConversationSummary.
+  // sharesProject para el filtro "Proyectos" del modo directo.
+  const projectPeerIds = new Set<string>();
+  for (const project of projects) {
+    projectPeerIds.add(project.connection.clientId);
+    projectPeerIds.add(project.connection.partnerId);
+    for (const collaborator of project.collaborators) projectPeerIds.add(collaborator.userId);
+  }
+  projectPeerIds.delete(userId);
 
   // Aprovisionamiento idempotente: la creación de salas vive dentro de la
   // conversación, así que un proyecto activo sin ningún ProjectChannel
@@ -196,6 +230,7 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
         ...otherParticipant,
         lastSeenAt: otherParticipant.lastSeenAt ? otherParticipant.lastSeenAt.toISOString() : null,
       },
+      sharesProject: projectPeerIds.has(otherParticipant.id),
       lastMessage: lastMessage
         ? {
             body: lastMessage.body,
@@ -232,7 +267,7 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
         title: channel.name,
         subtitle: project.title,
         avatarUrl: null,
-        project: { id: project.id, title: project.title },
+        project: { id: project.id, title: project.title, logoUrl: project.logoUrl },
         lastMessage: lastMessage
           ? {
               body: lastMessage.body,
@@ -275,6 +310,11 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
       id: true,
       title: true,
       status: true,
+      logoUrl: true,
+      links: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, label: true, url: true, type: true, provider: true, addedById: true },
+      },
       connection: {
         select: {
           clientId: true,
@@ -372,8 +412,14 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
   return {
     ok: true,
     channel: { id: channel.id, name: channel.name },
-    project: { id: project.id, title: project.title, status: project.status },
+    project: {
+      id: project.id,
+      title: project.title,
+      status: project.status,
+      logoUrl: project.logoUrl,
+    },
     isAdmin: userId === project.connection.clientId,
+    founderPartnerId: project.connection.partnerId,
     participants,
     partnerParticipants,
     tasks: project.tasks.map((task) => ({
@@ -386,5 +432,6 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
       asset: task.asset,
     })),
     assets: project.assets,
+    links: project.links,
   };
 }

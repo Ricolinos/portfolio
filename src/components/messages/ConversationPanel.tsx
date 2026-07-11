@@ -14,7 +14,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { ConversationSummary } from "@/app/actions/inbox";
 import { MessageBubble } from "./MessageBubble";
-import { personInitial, type StreamMessage } from "./messengerUtils";
+import { personInitial, presenceColor, presenceOf, type StreamMessage } from "./messengerUtils";
 import { CreateTaskModal, type TaskParticipant } from "./TaskCard";
 
 /* ══ Panel central: conversación activa (2.2) ═══════════════════════════ */
@@ -120,6 +120,13 @@ export function ConversationPanel({
                   : isGroup
                     ? { icon: "userGroup" as const }
                     : { value: personInitial({ name: conversation.title, username: null }) })}
+                {...(!isGroup && conversation.participant
+                  ? {
+                      statusIndicator: {
+                        color: presenceColor(presenceOf(conversation.participant)),
+                      },
+                    }
+                  : {})}
               />
               <Column gap="0" style={{ minWidth: 0 }}>
                 <Heading variant="heading-strong-s" truncate style={{ minWidth: 0 }}>

@@ -22,14 +22,13 @@ import {
   Textarea,
 } from "@once-ui-system/core";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   addProjectCollaborator,
   addProjectLink,
   deleteProjectLink,
   removeProjectCollaborator,
   updateCollabProject,
-  updateProjectLogo,
 } from "@/app/actions/collab";
 import type { AssetCategoryData } from "@/app/actions/projectAssets";
 import {
@@ -44,6 +43,7 @@ import {
 } from "@/app/actions/projectAssets";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { CollaboratorSearchModal } from "@/components/collab/CollaboratorSearchModal";
+import { ProjectLogoControl } from "@/components/collab/ProjectLogoControl";
 import { ProjectTaskRow } from "@/components/collab/ProjectTaskRow";
 import type {
   CollabCollaboratorSummary,
@@ -204,147 +204,6 @@ function CollaboratorBadge({
         />
       )}
     </Row>
-  );
-}
-
-// ─── Logotipo del proyecto (Fase 6b) ──────────────────────────────────────
-// Sin bucket de Storage: se comprime a JPEG en el cliente y viaja como data
-// URL, mismo patrón que la imagen destacada del perfil de partner (ver
-// canvasToDataUrl en PartnerProfileEditDialogs.tsx), pero sin encuadre
-// arrastrable: recorte central cuadrado, un solo paso.
-const LOGO_SIDE = 256;
-const LOGO_JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
-// Debe caber bajo MAX_LOGO_DATA_URL_CHARS de updateProjectLogo (collab.ts).
-const MAX_LOGO_DATA_URL_CHARS = 700_000;
-
-function compressLogoCanvas(canvas: HTMLCanvasElement): string | null {
-  for (const quality of LOGO_JPEG_QUALITIES) {
-    const dataUrl = canvas.toDataURL("image/jpeg", quality);
-    if (dataUrl.length <= MAX_LOGO_DATA_URL_CHARS) return dataUrl;
-  }
-  return null;
-}
-
-function ProjectLogoControl({
-  projectId,
-  logoUrl,
-  title,
-  canEdit,
-}: {
-  projectId: string;
-  logoUrl: string | null;
-  title: string;
-  canEdit: boolean;
-}) {
-  const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const initial = (title[0] ?? "P").toUpperCase();
-
-  const handleFile = (file: File) => {
-    setError(null);
-    setSaving(true);
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = async () => {
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const sx = (img.naturalWidth - side) / 2;
-      const sy = (img.naturalHeight - side) / 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = LOGO_SIDE;
-      canvas.height = LOGO_SIDE;
-      const ctx = canvas.getContext("2d");
-      URL.revokeObjectURL(objectUrl);
-      if (!ctx) {
-        setError("No se pudo procesar la imagen.");
-        setSaving(false);
-        return;
-      }
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, LOGO_SIDE, LOGO_SIDE);
-      const dataUrl = compressLogoCanvas(canvas);
-      if (!dataUrl) {
-        setError("La imagen es demasiado pesada incluso comprimida.");
-        setSaving(false);
-        return;
-      }
-      const result = await updateProjectLogo(projectId, dataUrl);
-      setSaving(false);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      router.refresh();
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      setError("No se pudo cargar la imagen.");
-      setSaving(false);
-    };
-    img.src = objectUrl;
-  };
-
-  const handleRemove = async () => {
-    setSaving(true);
-    setError(null);
-    const result = await updateProjectLogo(projectId, null);
-    setSaving(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    router.refresh();
-  };
-
-  return (
-    <Column gap="4">
-      <Row gap="8" vertical="center">
-        <Avatar size="xl" {...(logoUrl ? { src: logoUrl } : { value: initial })} />
-        {canEdit && (
-          <Column gap="4">
-            <IconButton
-              icon="camera"
-              size="s"
-              variant="tertiary"
-              tooltip="Cambiar logotipo"
-              tooltipPosition="top"
-              loading={saving}
-              disabled={saving}
-              onClick={() => inputRef.current?.click()}
-            />
-            {logoUrl && (
-              <IconButton
-                icon="trash"
-                size="s"
-                variant="tertiary"
-                tooltip="Quitar logotipo"
-                tooltipPosition="top"
-                loading={saving}
-                disabled={saving}
-                onClick={handleRemove}
-              />
-            )}
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              disabled={saving}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) handleFile(file);
-              }}
-            />
-          </Column>
-        )}
-      </Row>
-      {error && (
-        <Text variant="label-default-s" onBackground="danger-weak">
-          {error}
-        </Text>
-      )}
-    </Column>
   );
 }
 
@@ -1313,6 +1172,7 @@ export function CollabProjectView({
               logoUrl={project.logoUrl}
               title={project.title}
               canEdit
+              onSaved={() => router.refresh()}
             />
             <Column gap="12" style={{ minWidth: 0 }}>
               <Row gap="8" vertical="center" wrap>
