@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Avatar,
   Background,
+  Badge,
   BlobFx,
   Button,
   Column,
@@ -19,6 +20,7 @@ import {
   InfiniteScroll,
   Media,
   RevealFx,
+  Row,
   Text,
   TiltFx,
 } from "@once-ui-system/core";
@@ -35,6 +37,8 @@ export type PlatformDesigner = {
   cardQuote: string | null;
   headline: string | null;
   bio: string | null;
+  primaryRole: string | null;
+  secondaryRoles: string[];
 };
 
 type Designer = {
@@ -48,6 +52,8 @@ type Designer = {
   cardQuote: string | null;
   headline: string;
   bio: string | null;
+  primaryRole: string | null;
+  secondaryRoles: string[];
 };
 
 // La proporción vertical fija de la tarjeta (3/4) vive en
@@ -198,6 +204,33 @@ function DesignerBack({
             {designer.headline}
           </Text>
         </Column>
+        {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
+          <Row gap="8" wrap horizontal="center" vertical="center">
+            {designer.primaryRole && (
+              <Badge
+                background="brand-alpha-weak"
+                onBackground="brand-strong"
+                border="brand-alpha-medium"
+                textVariant="label-strong-s"
+                effect
+              >
+                {designer.primaryRole}
+              </Badge>
+            )}
+            {designer.secondaryRoles.map((role) => (
+              <Badge
+                key={role}
+                background="neutral-alpha-weak"
+                onBackground="neutral-medium"
+                border="neutral-alpha-medium"
+                textVariant="label-default-s"
+                effect={false}
+              >
+                {role}
+              </Badge>
+            ))}
+          </Row>
+        )}
         {designer.bio && (
           <Text variant="body-default-s" onBackground="neutral-weak" align="center" wrap="balance">
             {designer.bio}
@@ -274,6 +307,8 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
       cardQuote: user.cardQuote,
       headline: user.headline ?? "Diseñador de Marca",
       bio: user.bio,
+      primaryRole: user.primaryRole,
+      secondaryRoles: user.secondaryRoles ?? [],
     }));
   }, [platformDesigners]);
 

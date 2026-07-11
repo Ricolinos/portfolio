@@ -138,6 +138,8 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         cardQuote={profileUser?.cardQuote}
         headline={profileUser?.headline}
         bio={profileUser?.bio}
+        primaryRole={profileUser?.primaryRole}
+        secondaryRoles={profileUser?.secondaryRoles ?? []}
         projects={projects}
         pieces={pieces}
         partnerId={ownerId}
