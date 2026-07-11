@@ -25,6 +25,9 @@ export interface ProjectMemberAuth {
   error?: string;
   isClient?: boolean;
   clientId?: string;
+  // Partner "fundador" de la Connection (distinto de un ProjectCollaborator
+  // adicional); solo él y el cliente pueden administrar el acceso a salas.
+  partnerId?: string;
   status?: string;
   participantIds?: string[];
 }
@@ -58,6 +61,7 @@ export async function requireProjectMember(
     ok: true,
     isClient: project.connection.clientId === userId,
     clientId: project.connection.clientId,
+    partnerId: project.connection.partnerId,
     status: project.status,
     participantIds,
   };
@@ -68,6 +72,57 @@ function assertActiveProject(status: string): { ok: false; error: string } | nul
     return { ok: false, error: "El chat del proyecto solo está disponible en proyectos activos." };
   }
   return null;
+}
+
+/* ══ Control de acceso por sala (ChannelMember) ═══════════════════════════
+   Un canal SIN filas de ChannelMember es abierto a todos los miembros del
+   proyecto (retrocompatible con salas existentes); un canal CON filas queda
+   restringido a esos usuarios + el cliente dueño del proyecto, que siempre
+   puede entrar. Este helper centraliza la regla para no duplicarla entre
+   getChannels, getChannelMessages, sendChannelMessage y getChannelContext. */
+
+// Trae, para un lote de canales, el set de userIds con acceso explícito.
+// Un canal ausente del mapa resultante está abierto (sin restricción).
+async function getChannelMemberSets(channelIds: string[]): Promise<Map<string, Set<string>>> {
+  if (channelIds.length === 0) return new Map();
+  const rows = await prisma.channelMember.findMany({
+    where: { channelId: { in: channelIds } },
+    select: { channelId: true, userId: true },
+  });
+  const sets = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const set = sets.get(row.channelId) ?? new Set<string>();
+    set.add(row.userId);
+    sets.set(row.channelId, set);
+  }
+  return sets;
+}
+
+function channelIsAccessible(
+  memberSets: Map<string, Set<string>>,
+  channelId: string,
+  userId: string,
+  isClient: boolean,
+): boolean {
+  const restrictedTo = memberSets.get(channelId);
+  if (!restrictedTo) return true; // sala abierta, sin filas de ChannelMember
+  return isClient || restrictedTo.has(userId);
+}
+
+// Verificación puntual (1 canal) para las acciones de mensajería. `isClient`
+// debe venir de requireProjectMember (el dueño del proyecto siempre entra).
+// Exportado para reutilizarse en inbox.ts (getChannelContext) sin duplicar
+// la regla de acceso.
+export async function requireChannelAccess(
+  channelId: string,
+  userId: string,
+  isClient: boolean,
+): Promise<Result> {
+  const memberSets = await getChannelMemberSets([channelId]);
+  if (!channelIsAccessible(memberSets, channelId, userId, isClient)) {
+    return { ok: false, error: "No tienes acceso a esta sala." };
+  }
+  return { ok: true };
 }
 
 /* ══ Canales ═══════════════════════════════════════════════════════════ */
@@ -180,9 +235,16 @@ export async function getChannels(projectId: string): Promise<Result<{ channels:
     include: { _count: { select: { messages: true } } },
   });
 
+  // Salas restringidas (con filas de ChannelMember) se ocultan a quien no
+  // sea miembro explícito ni el cliente dueño del proyecto.
+  const memberSets = await getChannelMemberSets(channels.map((channel) => channel.id));
+  const visibleChannels = channels.filter((channel) =>
+    channelIsAccessible(memberSets, channel.id, userId, member.isClient ?? false),
+  );
+
   return {
     ok: true,
-    channels: channels.map((channel) => ({
+    channels: visibleChannels.map((channel) => ({
       id: channel.id,
       name: channel.name,
       projectId: channel.projectId,
@@ -235,6 +297,11 @@ export async function sendChannelMessage(
   const activeError = assertActiveProject(member.status!);
   if (activeError) return activeError;
 
+  const memberSets = await getChannelMemberSets([channelId]);
+  if (!channelIsAccessible(memberSets, channelId, userId, member.isClient ?? false)) {
+    return { ok: false, error: "No tienes acceso a esta sala." };
+  }
+
   const trimmedBody = body.trim();
   if (!trimmedBody) return { ok: false, error: "El mensaje no puede estar vacío." };
   if (trimmedBody.length > MAX_MESSAGE_LENGTH) {
@@ -246,7 +313,9 @@ export async function sendChannelMessage(
     select: { id: true },
   });
 
-  const recipients = member.participantIds!.filter((id) => id !== userId);
+  const recipients = member.participantIds!.filter(
+    (id) => id !== userId && channelIsAccessible(memberSets, channelId, id, id === member.clientId),
+  );
   if (recipients.length > 0) {
     await prisma.notification.createMany({
       data: recipients.map((recipientId) => ({
@@ -277,6 +346,9 @@ export async function getChannelMessages(
   if (!member.ok) return { ok: false, error: member.error ?? "Proyecto no encontrado." };
   const activeError = assertActiveProject(member.status!);
   if (activeError) return activeError;
+
+  const accessCheck = await requireChannelAccess(channelId, userId, member.isClient ?? false);
+  if (!accessCheck.ok) return accessCheck;
 
   const messages = await prisma.channelMessage.findMany({
     where: { channelId },
@@ -554,5 +626,98 @@ export async function resolveTaskApproval(taskId: string, approve: boolean): Pro
   });
 
   revalidatePath(`/proyectos/${task.projectId}`);
+  return { ok: true };
+}
+
+/* ══ Membresía de salas (control de acceso) ═══════════════════════════════ */
+
+export interface ChannelMemberData {
+  userId: string;
+  name: string | null;
+  username: string | null;
+  imageUrl: string | null;
+}
+
+export async function getChannelMembers(
+  channelId: string,
+): Promise<Result<{ members: ChannelMemberData[]; restricted: boolean }>> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const channel = await prisma.projectChannel.findUnique({
+    where: { id: channelId },
+    select: { projectId: true },
+  });
+  if (!channel) return { ok: false, error: "Canal no encontrado." };
+
+  const member = await requireProjectMember(channel.projectId, userId);
+  if (!member.ok) return { ok: false, error: member.error ?? "Proyecto no encontrado." };
+
+  const accessCheck = await requireChannelAccess(channelId, userId, member.isClient ?? false);
+  if (!accessCheck.ok) return accessCheck;
+
+  const rows = await prisma.channelMember.findMany({
+    where: { channelId },
+    orderBy: { createdAt: "asc" },
+    select: { user: { select: { id: true, name: true, username: true, imageUrl: true } } },
+  });
+
+  return {
+    ok: true,
+    restricted: rows.length > 0,
+    members: rows.map((row) => ({
+      userId: row.user.id,
+      name: row.user.name,
+      username: row.user.username,
+      imageUrl: row.user.imageUrl,
+    })),
+  };
+}
+
+// Solo el cliente dueño del proyecto o el partner fundador de la Connection
+// pueden configurar el acceso de una sala (mismo criterio de administración
+// que createChannel/renameChannel, extendido al partner fundador). userIds
+// vacío deja la sala abierta a todo el proyecto; cada id debe pertenecer a
+// los participantes reales del proyecto (member.participantIds).
+export async function setChannelMembers(channelId: string, userIds: string[]): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const channel = await prisma.projectChannel.findUnique({
+    where: { id: channelId },
+    select: { projectId: true },
+  });
+  if (!channel) return { ok: false, error: "Canal no encontrado." };
+
+  const member = await requireProjectMember(channel.projectId, userId);
+  if (!member.ok) return { ok: false, error: member.error ?? "Proyecto no encontrado." };
+  const activeError = assertActiveProject(member.status ?? "");
+  if (activeError) return activeError;
+
+  if (!member.isClient && userId !== member.partnerId) {
+    return {
+      ok: false,
+      error: "Solo el cliente o el partner fundador pueden configurar el acceso a la sala.",
+    };
+  }
+
+  const uniqueUserIds = Array.from(new Set(userIds));
+  const invalidUserId = uniqueUserIds.find((id) => !member.participantIds?.includes(id));
+  if (invalidUserId) {
+    return { ok: false, error: "Todos los usuarios deben ser participantes del proyecto." };
+  }
+
+  await prisma.$transaction([
+    prisma.channelMember.deleteMany({ where: { channelId } }),
+    ...(uniqueUserIds.length > 0
+      ? [
+          prisma.channelMember.createMany({
+            data: uniqueUserIds.map((memberId) => ({ channelId, userId: memberId })),
+          }),
+        ]
+      : []),
+  ]);
+
+  revalidatePath(`/proyectos/${channel.projectId}`);
   return { ok: true };
 }

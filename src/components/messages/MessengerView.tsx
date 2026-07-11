@@ -1,34 +1,35 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { Column, Row, useLayout, useToast } from "@once-ui-system/core";
+import { useEffect, useRef, useState } from "react";
 import {
-  getChannelContext,
-  getInbox,
-  type ChannelContextData,
-  type ConversationSummary,
-} from "@/app/actions/inbox";
-import {
+  type ChannelMessageData,
   getChannelMessages,
   sendChannelMessage,
-  type ChannelMessageData,
 } from "@/app/actions/channels";
 import {
+  type DirectMessageData,
   getDirectMessages,
   markDirectThreadRead,
   sendDirectMessage,
-  type DirectMessageData,
 } from "@/app/actions/directMessages";
+import {
+  type ChannelContextData,
+  type ConversationSummary,
+  getChannelContext,
+  getInbox,
+} from "@/app/actions/inbox";
+import { presenceHeartbeat } from "@/app/actions/presence";
 import { ConversationList } from "./ConversationList";
 import { ConversationPanel } from "./ConversationPanel";
 import { DetailsPanel } from "./DetailsPanel";
-import { ProjectRail, type RailProject } from "./ProjectRail";
 import {
   fromChannelMessage,
   fromDirectMessage,
   type RailScope,
   type StreamMessage,
 } from "./messengerUtils";
+import { ProjectRail, type RailProject, type RailUser } from "./ProjectRail";
 
 /* ══ Vista maestra de /mensajes: layout Messenger de 3 paneles ══════════
    (chat-messenger-refactor.md 2.1/2.2/2.3). Orquesta la bandeja unificada
@@ -61,7 +62,7 @@ export function MessengerView({
   const [channelContext, setChannelContext] = useState<ChannelContextData | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
 
-  const [infoOpen, setInfoOpen] = useState(true);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [mobileView, setMobileView] = useState<MobileView>("list");
   const [scope, setScope] = useState<RailScope>({ type: "direct" });
 
@@ -80,6 +81,8 @@ export function MessengerView({
 
   const projects: RailProject[] = [];
   const seenProjects = new Set<string>();
+  const users: RailUser[] = [];
+  const seenUsers = new Set<string>();
   for (const conversation of conversations) {
     if (
       conversation.kind === "group" &&
@@ -87,7 +90,25 @@ export function MessengerView({
       !seenProjects.has(conversation.project.id)
     ) {
       seenProjects.add(conversation.project.id);
-      projects.push({ id: conversation.project.id, title: conversation.project.title });
+      projects.push({
+        id: conversation.project.id,
+        title: conversation.project.title,
+        logoUrl: conversation.project.logoUrl,
+      });
+    }
+    if (
+      conversation.kind === "direct" &&
+      conversation.participant &&
+      !seenUsers.has(conversation.participant.id)
+    ) {
+      seenUsers.add(conversation.participant.id);
+      users.push({
+        id: conversation.participant.id,
+        name: conversation.title,
+        avatarUrl: conversation.avatarUrl,
+        lastSeenAt: conversation.participant.lastSeenAt,
+        presenceStatus: conversation.participant.presenceStatus,
+      });
     }
   }
   const scopedConversations = conversations.filter((c) =>
@@ -95,8 +116,29 @@ export function MessengerView({
       ? c.kind === "direct"
       : c.kind === "group" && c.project?.id === scope.id,
   );
-  const scopeTitle =
-    scope.type === "project" ? (projects.find((p) => p.id === scope.id)?.title ?? null) : null;
+  const scopeProject = scope.type === "project" ? projects.find((p) => p.id === scope.id) : null;
+  const scopeHeader = scopeProject
+    ? { title: scopeProject.title, avatarUrl: scopeProject.logoUrl }
+    : { title: "Directos", avatarUrl: null as string | null };
+  // Cualquier canal accesible del proyecto en scope: el overlay de ajustes
+  // (crear sala/roles/logo/recursos) opera a nivel proyecto y necesita un
+  // channelId para reutilizar getChannelContext; no importa cuál mientras
+  // pertenezca al proyecto seleccionado.
+  const scopeProjectChannelId =
+    scope.type === "project"
+      ? (conversations.find((c) => c.kind === "group" && c.project?.id === scope.id)?.channelId ??
+        null)
+      : null;
+
+  /* ── Presencia: heartbeat mientras /mensajes está montado ────────────── */
+
+  useEffect(() => {
+    presenceHeartbeat();
+    const interval = setInterval(() => {
+      presenceHeartbeat();
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   /* ── Bandeja: polling de getInbox + deep link ?project= ─────────────── */
 
@@ -266,6 +308,21 @@ export function MessengerView({
     setMobileView("list");
   };
 
+  // Click en un avatar de la sección Usuarios del riel: cambia a modo
+  // directos Y abre de una vez ese hilo si ya existe (si el usuario nunca
+  // ha escrito, solo cambia el scope y queda visible en la lista filtrada).
+  const handleSelectUser = (userId: string) => {
+    setScope({ type: "direct" });
+    const target = conversations.find((c) => c.kind === "direct" && c.participant?.id === userId);
+    if (target) {
+      setSelectedKey(target.key);
+      setMobileView("conversation");
+    } else {
+      setSelectedKey(null);
+      setMobileView("list");
+    }
+  };
+
   // Semánticas distintas por breakpoint: en desktop el (i) conmuta la tercera
   // columna (infoOpen); en móvil NAVEGA a la vista de info (y el botón volver
   // de DetailsPanel regresa a la conversación). Acoplar ambos en un solo
@@ -357,9 +414,16 @@ export function MessengerView({
   return (
     <Row fillWidth fillHeight gap="8" padding="8" style={{ minWidth: 0 }}>
       <ProjectRail
+        users={users}
         projects={projects}
         scope={scope}
-        onSelect={handleScopeSelect}
+        selectedUserId={
+          selectedConversation?.kind === "direct"
+            ? (selectedConversation.participant?.id ?? null)
+            : null
+        }
+        onSelectScope={handleScopeSelect}
+        onSelectUser={handleSelectUser}
         mobileView={mobileView}
       />
 
@@ -382,11 +446,15 @@ export function MessengerView({
       >
         <ConversationList
           conversations={scopedConversations}
-          scopeTitle={scopeTitle}
+          scope={scope}
+          scopeHeader={scopeHeader}
+          scopeProjectChannelId={scopeProjectChannelId}
           loading={loadingConversations}
           selectedKey={selectedKey}
           onSelect={handleSelect}
           onCreated={handleConversationCreated}
+          onProjectSettingsChanged={handleChannelsChanged}
+          onProjectLogoChanged={() => refetchInbox()}
         />
       </Column>
 

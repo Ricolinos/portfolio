@@ -1,4 +1,4 @@
-import { Column, Heading, Line, Row, SmartLink, Tag, Text } from "@once-ui-system/core";
+import { Avatar, Column, Heading, Line, Row, SmartLink, Tag, Text } from "@once-ui-system/core";
 import type { CollabProjectData } from "@/lib/collab";
 
 // Mismo mapeo de status que usa CollabProjectView (no se exporta desde ahí a
@@ -26,7 +26,12 @@ interface ProjectListWidgetProps {
 // Lista de proyectos conjuntos (CollabProject) reutilizada entre los
 // dashboards de cliente/partner y sus páginas dedicadas "/projects" y
 // "/projects/finished". Cada fila enlaza al detalle real en /proyectos/[id].
-export function ProjectListWidget({ title, projects, emptyMessage, limit }: ProjectListWidgetProps) {
+export function ProjectListWidget({
+  title,
+  projects,
+  emptyMessage,
+  limit,
+}: ProjectListWidgetProps) {
   const items = limit ? projects.slice(0, limit) : projects;
 
   return (
@@ -54,13 +59,21 @@ export function ProjectListWidget({ title, projects, emptyMessage, limit }: Proj
                   gap="16"
                   wrap
                 >
-                  <Text
-                    variant="label-default-m"
-                    onBackground="neutral-strong"
-                    style={{ minWidth: 0, overflowWrap: "anywhere" }}
-                  >
-                    {project.title}
-                  </Text>
+                  <Row gap="12" vertical="center" style={{ minWidth: 0 }}>
+                    <Avatar
+                      size="s"
+                      {...(project.logoUrl
+                        ? { src: project.logoUrl }
+                        : { value: project.title[0]?.toUpperCase() ?? "P" })}
+                    />
+                    <Text
+                      variant="label-default-m"
+                      onBackground="neutral-strong"
+                      style={{ minWidth: 0, overflowWrap: "anywhere" }}
+                    >
+                      {project.title}
+                    </Text>
+                  </Row>
                   <Tag
                     size="s"
                     variant={PROJECT_STATUS_VARIANTS[project.status] ?? "neutral"}

@@ -1,15 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
+  Arrow,
   Avatar,
+  Badge,
   BlobFx,
   Button,
   Card,
   Column,
   ContextMenu,
   Dialog,
+  DropdownWrapper,
   Feedback,
   Flex,
   Grid,
@@ -23,7 +26,6 @@ import {
   RevealFx,
   Row,
   SegmentedControl,
-  Select,
   SmartLink,
   Switch,
   Tag,
@@ -32,6 +34,7 @@ import {
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
+import type { IconName } from "@/resources/icons";
 import { respondContactRequest } from "@/app/actions/collab";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import {
@@ -84,6 +87,9 @@ interface ProfileViewProps {
   cardQuote?: string | null;
   headline?: string | null;
   bio?: string | null;
+  // Matriz de roles (Fase 4): rol principal destacado + hasta 2 secundarios.
+  primaryRole?: string | null;
+  secondaryRoles?: string[];
   projects: PartnerProject[];
   pieces: PartnerPiece[];
   // Id de usuario del dueño del perfil (el partner); usado para que un
@@ -123,9 +129,28 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const ALL_CATEGORIES = "Todos";
 
-const SORT_OPTIONS = [
-  { value: "recent", label: "Más recientes" },
-  { value: "popular", label: "Más populares" },
+// Long-press táctil para el ContextMenu del panel administrativo de piezas.
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_THRESHOLD = 10;
+
+const SORT_OPTIONS: Array<{
+  value: "recent" | "popular";
+  label: string;
+  description: string;
+  icon: IconName;
+}> = [
+  {
+    value: "recent",
+    label: "Más recientes",
+    description: "Ordenar por fecha de publicación",
+    icon: "calendar",
+  },
+  {
+    value: "popular",
+    label: "Más populares",
+    description: "Ordenar por vistas y likes",
+    icon: "heart",
+  },
 ];
 
 function waLink(whatsapp: string) {
@@ -177,6 +202,64 @@ function PieceCard({
     }
   };
 
+  // Detección robusta de pulsación prolongada táctil (el "contextmenu" nativo
+  // no dispara de forma consistente en móvil/tablet): un timer ~500ms que se
+  // cancela si el dedo se mueve más de ~10px, y que al cumplirse despacha un
+  // evento "contextmenu" sintético en el punto del toque para reutilizar el
+  // mismo listener del ContextMenu (clic derecho en desktop queda intacto).
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchOrigin = useRef<{ x: number; y: number } | null>(null);
+  const longPressFired = useRef(false);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!isOwnProfile) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    touchOrigin.current = { x: touch.clientX, y: touch.clientY };
+    longPressFired.current = false;
+    clearLongPressTimer();
+    const target = event.currentTarget;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      const origin = touchOrigin.current;
+      target.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: origin?.x ?? 0,
+          clientY: origin?.y ?? 0,
+        }),
+      );
+    }, LONG_PRESS_MS);
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    const origin = touchOrigin.current;
+    if (!touch || !origin) return;
+    const dx = touch.clientX - origin.x;
+    const dy = touch.clientY - origin.y;
+    if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_THRESHOLD) {
+      clearLongPressTimer();
+    }
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    clearLongPressTimer();
+    if (longPressFired.current) {
+      // Evita que el tap que soltó el long-press dispare la navegación normal
+      // (SmartLink de la portada) inmediatamente después de abrir el menú.
+      event.preventDefault();
+    }
+  };
+
   const cover = piece.coverUrl ? (
     <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
       <Media
@@ -212,6 +295,19 @@ function PieceCard({
       radius="l"
       border="neutral-alpha-weak"
       transition="macro-medium"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={clearLongPressTimer}
+      style={
+        isOwnProfile
+          ? {
+              WebkitTouchCallout: "none",
+              WebkitUserSelect: "none",
+              userSelect: "none",
+            }
+          : undefined
+      }
     >
       {isOwnProfile && piece.href ? (
         <SmartLink unstyled fillWidth href={piece.href}>
@@ -309,6 +405,61 @@ function PieceCard({
     >
       {card}
     </ContextMenu>
+  );
+}
+
+// Reordenamiento minimalista de piezas: un Arrow decorativo (sin fondo, "Simple
+// usage") que resalta al hover del trigger y despliega, vía DropdownWrapper, un
+// menú con las opciones de orden (icono + texto explicativo por opción).
+function PiecesSortMenu({
+  value,
+  onChange,
+}: {
+  value: "recent" | "popular";
+  onChange: (value: "recent" | "popular") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = SORT_OPTIONS.find((option) => option.value === value) ?? SORT_OPTIONS[0];
+
+  return (
+    <DropdownWrapper
+      isOpen={open}
+      onOpenChange={setOpen}
+      minWidth={14}
+      placement="bottom-end"
+      trigger={
+        <Row
+          id="pieces-sort-trigger"
+          gap="8"
+          vertical="center"
+          paddingX="4"
+          style={{ cursor: "pointer" }}
+        >
+          <Text variant="label-default-s" onBackground="neutral-strong">
+            {current.label}
+          </Text>
+          <Arrow trigger="#pieces-sort-trigger" scale={0.6} />
+        </Row>
+      }
+      dropdown={
+        <Column minWidth={14} padding="4" gap="2">
+          {SORT_OPTIONS.map((option) => (
+            <Option
+              key={option.value}
+              label={option.label}
+              description={option.description}
+              value={option.value}
+              selected={option.value === value}
+              hasPrefix={<Icon name={option.icon} size="s" onBackground="neutral-weak" />}
+              onClick={(nextValue) => {
+                onChange(nextValue as "recent" | "popular");
+                setOpen(false);
+              }}
+            />
+          ))}
+        </Column>
+      }
+    />
   );
 }
 
@@ -516,6 +667,8 @@ export function ProfileView({
   cardQuote,
   headline,
   bio,
+  primaryRole,
+  secondaryRoles = [],
   projects,
   pieces,
   partnerId,
@@ -645,6 +798,33 @@ export function ProfileView({
                     @{username}
                   </Text>
                 </Row>
+                {(primaryRole || secondaryRoles.length > 0) && (
+                  <Row fillWidth gap="8" wrap horizontal="center" vertical="center">
+                    {primaryRole && (
+                      <Badge
+                        background="brand-alpha-weak"
+                        onBackground="brand-strong"
+                        border="brand-alpha-medium"
+                        textVariant="label-strong-s"
+                        effect
+                      >
+                        {primaryRole}
+                      </Badge>
+                    )}
+                    {secondaryRoles.map((role) => (
+                      <Badge
+                        key={role}
+                        background="neutral-alpha-weak"
+                        onBackground="neutral-medium"
+                        border="neutral-alpha-medium"
+                        textVariant="label-default-s"
+                        effect={false}
+                      >
+                        {role}
+                      </Badge>
+                    ))}
+                  </Row>
+                )}
                 {memberSince && (
                   <Row fillWidth gap="8" vertical="center" horizontal="center">
                     <Icon name="calendar" size="s" onBackground="neutral-weak" />
@@ -847,14 +1027,7 @@ export function ProfileView({
                   onToggle={setFilter}
                   buttons={categories.map((c) => ({ value: c, label: c }))}
                 />
-                <Select
-                  id="pieces-sort"
-                  options={SORT_OPTIONS}
-                  value={sortBy}
-                  onSelect={(value) => setSortBy(value as "recent" | "popular")}
-                  height="s"
-                  maxWidth={12}
-                />
+                <PiecesSortMenu value={sortBy} onChange={setSortBy} />
               </Row>
 
               {isOwnProfile && pieces.length > 0 && (
@@ -950,6 +1123,8 @@ export function ProfileView({
                 headline: headline ?? "",
                 bio: bio ?? "",
               }}
+              initialPrimaryRole={primaryRole}
+              initialSecondaryRoles={secondaryRoles}
               avatarUrl={avatarUrl}
               displayName={displayName}
               username={username}

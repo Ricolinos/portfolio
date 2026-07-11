@@ -1,14 +1,53 @@
-import { notFound } from "next/navigation";
 import { currentUser } from "@clerk/nextjs/server";
-import { ProfileView } from "@/components/profile/ProfileView";
+import { Meta } from "@once-ui-system/core";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { ClientProfileView } from "@/components/profile/ClientProfileView";
-import { getOrCreateUser } from "@/lib/syncUser";
-import { prisma } from "@/lib/prisma";
+import {
+  ClientProfileSkeleton,
+  PartnerProfileSkeleton,
+} from "@/components/profile/ProfileSkeletons";
+import { ProfileView } from "@/components/profile/ProfileView";
 import { caseStudyHref } from "@/lib/caseStudies";
 import { getClientCollabData, getPartnerCollabData } from "@/lib/collab";
+import { prisma } from "@/lib/prisma";
+import { getOrCreateUser } from "@/lib/syncUser";
+import { baseURL } from "@/resources";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
+}
+
+type ClerkViewer = Awaited<ReturnType<typeof currentUser>>;
+type ProfileUserRecord = Awaited<ReturnType<typeof prisma.user.findUnique>>;
+
+// Igual que la página: perfiles de cliente son privados y los de partner no
+// públicos no deben filtrar nombre/avatar en la tarjeta de preview al
+// compartir el link (mismo criterio de privacidad, ver comentario abajo).
+export async function generateMetadata({ params }: UserProfilePageProps): Promise<Metadata> {
+  const { username } = await params;
+  const profileUser = await prisma.user.findUnique({ where: { username } });
+
+  if (profileUser?.role !== "collaborator" || !profileUser.isPublic) {
+    return {};
+  }
+
+  const displayName = profileUser.name || username;
+  // imageUrl de Clerk siempre es una URL http(s) pública; por si acaso
+  // alguna vez trae una data: URL (no debería) se cae al generador.
+  const image =
+    profileUser.imageUrl && !profileUser.imageUrl.startsWith("data:")
+      ? profileUser.imageUrl
+      : `/api/og/generate?title=${encodeURIComponent(displayName)}`;
+
+  return Meta.generate({
+    title: displayName,
+    description: `Perfil de ${displayName} (@${username}) en Hub-Nerds`,
+    baseURL,
+    path: `/${username}`,
+    image,
+  });
 }
 
 export default async function UserProfilePage({ params }: UserProfilePageProps) {
@@ -17,19 +56,16 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   const viewer = await currentUser();
 
   const isOwnProfile = viewer?.username === username;
+  // Query ligera (lookup indexado por username) que resuelve el 404 temprano
+  // y decide el rol para elegir el fallback de Suspense correcto. Todo el
+  // fetch pesado (piezas, cotizaciones, colaboración, discoverablePartners)
+  // vive en ProfileContent, dentro del boundary.
   const profileUser = await prisma.user.findUnique({ where: { username } });
 
   // Username sin usuario en BD y que tampoco es el perfil propio del viewer → 404
   if (!profileUser && !isOwnProfile) {
     notFound();
   }
-
-  const displayName = isOwnProfile
-    ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
-    : profileUser?.name || username;
-  const avatarUrl = isOwnProfile
-    ? viewer?.imageUrl
-    : profileUser?.imageUrl ?? undefined;
 
   // Rol del dueño del perfil: BD primero; para perfil propio aún sin fila, metadata de Clerk.
   const viewerRole = viewer?.publicMetadata?.role;
@@ -45,6 +81,45 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   if (role !== "collaborator" && !isOwnProfile) {
     notFound();
   }
+
+  return (
+    <Suspense
+      fallback={role === "collaborator" ? <PartnerProfileSkeleton /> : <ClientProfileSkeleton />}
+    >
+      <ProfileContent
+        username={username}
+        viewer={viewer}
+        profileUser={profileUser}
+        isOwnProfile={isOwnProfile}
+        role={role}
+      />
+    </Suspense>
+  );
+}
+
+interface ProfileContentProps {
+  username: string;
+  viewer: ClerkViewer;
+  profileUser: ProfileUserRecord;
+  isOwnProfile: boolean;
+  role: string;
+}
+
+// Todo el fetch pesado (piezas de portafolio, cotizaciones, colaboración con
+// clientes/partners, discoverablePartners) vive aquí para que el Suspense de
+// la página muestre el skeleton correcto (partner o cliente) mientras
+// resuelve, sin bloquear el 404/bifurcación temprana de arriba.
+async function ProfileContent({
+  username,
+  viewer,
+  profileUser,
+  isOwnProfile,
+  role,
+}: ProfileContentProps) {
+  const displayName = isOwnProfile
+    ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
+    : profileUser?.name || username;
+  const avatarUrl = isOwnProfile ? viewer?.imageUrl : (profileUser?.imageUrl ?? undefined);
 
   const ownerId = profileUser?.id ?? (isOwnProfile ? viewer?.id : undefined);
   const quotes = ownerId
@@ -112,7 +187,10 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     let viewerCanContact = false;
     let viewerConnectionStatus: "PENDING" | "ACCEPTED" | "REJECTED" | null = null;
     if (!isOwnProfile && viewer && ownerId) {
-      const viewerUser = await prisma.user.findUnique({ where: { id: viewer.id }, select: { role: true } });
+      const viewerUser = await prisma.user.findUnique({
+        where: { id: viewer.id },
+        select: { role: true },
+      });
       if (viewerUser?.role === "client") {
         viewerCanContact = true;
         const existingConnection = await prisma.connection.findUnique({
@@ -138,6 +216,8 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         cardQuote={profileUser?.cardQuote}
         headline={profileUser?.headline}
         bio={profileUser?.bio}
+        primaryRole={profileUser?.primaryRole}
+        secondaryRoles={profileUser?.secondaryRoles ?? []}
         projects={projects}
         pieces={pieces}
         partnerId={ownerId}
@@ -156,6 +236,25 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   // ya fueron bloqueados arriba, así que el cliente que llega aquí siempre
   // está logueado como sí mismo.)
   const clientCollabData = ownerId ? await getClientCollabData(ownerId) : null;
+
+  // "Buscar más talento" (CollaboratorSearchModal): partners públicos con los
+  // que el cliente todavía no tiene ninguna Connection, para poder enviarles
+  // una solicitud de contacto directo desde el buscador.
+  const connectedPartnerIds = (clientCollabData?.connections ?? []).map(
+    (connection) => connection.partner.id,
+  );
+  const discoverablePartners = ownerId
+    ? await prisma.user.findMany({
+        where: {
+          role: "collaborator",
+          isPublic: true,
+          id: { notIn: [...connectedPartnerIds, ownerId] },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, username: true, headline: true },
+        take: 30,
+      })
+    : [];
 
   return (
     <ClientProfileView
@@ -180,6 +279,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
       connections={clientCollabData?.connections}
       collabProjects={clientCollabData?.projects}
       resources={clientCollabData?.resources}
+      discoverablePartners={discoverablePartners}
     />
   );
 }

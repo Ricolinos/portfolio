@@ -15,7 +15,7 @@ import {
   RevealFx,
   SpacingToken,
 } from "@once-ui-system/core";
-import { Footer, Header, LayoutShell, RouteGuard, Providers } from "@/components";
+import { FloatingChatBubble, Footer, Header, LayoutShell, RouteGuard, Providers } from "@/components";
 import { baseURL, effects, fonts, style, dataStyle, home } from "@/resources";
 
 export const viewport: Viewport = {
@@ -25,13 +25,25 @@ export const viewport: Viewport = {
 };
 
 export async function generateMetadata() {
-  return Meta.generate({
+  const metadata = Meta.generate({
     title: home.title,
     description: home.description,
     baseURL: baseURL,
     path: home.path,
     image: home.image,
   });
+  return {
+    ...metadata,
+    // Patrón de Next.js: rutas sin generateMetadata propio (o que devuelven
+    // un title de texto plano vía Meta.generate) heredan "Hub-Nerds" como
+    // default, y las que sí definen su propio título ganan el sufijo " · Hub-Nerds"
+    // automáticamente (Next solo aplica el template cuando el segmento hijo
+    // resuelve un title string, no cuando define su propio objeto title).
+    title: {
+      default: "Hub-Nerds",
+      template: "%s · Hub-Nerds",
+    },
+  };
 }
 
 export default async function RootLayout({
@@ -130,6 +142,7 @@ export default async function RootLayout({
           <LayoutShell footer={<Footer />}>
             <RouteGuard>{children}</RouteGuard>
           </LayoutShell>
+          <FloatingChatBubble />
         </Column>
       </Providers>
     </Flex>

@@ -4,6 +4,7 @@ import { useClerk } from "@clerk/nextjs";
 import {
   Avatar,
   Button,
+  Chip,
   Column,
   Feedback,
   Heading,
@@ -12,6 +13,7 @@ import {
   Line,
   Modal,
   Row,
+  Select,
   Slider,
   Switch,
   Text,
@@ -25,10 +27,12 @@ import {
   updateDesignerCard,
   updateFeaturedImage,
   updatePartnerContactSharing,
+  updatePartnerRoles,
   updatePartnerVisibility,
   type DesignerCardInput,
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { MAX_SECONDARY_ROLES, PARTNER_ROLES } from "@/lib/partnerRoles";
 import { AppearancePanel } from "./AppearancePanel";
 
 const JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
@@ -357,6 +361,8 @@ export function PartnerEditInfoDialog({
   initialIsPublic,
   initialShareWhatsapp,
   initial,
+  initialPrimaryRole,
+  initialSecondaryRoles,
   avatarUrl,
   displayName,
   username,
@@ -369,6 +375,8 @@ export function PartnerEditInfoDialog({
   initialIsPublic: boolean;
   initialShareWhatsapp: boolean;
   initial: DesignerCardInput;
+  initialPrimaryRole?: string | null;
+  initialSecondaryRoles?: string[];
   avatarUrl?: string;
   displayName: string;
   username: string;
@@ -383,16 +391,21 @@ export function PartnerEditInfoDialog({
   const [isPublic, setIsPublic] = useState(initialIsPublic);
   const [shareWhatsapp, setShareWhatsapp] = useState(initialShareWhatsapp);
   const [form, setForm] = useState<DesignerCardInput>(initial);
+  const [primaryRole, setPrimaryRole] = useState(initialPrimaryRole ?? "");
+  const [secondaryRoles, setSecondaryRoles] = useState<string[]>(initialSecondaryRoles ?? []);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Reabrir el modal debe partir del valor guardado, no de un borrador previo sin guardar.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe reiniciar el formulario al abrir, no en cada cambio de props mientras el modal está abierto.
   useEffect(() => {
     if (isOpen) {
       setSection("general");
       setIsPublic(initialIsPublic);
       setShareWhatsapp(initialShareWhatsapp);
       setForm(initial);
+      setPrimaryRole(initialPrimaryRole ?? "");
+      setSecondaryRoles(initialSecondaryRoles ?? []);
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -403,6 +416,20 @@ export function PartnerEditInfoDialog({
     form.headline.length > MAX_HEADLINE_CHARS ||
     form.bio.length > MAX_BIO_CHARS;
 
+  // Un rol secundario nunca puede repetir el principal recién elegido.
+  const handlePrimaryRoleChange = (value: string) => {
+    setPrimaryRole(value);
+    setSecondaryRoles((current) => current.filter((role) => role !== value));
+  };
+
+  const toggleSecondaryRole = (role: string) => {
+    setSecondaryRoles((current) => {
+      if (current.includes(role)) return current.filter((r) => r !== role);
+      if (current.length >= MAX_SECONDARY_ROLES) return current;
+      return [...current, role];
+    });
+  };
+
   const handleSave = async () => {
     if (tooLong) return;
     setSaving(true);
@@ -412,6 +439,7 @@ export function PartnerEditInfoDialog({
         updatePartnerVisibility(isPublic),
         updatePartnerContactSharing(shareWhatsapp),
         updateDesignerCard(form),
+        updatePartnerRoles({ primaryRole, secondaryRoles }),
       ]);
       onClose();
       router.refresh();
@@ -487,7 +515,7 @@ export function PartnerEditInfoDialog({
             <Line background="neutral-alpha-weak" />
 
             {section === "general" && (
-              <Column gap="12" fillWidth>
+              <Column gap="20" fillWidth>
                 <Row gap="16" vertical="center" wrap>
                   <Avatar size="l" {...(avatarUrl ? { src: avatarUrl } : { value: (displayName[0] ?? "U").toUpperCase() })} />
                   <Column gap="2" style={{ minWidth: 0 }}>
@@ -500,6 +528,51 @@ export function PartnerEditInfoDialog({
                     Cambiar imagen
                   </Button>
                 </Row>
+
+                <Line background="neutral-alpha-weak" />
+
+                <Column gap="12" fillWidth>
+                  <Column gap="4">
+                    <Text variant="label-strong-s">Roles</Text>
+                    <Text variant="body-default-s" onBackground="neutral-weak">
+                      Tu rol principal se destaca en tu perfil; elige hasta {MAX_SECONDARY_ROLES}{" "}
+                      roles secundarios.
+                    </Text>
+                  </Column>
+
+                  <Select
+                    id="partner-primary-role"
+                    label="Rol principal"
+                    placeholder="Elige tu especialidad principal"
+                    value={primaryRole}
+                    onSelect={(value) => handlePrimaryRoleChange(value as string)}
+                    options={PARTNER_ROLES.map((role) => ({ value: role, label: role }))}
+                  />
+
+                  <Column gap="8" fillWidth>
+                    <Text variant="label-default-s" onBackground="neutral-weak">
+                      Roles secundarios ({secondaryRoles.length}/{MAX_SECONDARY_ROLES})
+                    </Text>
+                    <Row gap="8" wrap>
+                      {PARTNER_ROLES.filter((role) => role !== primaryRole).map((role) => {
+                        const selected = secondaryRoles.includes(role);
+                        const disabled = !selected && secondaryRoles.length >= MAX_SECONDARY_ROLES;
+                        return (
+                          <Chip
+                            key={role}
+                            label={role}
+                            selected={selected}
+                            onClick={() => {
+                              if (disabled) return;
+                              toggleSecondaryRole(role);
+                            }}
+                            style={disabled ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
+                          />
+                        );
+                      })}
+                    </Row>
+                  </Column>
+                </Column>
               </Column>
             )}
 

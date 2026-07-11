@@ -3,10 +3,11 @@
 import { useState, useMemo, useEffect } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useUser, useClerk } from "@clerk/nextjs";
 import {
   Avatar,
+  Badge,
   Button,
   Column,
   Icon,
@@ -93,8 +94,6 @@ function getSignedInMenuGroups(role: string | undefined, username: string | null
   ];
 }
 
-const spring = { type: "spring", stiffness: 320, damping: 32 } as const;
-
 // ─── Fondo del header ─────────────────────────────────────────────────────────
 // En el tope de la página: degradado brand → transparente. Con scroll: fondo de
 // página sólido (blanco en light / negro en dark). Dos capas con crossfade de
@@ -126,37 +125,6 @@ const HeaderBackdrop = ({ scrolled }: { scrolled: boolean }) => (
       }}
     />
   </>
-);
-
-// ─── SearchBar ────────────────────────────────────────────────────────────────
-const SearchBar = ({ fillWidth }: { fillWidth?: boolean }) => (
-  <Row
-    vertical="center"
-    gap="8"
-    paddingX="12"
-    paddingY="4"
-    radius="m"
-    border="neutral-alpha-weak"
-    background="neutral-alpha-weak"
-    style={{ width: fillWidth ? "100%" : undefined, minWidth: fillWidth ? undefined : 180 }}
-  >
-    <Icon name="search" size="s" onBackground="neutral-weak" />
-    <input
-      type="search"
-      placeholder="Buscar…"
-      aria-label="Buscar"
-      style={{
-        background: "transparent",
-        border: "none",
-        outline: "none",
-        color: "inherit",
-        font: "inherit",
-        fontSize: "var(--font-size-body-s)",
-        flex: 1,
-        minWidth: 0,
-      }}
-    />
-  </Row>
 );
 
 // ─── AuthZone ─────────────────────────────────────────────────────────────────
@@ -308,12 +276,30 @@ const AuthZone = ({
   );
 };
 
-// ─── Logo compartido (layoutId anima la posición entre móvil y escritorio) ────
+// ─── Logo compartido entre el header de escritorio y el de móvil ─────────────
+// (sin layoutId: cada header hace crossfade de opacidad vía su propio
+// motion.div, ver comentario junto a AnimatePresence más abajo)
 const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
-  <SmartLink href="/" onClick={onClick}>
-    <Image src="/trademark/type-dark.svg"  alt="Logo" height={24} width={120} className={styles.logoDark}  priority />
-    <Image src="/trademark/type-light.svg" alt="Logo" height={24} width={120} className={styles.logoLight} priority />
-  </SmartLink>
+  <Row position="relative" fitWidth fitHeight>
+    <SmartLink href="/" onClick={onClick}>
+      <Image src="/trademark/type-dark.svg"  alt="Logo" height={24} width={120} className={styles.logoDark}  priority />
+      <Image src="/trademark/type-light.svg" alt="Logo" height={24} width={120} className={styles.logoLight} priority />
+    </SmartLink>
+    <Badge
+      position="absolute"
+      top="calc(-10px)"
+      right="0"
+      paddingX="8"
+      paddingY="2"
+      radius="full"
+      background="brand-alpha-weak"
+      onBackground="brand-medium"
+      textVariant="label-default-xs"
+      pointerEvents="none"
+    >
+      Beta
+    </Badge>
+  </Row>
 );
 
 // ─── Header ───────────────────────────────────────────────────────────────────
@@ -325,9 +311,6 @@ export const Header = () => {
   const [authMode, setAuthMode]           = useState<AuthMode | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const pathname   = usePathname() ?? "/";
-  const isHome     = pathname === "/";
-  const isRecursos = pathname.startsWith("/recursos");
-  const isExplorar = pathname.startsWith("/explorar");
   const { isLoaded, isSignedIn, user } = useUser();
   const role = user?.publicMetadata?.role as string | undefined;
   const username = user?.username;
@@ -376,8 +359,17 @@ export const Header = () => {
 
   return (
     <>
-      {/* Header: fade entre escritorio ↔ móvil. layoutId="site-logo" anima
-          la posición del logo entre los dos headers sin salto. */}
+      {/* Header: fade entre escritorio ↔ móvil (crossfade de opacidad, ver
+          transition={{ duration: 0.15 }} en cada motion.div de abajo).
+          Antes el logo compartía layoutId="site-logo" entre ambas ramas
+          para que framer-motion hiciera un FLIP (interpolar posición/tamaño)
+          entre la posición del logo en escritorio y en móvil. Esa animación
+          resultaba demasiado llamativa ("el logo vuela" por la pantalla) —
+          se quitó el layoutId compartido a propósito y se deja solo el
+          fundido de opacidad ya existente en cada motion.div contenedor.
+          El logo no cambia de posición DENTRO de un mismo header (ni con
+          scroll ni con isCompact), así que no hace falta layout animation
+          local; con esto basta un fundido discreto en vez de un vuelo. */}
       <AnimatePresence initial={false}>
         {!isMobile ? (
           <motion.div
@@ -404,30 +396,12 @@ export const Header = () => {
               <HeaderBackdrop scrolled={scrolled} />
               <Row vertical="center" gap="4" style={{ flexShrink: 0 }}>
                 <Row vertical="center" paddingLeft="4" paddingRight="8">
-                  <motion.div layoutId="site-logo">
-                    <SiteLogo />
-                  </motion.div>
+                  <SiteLogo />
                 </Row>
                 <Row vertical="center" gap="4">
-                  <LayoutGroup id="header-left">
-                    <AnimatePresence initial={false}>
-                      {!isHome && !isRecursos && !isExplorar && (
-                        <motion.div
-                          key="searchbar"
-                          initial={{ opacity: 0, x: -16 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -16 }}
-                          transition={spring}
-                          style={{ flexShrink: 0 }}
-                        >
-                          <SearchBar />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                    <div style={{ flexShrink: 0, position: "relative" }}>
-                      <MegaMenu menuGroups={allMenuGroups} position="relative" />
-                    </div>
-                  </LayoutGroup>
+                  <div style={{ flexShrink: 0, position: "relative" }}>
+                    <MegaMenu menuGroups={allMenuGroups} position="relative" />
+                  </div>
                 </Row>
               </Row>
               <Row vertical="center" gap="8" paddingRight="4">
@@ -458,9 +432,7 @@ export const Header = () => {
               className={styles.mobileBar}
             >
               <HeaderBackdrop scrolled={scrolled || mobileOpen} />
-              <motion.div layoutId="site-logo">
-                <SiteLogo onClick={() => setMobileOpen(false)} />
-              </motion.div>
+              <SiteLogo onClick={() => setMobileOpen(false)} />
               <NavIcon
                 isActive={mobileOpen}
                 onClick={() => setMobileOpen((v) => !v)}
@@ -495,12 +467,6 @@ export const Header = () => {
               overflowY="auto"
               style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 64px)" }}
             >
-              {!isRecursos && !isExplorar && (
-                <>
-                  <SearchBar fillWidth />
-                  <Line background="neutral-alpha-weak" />
-                </>
-              )}
               <MobileMegaMenu
                 menuGroups={allMenuGroups}
                 onClose={() => setMobileOpen(false)}
