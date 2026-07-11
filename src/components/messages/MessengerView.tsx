@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Column, Row, useToast } from "@once-ui-system/core";
+import { Column, Row, useLayout, useToast } from "@once-ui-system/core";
 import {
   getChannelContext,
   getInbox,
@@ -48,6 +48,7 @@ export function MessengerView({
   initialProjectId?: string;
 }) {
   const { addToast } = useToast();
+  const { currentBreakpoint } = useLayout();
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -65,6 +66,15 @@ export function MessengerView({
   const [scope, setScope] = useState<RailScope>({ type: "direct" });
 
   const initApplied = useRef(false);
+
+  // Se lee el breakpoint vía ref (en vez de capturarlo directo en el efecto de
+  // montaje) para evitar el closure stale: el efecto de abajo corre una sola
+  // vez al montar y para entonces useLayout aún puede reportar el breakpoint
+  // por defecto ("l") mientras se mide el viewport real.
+  const isMobileRef = useRef(currentBreakpoint === "s" || currentBreakpoint === "xs");
+  useEffect(() => {
+    isMobileRef.current = currentBreakpoint === "s" || currentBreakpoint === "xs";
+  }, [currentBreakpoint]);
 
   const selectedConversation = conversations.find((c) => c.key === selectedKey) ?? null;
 
@@ -123,10 +133,25 @@ export function MessengerView({
             const firstProject = result.conversations.find(
               (c) => c.kind === "group" && c.project,
             )?.project;
-            if (hasDirect) {
-              setScope({ type: "direct" });
-            } else if (firstProject) {
-              setScope({ type: "project", id: firstProject.id });
+            const resolvedScope: RailScope | null = hasDirect
+              ? { type: "direct" }
+              : firstProject
+                ? { type: "project", id: firstProject.id }
+                : null;
+            if (resolvedScope) setScope(resolvedScope);
+
+            // Auto-selección solo en desktop: en móvil debe quedarse en la
+            // lista (mobileView="list") aunque haya conversaciones.
+            if (resolvedScope && !isMobileRef.current) {
+              const firstConversation = result.conversations.find((c) =>
+                resolvedScope.type === "direct"
+                  ? c.kind === "direct"
+                  : c.kind === "group" && c.project?.id === resolvedScope.id,
+              );
+              if (firstConversation) {
+                setSelectedKey(firstConversation.key);
+                setMobileView("conversation");
+              }
             }
           }
         }
@@ -241,12 +266,18 @@ export function MessengerView({
     setMobileView("list");
   };
 
+  // Semánticas distintas por breakpoint: en desktop el (i) conmuta la tercera
+  // columna (infoOpen); en móvil NAVEGA a la vista de info (y el botón volver
+  // de DetailsPanel regresa a la conversación). Acoplar ambos en un solo
+  // toggle hacía que el primer tap móvil solo apagara infoOpen (desmontando
+  // el panel) y se necesitaran dos taps para abrirlo.
   const handleToggleInfo = () => {
-    setInfoOpen((prev) => {
-      const next = !prev;
-      setMobileView(next ? "info" : "conversation");
-      return next;
-    });
+    if (isMobileRef.current) {
+      setInfoOpen(true);
+      setMobileView((prev) => (prev === "info" ? "conversation" : "info"));
+    } else {
+      setInfoOpen((prev) => !prev);
+    }
   };
 
   const handleBackFromInfo = () => {
@@ -338,8 +369,16 @@ export function MessengerView({
         radius="l"
         overflow="hidden"
         style={{ width: 320, minWidth: 0, flexShrink: 0 }}
-        s={mobileView !== "list" ? { hide: true } : undefined}
-        xs={mobileView !== "list" ? { hide: true } : undefined}
+        s={
+          mobileView !== "list"
+            ? { hide: true }
+            : { style: { width: "auto", flexGrow: 1, flexShrink: 1 } }
+        }
+        xs={
+          mobileView !== "list"
+            ? { hide: true }
+            : { style: { width: "auto", flexGrow: 1, flexShrink: 1 } }
+        }
       >
         <ConversationList
           conversations={scopedConversations}

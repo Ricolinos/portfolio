@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Avatar, Column, IconButton, Media, Row, SmartLink, Text } from "@once-ui-system/core";
 import { TaskCard } from "./TaskCard";
 import {
@@ -33,10 +34,18 @@ export function MessageBubble({
   const time = formatShortTime(message.createdAt);
   const { parts, images } = parseMessageBody(message.body);
   const showConvertTrigger = isGroup && !message.task && onConvertClick;
+  const [hovered, setHovered] = useState(false);
 
   return (
     <Column gap="4" fillWidth>
-      <Row fillWidth gap="8" horizontal={own ? "end" : "start"} vertical="end">
+      <Row
+        fillWidth
+        gap="8"
+        horizontal={own ? "end" : "start"}
+        vertical="end"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
         {isGroup && !own && (
           <Avatar
             size="xs"
@@ -94,23 +103,40 @@ export function MessageBubble({
             {time}
           </Text>
         </Column>
-        {isGroup && own && (
-          <Avatar
-            size="xs"
-            {...(message.sender.imageUrl
-              ? { src: message.sender.imageUrl }
-              : { value: personInitial(message.sender) })}
-          />
-        )}
+        {/* GOTCHA: sin avatar propio — Messenger no muestra el avatar del
+            emisor junto a sus propias burbujas, solo en las ajenas. */}
         {showConvertTrigger && (
-          <IconButton
-            icon="document"
-            size="s"
-            variant="tertiary"
-            tooltip="Convertir en tarea"
-            tooltipPosition="top"
-            onClick={onConvertClick}
-          />
+          <>
+            {/* Desktop: solo visible al hacer hover sobre la fila (estado JS,
+                sin CSS custom); oculto en el breakpoint móvil, donde no hay
+                hover. */}
+            <Row
+              style={{ display: hovered ? undefined : "none" }}
+              s={{ hide: true }}
+              xs={{ hide: true }}
+            >
+              <IconButton
+                icon="document"
+                size="s"
+                variant="tertiary"
+                tooltip="Convertir en tarea"
+                tooltipPosition="top"
+                onClick={onConvertClick}
+              />
+            </Row>
+            {/* Móvil: siempre visible (no hay hover) — oculto por defecto,
+                revelado solo en los breakpoints s/xs. */}
+            <Row hide s={{ hide: false }} xs={{ hide: false }}>
+              <IconButton
+                icon="document"
+                size="s"
+                variant="tertiary"
+                tooltip="Convertir en tarea"
+                tooltipPosition="top"
+                onClick={onConvertClick}
+              />
+            </Row>
+          </>
         )}
       </Row>
       {message.task && (

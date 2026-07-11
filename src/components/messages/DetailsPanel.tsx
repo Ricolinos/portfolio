@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
-  AccordionGroup,
+  Accordion,
   Avatar,
   Button,
   Column,
   Grid,
   IconButton,
   Input,
+  Line,
   Media,
   Modal,
   Row,
@@ -573,8 +574,16 @@ export function DetailsPanel({
       border="neutral-alpha-weak"
       radius="l"
       style={{ width: 320, minWidth: 0, flexShrink: 0 }}
-      s={mobileView !== "info" ? { hide: true } : undefined}
-      xs={mobileView !== "info" ? { hide: true } : undefined}
+      s={
+        mobileView !== "info"
+          ? { hide: true }
+          : { style: { width: "auto", flexGrow: 1, flexShrink: 1 } }
+      }
+      xs={
+        mobileView !== "info"
+          ? { hide: true }
+          : { style: { width: "auto", flexGrow: 1, flexShrink: 1 } }
+      }
     >
       <Row fillWidth gap="8" vertical="center">
         <Row hide s={{ hide: false }} xs={{ hide: false }}>
@@ -634,7 +643,22 @@ export function DetailsPanel({
         </Row>
       </Column>
 
-      <AccordionGroup items={items} autoCollapse={false} />
+      {/* GOTCHA: no usar AccordionGroup con autoCollapse={false} — el group
+          SIEMPRE pasa onToggle a cada Accordion (ver AccordionGroup.js), y
+          Accordion en cuanto recibe onToggle se vuelve controlado
+          (isAccordionOpen = onToggle ? open : isOpen); con autoCollapse=false
+          el group pasa open=undefined y su handleAccordionToggle no hace
+          nada, así que los acordeones nunca abren. Se apilan Accordions
+          sueltos (sin open/onToggle) en modo no-controlado: cada uno abre y
+          cierra de forma independiente y pueden quedar varios abiertos. */}
+      <Column fillWidth radius="m" border="neutral-alpha-medium" overflow="hidden">
+        {items.map((item, index) => (
+          <Fragment key={item.title}>
+            <Accordion title={item.title}>{item.content}</Accordion>
+            {index < items.length - 1 && <Line background="neutral-alpha-medium" />}
+          </Fragment>
+        ))}
+      </Column>
     </Column>
   );
 }
