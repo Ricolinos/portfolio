@@ -6,6 +6,7 @@ import {
   Badge,
   Carousel,
   Column,
+  DropdownWrapper,
   EmojiPickerDropdown,
   Feedback,
   Icon,
@@ -15,6 +16,7 @@ import {
   LogoCloud,
   MasonryGrid,
   Media,
+  Option,
   ProgressBar,
   Row,
   Scroller,
@@ -65,8 +67,18 @@ export type StatusColor =
   | "cyan"
   | "gray";
 
+export type TextBlockAlign = "left" | "center" | "right" | "justify";
+export type TextBlockWeight = "default" | "strong" | "light";
+
 export type ContentBlock =
-  | { id: string; type: "text"; html: string }
+  | {
+      id: string;
+      type: "text";
+      html: string;
+      align?: TextBlockAlign;
+      weight?: TextBlockWeight;
+      italic?: boolean;
+    }
   | { id: string; type: "image"; url: string; alt: string }
   | { id: string; type: "carousel"; images: { id: string; url: string; alt: string }[] }
   | { id: string; type: "embed"; language: string; code: string }
@@ -106,7 +118,7 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
   { type: "image", label: "Imagen", icon: "images" },
   { type: "text", label: "Texto", icon: "document" },
   { type: "carousel", label: "Carousel de fotos", icon: "carousel" },
-  { type: "embed", label: "Incrustar", icon: "codeBracket" },
+  { type: "embed", label: "Código", icon: "codeBracket" },
   { type: "link", label: "Links", icon: "openLink" },
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
@@ -149,7 +161,7 @@ export function createBlock(type: ContentBlockType): ContentBlock {
     case "carousel":
       return { id: newId(), type, images: [] };
     case "embed":
-      return { id: newId(), type, language: "", code: "" };
+      return { id: newId(), type, language: "bash", code: "" };
     case "link":
       return { id: newId(), type, url: "", label: "" };
     case "video":
@@ -199,12 +211,194 @@ export function extractYouTubeId(url: string): string | null {
 // booleano en vez de `{true}`/`{false}`.
 const escapeAttr = (value: string) => value.replace(/"/g, "%22");
 
+// FEATURE (tamaños de texto/títulos): el editor permite convertir la línea
+// del cursor en h2/h3/h4 vía `document.execCommand("formatBlock", ...)` (ver
+// RichTextEditor), que dentro del contentEditable deja un <h2>/<h3>/<h4>
+// LITERAL en el `innerHTML` guardado. GOTCHA CRÍTICO verificado contra el
+// propio comentario de mdx.tsx (case study "3 negocios ideas"): MDX compila
+// HTML embebido literal (no producido por sintaxis Markdown `#`/`##`) como
+// JSX con el nombre de tag a secas —`_jsx("h2", {...})`—, NUNCA como
+// `_jsx(_components.h2, ...)`; el mapa de `components` de mdx.tsx
+// (createHeading → HeadingLink con estilos Once UI) solo se activa para
+// headings generados por la sintaxis Markdown real. Un <h2> literal dentro
+// del <Text> del bloque escaparía ese mapeo y saldría con el h2 nativo del
+// navegador (sin token tipográfico de Once UI, sin id de ancla). Por eso,
+// antes de serializar, se extraen los h2/h3/h4 de nivel superior del HTML del
+// bloque y se emiten como Markdown ATX puro (`## texto`) en su PROPIA línea,
+// AFUERA de cualquier <Text>: eso sí pasa por el parser de Markdown real
+// (remark) y llega a `components.h2` con el estilo completo de Once UI. El
+// resto del contenido (párrafos normales) conserva el <Text> de siempre.
+//
+// BUG CONFIRMADO (auditoría con Playwright, ver reporte): cuando el heading
+// llevaba el atributo `align` (centrado/derecha/justificado vía la barra de
+// alineación por párrafo, ver `alignCurrentParagraph`), este camino ATX puro
+// lo descartaba por completo — `node.textContent` no incluye atributos, así
+// que `## texto` no transporta ninguna alineación y la vista pública SIEMPRE
+// pintaba el heading a la izquierda aunque el editor mostrara el atributo
+// correcto en el h2. Confirmado en las 3 capas: DOM del editor con
+// `<h2 align="center">`, markdown guardado como `## texto` (sin rastro del
+// align), visor público sin `style`/atributo de alineación en el `<h2>`
+// resultante. FIX: cuando el heading SÍ tiene align explícito (no "left"), se
+// emite como JSX literal `<Heading as="h2" align="center" ...>texto</Heading>`
+// en vez de `##` — `Heading` ya está registrado tal cual en el mapa de
+// `components` de mdx.tsx (import directo de Once UI, no wrapper propio), así
+// que SÍ pasa por él (JSX con nombre en mayúscula, a diferencia del gotcha de
+// arriba que solo aplica a HTML embebido con tag en minúscula) y su prop
+// `align` es real (Heading.js aplica `textAlign` vía `style` DESDE el propio
+// componente en render, no un `style=` escrito a mano en el Markdown fuente,
+// así que `stripInlineStyleAttrs` de mdx.tsx —que solo limpia el texto fuente
+// crudo— no lo toca). Se pierde el ícono de "copiar link" de `HeadingLink`
+// para ESE heading puntual (tradeoff aceptado: `Heading` no trae esa afordancia,
+// y replicarla requeriría duplicar su lógica de slug/clipboard aquí), pero se
+// mantiene variant/tipografía Once UI idéntica a la del heading ATX (mismo
+// mapeo de tamaño que `variantMap` de HeadingLink.js). Headings SIN align
+// explícito siguen su camino ATX de siempre (parte, sin cambios de
+// comportamiento para el caso común).
+type TextSegment =
+  | { type: "text"; html: string }
+  | { type: "heading"; level: 2 | 3 | 4; text: string; align?: TextBlockAlign };
+
+const HEADING_TAG_LEVEL: Record<string, 2 | 3 | 4> = { H2: 2, H3: 3, H4: 4 };
+
+// Mismo mapeo que `variantMap` de HeadingLink.js (harness Once UI): variant
+// tipográfico real por nivel de heading, para que un heading alineado (ruta
+// JSX) se vea idéntico en tamaño/peso a uno sin alinear (ruta ATX).
+const HEADING_VARIANT: Record<2 | 3 | 4, string> = {
+  2: "heading-strong-xl",
+  3: "heading-strong-l",
+  4: "heading-strong-m",
+};
+
+// El texto de un heading pasa a vivir como children de JSX (`<Heading>texto
+// </Heading>`) en vez de texto plano de Markdown ATX (`## texto`): a
+// diferencia del ATX (donde `{`/`<` no tienen significado especial), dentro
+// de children JSX SÍ lo tienen (expresión `{...}` / posible tag nuevo). Se
+// escapan a entidades HTML para que el heading centrado no trone/pierda texto
+// si el usuario tecleó esos caracteres — el heading ya se aplana a texto
+// plano de por sí (ver comentario de `splitTextBlockHtml`), así que no hace
+// falta preservar ningún markup interno.
+function escapeJsxText(value: string): string {
+  return value.replace(/[{}<>]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+function splitTextBlockHtml(html: string): TextSegment[] {
+  // blockToMarkdown solo corre en el navegador (useMemo dentro de
+  // CreateProjectModal, "use client"): usar el propio DOM para parsear es
+  // más confiable que un regex contra HTML arbitrario del contentEditable.
+  if (typeof document === "undefined") return [{ type: "text", html }];
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const hasHeading = Array.from(container.children).some(
+    (child) => child.tagName in HEADING_TAG_LEVEL,
+  );
+  if (!hasHeading) return [{ type: "text", html }];
+
+  const segments: TextSegment[] = [];
+  let buffer = "";
+  const flush = () => {
+    if (buffer.trim()) segments.push({ type: "text", html: buffer });
+    buffer = "";
+  };
+  container.childNodes.forEach((node) => {
+    if (node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName in HEADING_TAG_LEVEL) {
+      flush();
+      const level = HEADING_TAG_LEVEL[(node as Element).tagName];
+      // ATX heading de una sola línea: se aplana cualquier formato inline
+      // interno (negrita/cursiva/enlace) a texto plano — un heading Once UI
+      // ya trae su propio peso tipográfico fuerte, y anidar Markdown dentro
+      // de un heading generado a mano abre más GOTCHAs de los que resuelve.
+      const text = (node.textContent ?? "").replace(/\s+/g, " ").trim();
+      const rawAlign = (node as Element).getAttribute("align");
+      const align =
+        rawAlign === "center" || rawAlign === "right" || rawAlign === "justify"
+          ? rawAlign
+          : undefined;
+      if (text) segments.push({ type: "heading", level, text, align });
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      buffer += (node as Element).outerHTML;
+    } else {
+      buffer += node.textContent ?? "";
+    }
+  });
+  flush();
+  return segments;
+}
+
+// Serializa un segmento de párrafo normal: es el mismo cuerpo que antes
+// serializaba TODO el bloque de una sola vez (ver blame), ahora reutilizable
+// por segmento cuando el bloque se partió por headings.
+function serializeTextSegment(
+  html: string,
+  align: TextBlockAlign,
+  weight: TextBlockWeight,
+  italic: boolean,
+): string {
+  const trimmed = html.trim();
+  if (!trimmed) return "";
+  // Camino "sin cambios" (todo default): serializa IDÉNTICO a como
+  // siempre — no ensucia el Markdown de las piezas que no tocan la
+  // barra de estilo del bloque.
+  if (align === "left" && weight === "default" && !italic) {
+    return `<Text variant="body-default-m" onBackground="neutral-medium">\n${trimmed}\n</Text>`;
+  }
+  // Con cualquier override, `variant` deja de usarse: Text.js (Once UI)
+  // IGNORA `size`/`weight` por completo cuando `variant` está presente
+  // (ver dist/components/Text.js — `classes = variant ? getVariantClasses(variant)
+  // : [sizeClass, weightClass]`), así que `weight="strong"` junto a
+  // `variant="body-default-m"` no aplicaría nada. Se reconstruye la
+  // misma tipografía body/m con `family`+`size` sueltos para poder
+  // sumar `weight`/`align` reales.
+  // "light" no existe como TextWeight real de Once UI (solo
+  // "default"|"strong", ver ai/components/Text.json del harness): se
+  // aproxima con `onBackground="neutral-weak"` (color atenuado, prop
+  // real) en vez de un peso tipográfico inexistente.
+  const onBackground = weight === "light" ? "neutral-weak" : "neutral-medium";
+  const attrs = [`family="body"`, `size="m"`, `onBackground="${onBackground}"`];
+  if (align !== "left") attrs.push(`align="${align}"`);
+  if (weight === "strong") attrs.push(`weight="strong"`);
+  // GOTCHA (verificado en pantalla contra la pieza real de prueba):
+  // cuando el contenido del bloque queda en su PROPIA línea dentro del
+  // <Text> (con saltos de línea antes/después, como en el camino
+  // "default" de arriba), MDX lo trata como contenido de bloque y lo
+  // envuelve en un <p> — que este mismo archivo mapea a `createParagraph`
+  // (ver mdx.tsx), el cual fuerza SIEMPRE `onBackground="neutral-medium"`
+  // sin importar el `onBackground` del <Text> exterior. Ese doble
+  // envoltorio ya existía en el camino "default" (inofensivo ahí: ambos
+  // niveles pintan "neutral-medium", así que nadie lo notó), pero con
+  // weight="light" (mapeado a onBackground="neutral-weak" en el Text
+  // exterior) el <p> interno gana la pulseada de color y el texto se ve
+  // igual de oscuro que el normal — el "aligerado" se pierde por
+  // completo en la vista pública aunque el editor sí lo muestre bien.
+  // Mantener el contenido PEGADO a las etiquetas (sin su propia línea)
+  // evita que MDX lo trate como bloque aparte: así llega como contenido
+  // en línea del propio <Text>, sin el <p>/createParagraph de por medio.
+  const content = italic ? `<em>${trimmed}</em>` : trimmed;
+  return `<Text ${attrs.join(" ")}>${content}</Text>`;
+}
+
 function blockToMarkdown(block: ContentBlock): string {
   switch (block.type) {
-    case "text":
-      return block.html.trim()
-        ? `<Text variant="body-default-m" onBackground="neutral-medium">\n${block.html.trim()}\n</Text>`
-        : "";
+    case "text": {
+      const html = block.html.trim();
+      if (!html) return "";
+      const align = block.align ?? "left";
+      const weight = block.weight ?? "default";
+      const italic = block.italic ?? false;
+      const segments = splitTextBlockHtml(html);
+      const parts = segments.map((segment) => {
+        if (segment.type !== "heading") {
+          return serializeTextSegment(segment.html, align, weight, italic);
+        }
+        // Ver GOTCHA extenso junto a `TextSegment`/`escapeJsxText`: un heading
+        // sin align sigue el camino ATX de siempre (con anchor de copiar
+        // link); uno CON align se emite como `Heading` real de Once UI para
+        // que la alineación sobreviva a la vista pública.
+        if (!segment.align) return `${"#".repeat(segment.level)} ${segment.text}`;
+        const tag = `h${segment.level}` as "h2" | "h3" | "h4";
+        return `<Heading as="${tag}" variant="${HEADING_VARIANT[segment.level]}" align="${segment.align}" marginTop="24" marginBottom="12">${escapeJsxText(segment.text)}</Heading>`;
+      });
+      return parts.filter((part) => part.trim() !== "").join("\n\n");
+    }
     case "image":
       return block.url ? `![${block.alt}](${block.url})` : "";
     case "carousel": {
@@ -224,8 +418,21 @@ function blockToMarkdown(block: ContentBlock): string {
         .join("\n");
       return `<Scroller direction="row" fadeColor="page" gap="12">\n${items}\n</Scroller>`;
     }
-    case "embed":
-      return block.code.trim() ? `\`\`\`${block.language}\n${block.code}\n\`\`\`` : "";
+    case "embed": {
+      if (!block.code.trim()) return "";
+      // Un fence de 3 backticks trunca si el propio código pegado por el
+      // usuario ya contiene una racha de 3+ backticks (ej. un snippet que
+      // documenta Markdown): remark cierra el bloque en la PRIMERA racha
+      // igual o mayor a la de apertura. Se usa un fence 1 backtick más largo
+      // que la racha más larga encontrada en el código (mínimo 3) para que
+      // el contenido nunca lo pueda cerrar antes de tiempo.
+      const longestBacktickRun = Math.max(
+        0,
+        ...(block.code.match(/`+/g)?.map((run) => run.length) ?? [0]),
+      );
+      const fence = "`".repeat(Math.max(3, longestBacktickRun + 1));
+      return `${fence}${block.language}\n${block.code}\n${fence}`;
+    }
     case "link": {
       if (!block.url) return "";
       // Antes emitía markdown plano (`[label](url)`), que remark envuelve en
@@ -364,18 +571,22 @@ export function blocksToMarkdown(blocks: ContentBlock[]): string {
 // contentEditable + una barra con las operaciones más comunes. El resultado
 // se guarda como HTML crudo: el visualizador lo embebe tal cual dentro de un
 // <Text> (MDX soporta HTML embebido sin registrar cada tag).
-const FONT_OPTIONS = [
-  { label: "Predeterminada", value: "" },
-  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
-  { label: "Monoespaciada", value: "var(--font-code, monospace)" },
-];
-
-const SIZE_OPTIONS = [
-  { label: "Normal", value: "" },
-  { label: "Pequeño", value: "0.875rem" },
-  { label: "Grande", value: "1.25rem" },
-  { label: "Título", value: "1.75rem" },
-];
+// NOTA (Select de fuente/tamaño, intento 1, retirado): `applyStyle` envolvía
+// la selección en un `<span style="...">` — pero el visor público
+// (src/components/mdx.tsx, commit 77d966c, fix del HTML pegado de Word/Docs)
+// elimina cualquier atributo `style` inline en strings, así que ese span
+// jamás llegaba a verse en la pieza publicada aunque el editor lo mostrara
+// bien. Además, con selección colapsada `wrapSelection` no hacía nada (retorno
+// temprano), y los Select en sí se veían recortados/desalineados en esta
+// barra.
+// Intento 2 (el que sí quedó, ver `HEADING_FORMAT_OPTIONS`/`setBlockFormat`
+// en RichTextEditor): en vez de `style`, se usa `document.execCommand(
+// "formatBlock", ...)` para envolver la línea del cursor en h2/h3/h4 —tags
+// reales, no atributos— y en `blockToMarkdown` esos headings se extraen y se
+// re-emiten como Markdown `##`/`###` puro (ver `splitTextBlockHtml`), que sí
+// sobrevive el pipeline completo y llega con el estilo Once UI real (pasa por
+// `components.h2` de mdx.tsx). Mismo criterio de siempre: lo que no puede
+// verse en el visor se quita del editor; lo que si sobrevive, se implementa.
 
 // --- Opciones de los bloques nuevos -----------------------------------------
 const TAG_VARIANT_OPTIONS: { label: string; value: TagVariant }[] = [
@@ -393,6 +604,21 @@ const TAG_SIZE_OPTIONS: { label: string; value: TagSize }[] = [
   { label: "Pequeño", value: "s" },
   { label: "Mediano", value: "m" },
   { label: "Grande", value: "l" },
+];
+
+// Lenguajes soportados por el `CodeBlock` real de Once UI (Prism.js, ver
+// `languageDependencies` en dist/modules/code/CodeBlock.impl.js): estos son
+// standalone (sin dependencias extra) salvo "javascript"/"typescript", que
+// el propio componente resuelve solo. "" (Texto plano) desactiva el
+// resaltado de sintaxis pero conserva la barra completa + botón de copiar.
+const CODE_LANGUAGE_OPTIONS: { label: string; value: string }[] = [
+  { label: "Bash / Shell", value: "bash" },
+  { label: "JavaScript", value: "javascript" },
+  { label: "TypeScript", value: "typescript" },
+  { label: "CSS", value: "css" },
+  { label: "HTML", value: "html" },
+  { label: "JSON", value: "json" },
+  { label: "Texto plano", value: "" },
 ];
 
 const STATUS_COLOR_OPTIONS: { label: string; value: StatusColor }[] = [
@@ -586,23 +812,299 @@ function insertTextAtCursor(text: string): void {
 
 interface RichTextEditorProps {
   html: string;
+  align: TextBlockAlign;
+  weight: TextBlockWeight;
+  italic: boolean;
   onChange: (html: string) => void;
+  onAlignChange: (align: TextBlockAlign) => void;
+  onWeightChange: (weight: TextBlockWeight) => void;
+  onItalicChange: (italic: boolean) => void;
   disabled?: boolean;
 }
 
-function RichTextEditor({ html, onChange, disabled }: RichTextEditorProps) {
+const ALIGN_OPTIONS: { value: TextBlockAlign; icon: string; label: string }[] = [
+  { value: "left", icon: "alignLeft", label: "Izquierda" },
+  { value: "center", icon: "alignCenter", label: "Centro" },
+  { value: "right", icon: "alignRight", label: "Derecha" },
+  { value: "justify", icon: "alignJustify", label: "Justificado" },
+];
+
+// FEATURE (tamaños de texto): opciones del Select de la toolbar. El value
+// coincide con el tag real que arma `document.execCommand("formatBlock", ...)`
+// ("p" = cuerpo/sin formato de bloque).
+type HeadingFormat = "p" | "h2" | "h3" | "h4";
+const HEADING_FORMAT_OPTIONS: { value: HeadingFormat; label: string }[] = [
+  { value: "p", label: "Cuerpo" },
+  { value: "h2", label: "Título" },
+  { value: "h3", label: "Subtítulo" },
+  { value: "h4", label: "Encabezado pequeño" },
+];
+// Abreviatura mostrada en el trigger compacto (ver nota en la barra de
+// RichTextEditor): reemplaza al <Select> —desentonaba en altura con el resto
+// de la fila (38px medido vs 24px de los IconButton size="s", ver
+// IconButton.module.scss/.s y Input.module.scss/.s del harness: no existe una
+// altura de Select que baje de 40px)— por un IconButton+DropdownWrapper, el
+// mismo patrón que ya usan BlockTypePicker (el "+" del lienzo) y
+// EmojiPickerDropdown en este mismo flujo.
+const HEADING_FORMAT_ABBR: Record<HeadingFormat, string> = {
+  p: "P",
+  h2: "H2",
+  h3: "H3",
+  h4: "H4",
+};
+
+// Alineación POR PÁRRAFO (tarea 4): investigado y confirmado con Playwright
+// (test_align.mjs, descartado tras la prueba) que `document.execCommand(
+// "justifyCenter"/...)` en Chromium SIEMPRE deja `style="text-align: ..."` en
+// el elemento —incluso forzando `execCommand("styleWithCSS", false, false)`,
+// que en teoría debería preferir tags/atributos sobre CSS—, y ese `style`
+// es EXACTAMENTE lo que `stripInlineStyleAttrs` en mdx.tsx elimina (el
+// sanitizador anti-HTML-de-Word). Alinear por párrafo vía execCommand se
+// vería bien en el editor y se perdería por completo en la vista pública.
+// Alternativa verificada que SÍ sobrevive: el atributo HTML clásico `align`
+// (deprecado pero real, no `style`) en el elemento de bloque del párrafo
+// (p/div/h2/h3/h4). Confirmado en 3 capas: (1) el navegador SÍ lo interpreta
+// sin CSS propio (computed text-align pasa a "-webkit-left/-center/-right" o
+// "justify" con solo el atributo, sin ninguna regla CSS de por medio); (2)
+// `stripInlineStyleAttrs` solo filtra `style=`, no `align=`, así que
+// sobrevive intacto al sanitizador; (3) React SÍ reenvía `align` como
+// atributo DOM real en un host element nativo como "p" (probado con
+// renderToStaticMarkup), que es justo la ruta que toma MDX para HTML
+// embebido literal (ver GOTCHA de mdx.tsx sobre `_jsx("p", {...})`). Por eso
+// el grupo de alineación de la toolbar ya NO cambia `block.align` (el
+// bloque completo) sino que aplica/quita el atributo `align` en el elemento
+// de bloque (p/div/h2/h3/h4) donde vive el cursor — cada línea/párrafo se
+// alinea de forma independiente. `block.align`/`onAlignChange` se conservan
+// solo como fallback para el caso raro de un bloque sin NINGÚN elemento de
+// bloque interno (texto suelto directo en el contentEditable, sin línea
+// propia todavía) y para no romper la serialización de piezas ya guardadas
+// con ese campo.
+const BLOCK_LEVEL_TAGS = new Set(["P", "DIV", "H2", "H3", "H4", "LI", "BLOCKQUOTE"]);
+
+function getBlockAncestor(node: Node | null, root: HTMLElement): HTMLElement | null {
+  let current: Node | null = node;
+  while (current && current !== root) {
+    if (current.nodeType === Node.ELEMENT_NODE && BLOCK_LEVEL_TAGS.has((current as HTMLElement).tagName)) {
+      return current as HTMLElement;
+    }
+    current = current.parentNode;
+  }
+  return null;
+}
+
+// BUG CONFIRMADO (auditoría con Playwright, "el ajuste de alineación a veces
+// se ignora" — HIPÓTESIS B): en Chromium, la PRIMERA línea de un bloque de
+// texto tecleada directo en el contentEditable (antes de cualquier Enter)
+// vive como un text-node SUELTO, hijo directo del `<div ref>` — sin ningún
+// `<p>`/`<div>` propio. Solo las líneas creadas DESPUÉS de presionar Enter
+// quedan envueltas en su propio `<div>`. Verificado en pantalla: `getBlockAncestor`
+// no encuentra ningún ancestro de bloque para ese texto suelto, así que
+// `alignCurrentParagraph` cae al fallback legado (`onAlignChange`, alinea
+// `block.align` ENTERO) — el usuario alinea "solo esa línea" y en realidad
+// alinea/desalinea TODO el bloque, incluidas líneas posteriores ya envueltas
+// en su propio `<div>` con su PROPIO `align` independiente. De ahí la
+// intermitencia percibida: "a veces" el cursor cae en una línea con `<div>`
+// propio (funciona bien, por párrafo) y "a veces" cae en la primera línea
+// suelta (alinea todo el bloque, pisando lo demás).
+// FIX: normalizar el contenido para que TODO viva dentro de un elemento de
+// bloque propio desde el primer momento, casi eliminando el caso del
+// fallback. `ensureBlockWrapping` envuelve cada tramo consecutivo de nodos
+// sueltos (texto o inline) en su propio `<div>`, preservando orden y
+// contenido; se invoca solo cuando `html` llega actualizado desde AFUERA
+// (montaje inicial de un bloque nuevo, o carga de una pieza guardada para
+// Editar) — nunca durante la edición activa del usuario, para no arriesgar
+// saltos de cursor.
+function ensureBlockWrapping(el: HTMLElement): boolean {
+  let changed = false;
+  const run: ChildNode[] = [];
+  const hasRealContent = () =>
+    run.some(
+      (n) =>
+        (n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== "") ||
+        n.nodeType === Node.ELEMENT_NODE,
+    );
+  const flush = () => {
+    if (run.length > 0 && hasRealContent()) {
+      const wrapper = document.createElement("div");
+      el.insertBefore(wrapper, run[0]);
+      run.forEach((node) => wrapper.appendChild(node));
+      changed = true;
+    }
+    run.length = 0;
+  };
+  Array.from(el.childNodes).forEach((node) => {
+    const isBlock =
+      node.nodeType === Node.ELEMENT_NODE && BLOCK_LEVEL_TAGS.has((node as Element).tagName);
+    if (isBlock) {
+      flush();
+    } else {
+      run.push(node);
+    }
+  });
+  flush();
+  return changed;
+}
+
+// Semilla de un bloque de texto totalmente vacío (nunca se escribió nada
+// todavía): un `<div>` con un `<br>` propio, para que la PRIMERA tecla que el
+// usuario escriba caiga DENTRO de ese elemento de bloque (comportamiento
+// nativo de Chromium al posicionar el caret en un contentEditable con un solo
+// hijo elemento) en vez de crear, de nuevo, un text-node suelto directo del
+// contentEditable — ver GOTCHA de `ensureBlockWrapping` arriba.
+const EMPTY_TEXT_BLOCK_SEED = "<div><br></div>";
+
+function RichTextEditor({
+  html,
+  align,
+  weight,
+  italic,
+  onChange,
+  onAlignChange,
+  onWeightChange,
+  onItalicChange,
+  disabled,
+}: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const lastEmitted = useRef(html);
+  // BUG CRÍTICO (texto guardado desaparece al reabrir con "Editar"): este
+  // ref arrancaba en `useRef(html)` — con el `html` que llega YA cargado
+  // (ej. al precargar una pieza guardada para editar). El div (sin
+  // `dangerouslySetInnerHTML`) siempre arranca vacío en el DOM real; el
+  // El efecto de abajo solo escribe `innerHTML` cuando `html !== lastEmitted.current`,
+  // así que en el PRIMER montaje ambos ya eran iguales y nunca se copiaba el
+  // contenido al DOM — el editor se veía vacío aunque `block.html` sí tuviera
+  // el texto (y al guardar de nuevo, se perdía). Arrancar en "" fuerza que el
+  // primer montaje con contenido real siempre difiera y dispare la escritura.
+  const lastEmitted = useRef("");
+  // Última selección (Range) capturada MIENTRAS vivía dentro del editor.
+  // GOTCHA (bug del emoji cayendo al inicio): al abrir el EmojiPickerDropdown
+  // (o los Select de fuente/tamaño), el foco del documento se mueve fuera del
+  // contentEditable — la búsqueda del picker de emoji autoenfoca su propio
+  // <Input>, y los Select internamente enfocan su trigger. En ese momento el
+  // `Selection` global deja de tener un Range dentro del editor. El código
+  // viejo llamaba `ref.current?.focus()` justo antes de leer
+  // `window.getSelection()`: el foco SÍ vuelve al div, pero como el
+  // navegador ya no tenía un Range asociado a él, coloca el caret en la
+  // posición 0 por defecto (comportamiento nativo de `.focus()` en
+  // contentEditable sin selección previa) — de ahí que el emoji (o el
+  // wrap de negrita/cursiva vía los Select) aterrizara siempre al inicio.
+  // La solución: rastrear el Range activo con `selectionchange` mientras
+  // esté dentro de este editor, y restaurarlo explícitamente ANTES de
+  // cualquier operación de la toolbar, en vez de confiar en dónde el
+  // navegador decida dejar el caret al reenfocar.
+  const lastRangeRef = useRef<Range | null>(null);
+  // Estado "vivo" de la selección actual, para resaltar el botón/Select
+  // correcto de la toolbar (negrita activa, tamaño del párrafo del cursor,
+  // alineación del párrafo del cursor) — se recalcula en cada
+  // `selectionchange` dentro de este editor, igual que `lastRangeRef`.
+  const [activeFormats, setActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeThrough: false,
+  });
+  const [blockFormat, setBlockFormat] = useState<HeadingFormat>("p");
+  const [paragraphAlign, setParagraphAlign] = useState<TextBlockAlign>(align);
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
 
   // Solo sincroniza el DOM cuando el cambio viene de afuera (ej. al cargar
   // un borrador): si lo hiciéramos en cada emit, el cursor saltaría al
   // inicio en cada tecla.
   useEffect(() => {
-    if (ref.current && html !== lastEmitted.current) {
-      ref.current.innerHTML = html;
+    const el = ref.current;
+    if (!el) return;
+    if (html !== lastEmitted.current) {
+      el.innerHTML = html;
       lastEmitted.current = html;
+      // HIPÓTESIS B (ver GOTCHA junto a `ensureBlockWrapping`): normaliza
+      // contenido cargado desde afuera (ej. una pieza guardada ANTES de este
+      // fix, con texto suelto sin envoltorio propio) para que el fallback de
+      // alineación de bloque completo casi nunca se necesite de aquí en
+      // adelante. Si wrapping cambió algo, se propaga con `onChange` para que
+      // `block.html` (y lo que se guarde si el usuario no vuelve a tocar este
+      // bloque) ya refleje el contenido normalizado.
+      if (ensureBlockWrapping(el)) {
+        lastEmitted.current = el.innerHTML;
+        onChange(lastEmitted.current);
+      }
     }
-  }, [html]);
+    // Bloque totalmente vacío (nunca se escribió nada, ej. recién agregado
+    // desde "Añadir sección"): sembrar un `<div>` propio para que la PRIMERA
+    // tecla ya caiga dentro de un elemento de bloque (ver
+    // `EMPTY_TEXT_BLOCK_SEED`) en vez de quedar como texto suelto. No emite
+    // `onChange`: el bloque sigue "vacío" (`block.html === ""`) hasta que el
+    // usuario escriba contenido real.
+    if (el.childNodes.length === 0) {
+      el.innerHTML = EMPTY_TEXT_BLOCK_SEED;
+    }
+  }, [html, onChange]);
+
+  // BUG INTERMITENTE (el estilo elegido a veces no se aplica — reproducido
+  // con Playwright disparando dos clicks de la toolbar en el mismo tick de
+  // JS, ej. Negrita luego Cursiva sin ceder el hilo entre medio): la causa
+  // raíz NO era el listener de `selectionchange` en sí, sino que
+  // `restoreSelection` (ver abajo) confiaba CIEGAMENTE en `lastRangeRef`
+  // (llenado solo por ese listener, asíncrono) y lo usaba para PISAR la
+  // selección viva del navegador, incluso cuando esa selección viva ya era
+  // perfectamente válida. Verificado en pantalla con el propio
+  // `window.getSelection()`: justo después de que `execCommand("bold")`
+  // corre, la Selection real del documento YA apunta, en el MISMO tick
+  // síncrono, al nodo de texto correcto dentro del `<b>` recién creado — el
+  // evento `selectionchange` que actualiza `lastRangeRef` llega DESPUÉS,
+  // como tarea encolada por el navegador. Si el siguiente click de la
+  // toolbar (ej. Cursiva) llega antes de que ese evento encolado se procese,
+  // `lastRangeRef` todavía apunta al Range VIEJO (de antes del bold), cuyo
+  // nodo contenedor de texto normalmente ya fue reemplazado/desprendido del
+  // documento por el propio `execCommand` — `el.contains(saved...)` da
+  // `false`, y `restoreSelection` caía al último fallback: colapsar el
+  // cursor al FINAL del contenido. Cursiva entonces corría sobre una
+  // selección colapsada (no aplica ningún wrap visible) en vez de sobre el
+  // texto recién puesto en negrita — de ahí el "a veces no se aplica".
+  // FIX: `restoreSelection` ahora SIEMPRE revisa primero la selección VIVA
+  // del documento; si ya cae dentro del editor (el caso normal tras
+  // cualquier `execCommand`, o cuando el foco nunca salió del todo — los
+  // botones simples no le quitan la Selection al documento aunque muevan
+  // `document.activeElement`), la usa tal cual y refresca `lastRangeRef` con
+  // ella al vuelo, sin esperar al evento asíncrono. `lastRangeRef` +
+  // `selectionchange` se conservan solo como red de respaldo para el caso
+  // que sí los necesita: cuando el foco se fue a un control que SÍ le quita
+  // la selección al documento (el Select viejo, el buscador del emoji
+  // picker) y hay que restaurar manualmente dónde estaba el cursor antes de
+  // que eso pasara.
+  const syncSelectionState = () => {
+    const el = ref.current;
+    if (!el) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return;
+    lastRangeRef.current = range.cloneRange();
+    // queryCommandState/Value son APIs deprecadas pero universales (única
+    // forma estándar de leer el estado de toggle real de execCommand); se
+    // envuelven en try/catch porque algunos navegadores las marcan como
+    // inseguras/lanzan fuera de un documento con foco activo.
+    try {
+      setActiveFormats({
+        bold: document.queryCommandState("bold"),
+        italic: document.queryCommandState("italic"),
+        underline: document.queryCommandState("underline"),
+        strikeThrough: document.queryCommandState("strikeThrough"),
+      });
+    } catch {
+      // no-op: se conserva el último estado conocido.
+    }
+    const blockEl = getBlockAncestor(range.commonAncestorContainer, el);
+    const tag = blockEl?.tagName;
+    setBlockFormat(tag === "H2" || tag === "H3" || tag === "H4" ? (tag.toLowerCase() as HeadingFormat) : "p");
+    const attrAlign = blockEl?.getAttribute("align");
+    setParagraphAlign(
+      attrAlign === "center" || attrAlign === "right" || attrAlign === "justify" ? attrAlign : "left",
+    );
+  };
+
+  useEffect(() => {
+    document.addEventListener("selectionchange", syncSelectionState);
+    return () => document.removeEventListener("selectionchange", syncSelectionState);
+  }, []);
 
   const emit = () => {
     if (!ref.current) return;
@@ -610,18 +1112,106 @@ function RichTextEditor({ html, onChange, disabled }: RichTextEditorProps) {
     onChange(lastEmitted.current);
   };
 
-  const focusEditor = () => ref.current?.focus();
-
-  const applyTag = (tag: string) => {
-    focusEditor();
-    wrapSelection(tag);
-    emit();
+  // Restaura el último Range guardado dentro del editor (o, si nunca hubo
+  // uno —editor recién montado/vacío, o el guardado quedó obsoleto—, coloca
+  // el caret al final del contenido) y lo aplica al `Selection` del
+  // documento. Debe llamarse SOLO cuando ya se determinó (en `focusEditor`,
+  // ANTES de mover el foco) que la Selection viva NO está dentro del
+  // editor — ver GOTCHA extenso ahí sobre por qué el orden importa.
+  const restoreSelection = () => {
+    const el = ref.current;
+    if (!el) return;
+    const selection = window.getSelection();
+    if (!selection) return;
+    const saved = lastRangeRef.current;
+    if (saved && el.contains(saved.commonAncestorContainer)) {
+      selection.removeAllRanges();
+      selection.addRange(saved);
+      return;
+    }
+    const fallback = document.createRange();
+    fallback.selectNodeContents(el);
+    fallback.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(fallback);
   };
 
-  const applyStyle = (style: string) => {
-    if (!style) return;
+  // Reenfoca el editor y restablece la selección real ANTES de mutar el
+  // DOM: todas las acciones de la toolbar (bold/italic/underline/
+  // strikethrough, fuente/tamaño, link, emoji) pasan por aquí en vez de
+  // solo `ref.current?.focus()`.
+  //
+  // BUG INTERMITENTE (el estilo elegido a veces no se aplica) — DOS causas
+  // raíz relacionadas, ambas reproducidas con Playwright disparando la
+  // toolbar sin ceder el hilo entre acciones:
+  //
+  // (1) Dos clicks de la toolbar seguidos (ej. Negrita → Cursiva) SIN que el
+  // navegador alcance a procesar el evento `selectionchange` de por medio:
+  // justo después de `execCommand("bold")`, la Selection VIVA del documento
+  // ya apunta (en el MISMO tick síncrono) al nodo de texto correcto dentro
+  // del `<b>` recién creado, pero el evento `selectionchange` que actualiza
+  // `lastRangeRef` llega DESPUÉS, como tarea encolada por el navegador.
+  // Llamar SIEMPRE a `restoreSelection()` (que solo conoce `lastRangeRef`,
+  // desactualizado en ese instante) pisaba esa Selection viva y correcta con
+  // el Range VIEJO —cuyo nodo contenedor normalmente ya fue reemplazado por
+  // el propio `execCommand`, así que ni siquiera es un Range válido— y
+  // `restoreSelection` caía al fallback de colapsar el cursor al FINAL del
+  // contenido. Cursiva corría entonces sobre una selección colapsada (no
+  // aplica ningún wrap visible) en vez de sobre el texto recién puesto en
+  // negrita.
+  //
+  // (2) La corrección obvia de (1) —"confiar en la Selection viva si ya cae
+  // dentro del editor, antes que en `lastRangeRef`"— reintroduce, si se hace
+  // DESPUÉS de `el.focus()`, el bug ORIGINAL que este mismo Range cacheado
+  // vino a resolver (emoji/Select cayendo al inicio, ver GOTCHA de
+  // `lastRangeRef` más arriba): reproducido con Playwright posicionando el
+  // cursor a medio texto, abriendo el emoji picker y escribiendo en su
+  // buscador (un <Input> real, que SÍ le quita la Selection al documento,
+  // a diferencia de un botón simple) — `el.focus()` en un contentEditable
+  // que en ESE instante no tiene ninguna Selection propia asociada coloca,
+  // como comportamiento nativo del navegador, un caret colapsado en la
+  // posición 0 DENTRO del editor — indistinguible de una Selection viva
+  // "ya buena" si se revisa recién DESPUÉS de llamar a `.focus()`.
+  //
+  // FIX: la pregunta "¿la Selection viva ya cae dentro del editor?" se
+  // responde ANTES de tocar el foco (ahí SÍ distingue los dos casos: un
+  // botón simple nunca le quita la Selection al documento, un <Input> real
+  // sí). Si la respuesta es sí, se refresca `lastRangeRef` con esa Selection
+  // ya-buena y se deja intacta (nunca se pisa con el Range cacheado ni con
+  // el default de `.focus()`) — resuelve (1). Si la respuesta es no, se
+  // delega en `restoreSelection()` de siempre (`lastRangeRef` → fallback al
+  // final) — conserva la resolución original de (2).
+  const focusEditor = () => {
+    const el = ref.current;
+    const selection = window.getSelection();
+    const liveRangeAlreadyInEditor =
+      !!el && !!selection && selection.rangeCount > 0 && el.contains(selection.getRangeAt(0).commonAncestorContainer);
+    el?.focus();
+    if (liveRangeAlreadyInEditor && selection) {
+      lastRangeRef.current = selection.getRangeAt(0).cloneRange();
+      return;
+    }
+    restoreSelection();
+  };
+
+  // TOGGLE real (tarea 2): `document.execCommand("bold"/"italic"/
+  // "underline"/"strikeThrough")` reemplaza a `wrapSelection` para estos 4
+  // botones. A diferencia de `wrapSelection` (que solo AGREGABA un
+  // <strong>/<em>/<u>/<s> nuevo sin poder quitarlo, y anidaba tags si se
+  // repetía), execCommand es un toggle nativo del navegador: reaplicar
+  // "bold" sobre texto ya en <b> lo QUITA (verificado con Playwright:
+  // `<b>x</b>` → "bold" → "x" plano), y además el navegador recuerda el
+  // estado de negrita/cursiva/etc. del CARET (no solo de la selección), así
+  // que el texto que se escribe después de togglear hereda correctamente el
+  // nuevo estado (activado o desactivado) sin heredar el formato viejo a la
+  // fuerza. Produce <b>/<i>/<u>/<strike> (no <strong>/<em>/<u>/<s>), pero son
+  // tags HTML nativos: el visor los recibe como HTML embebido crudo dentro
+  // del <Text> (igual que antes) y el navegador los renderiza con el mismo
+  // efecto visual (negrita/cursiva/subrayado/tachado) sin necesitar mapeo en
+  // mdx.tsx.
+  const toggleInlineFormat = (command: "bold" | "italic" | "underline" | "strikeThrough") => {
     focusEditor();
-    wrapSelection("span", { style });
+    document.execCommand(command);
     emit();
   };
 
@@ -639,59 +1229,171 @@ function RichTextEditor({ html, onChange, disabled }: RichTextEditorProps) {
     emit();
   };
 
+  const toggleWeight = (value: TextBlockWeight) => onWeightChange(weight === value ? "default" : value);
+
+  // FEATURE tamaños de texto (tarea 3): convierte el elemento de bloque de la
+  // línea del cursor en h2/h3/h4, o de vuelta a un párrafo normal ("p" =
+  // Cuerpo). `<h2>` con corchetes (no solo "h2") es necesario para Firefox;
+  // Chromium acepta ambas formas (verificado con Playwright).
+  //
+  // BUG CONFIRMADO (auditoría con Playwright, matriz punto 3 — "alinear →
+  // convertir a heading después"): `execCommand("formatBlock", ...)` en
+  // Chromium NO conserva el atributo `align` del elemento de bloque viejo al
+  // crear el nuevo (verificado en pantalla en ambos sentidos: un
+  // `<div align="center">` se convierte en `<h2>` PLANO, sin align; un
+  // `<h2 align="center">` se convierte en `<div>` plano al volver a "Cuerpo").
+  // El usuario que alinea un párrafo y LUEGO decide convertirlo en título
+  // (o viceversa) veía el ajuste de alineación desaparecer sin tocar la
+  // barra de alineación — otra causa de la intermitencia percibida. FIX:
+  // se lee el `align` del bloque ANTES de la conversión y, si el nuevo
+  // elemento de bloque no lo trae de por sí, se reaplica manualmente.
+  const setHeadingFormat = (format: HeadingFormat) => {
+    focusEditor();
+    const el = ref.current;
+    const selectionBefore = window.getSelection();
+    const prevBlock =
+      el && selectionBefore && selectionBefore.rangeCount > 0
+        ? getBlockAncestor(selectionBefore.getRangeAt(0).commonAncestorContainer, el)
+        : null;
+    const prevAlign = prevBlock?.getAttribute("align");
+    document.execCommand("formatBlock", false, `<${format}>`);
+    if (prevAlign && el) {
+      const selectionAfter = window.getSelection();
+      const newBlock =
+        selectionAfter && selectionAfter.rangeCount > 0
+          ? getBlockAncestor(selectionAfter.getRangeAt(0).commonAncestorContainer, el)
+          : null;
+      if (newBlock && !newBlock.getAttribute("align")) {
+        newBlock.setAttribute("align", prevAlign);
+        setParagraphAlign(prevAlign as TextBlockAlign);
+      }
+    }
+    setBlockFormat(format);
+    emit();
+  };
+
+  // Alineación POR PÁRRAFO (tarea 4, ver nota extensa junto a
+  // `BLOCK_LEVEL_TAGS` arriba): en vez de aplicar `align` a todo el bloque,
+  // busca el elemento de bloque (p/div/h2/h3/h4) donde vive el cursor y le
+  // pone/quita el atributo HTML `align` (nunca `style`). Si el cursor está en
+  // texto suelto sin ningún elemento de bloque propio todavía (bloque
+  // recién creado, una sola línea sin <p>/<div>), no hay nada que aislar:
+  // cae al comportamiento legado de bloque completo (`onAlignChange`) para
+  // no perder la función en ese caso límite.
+  const alignCurrentParagraph = (value: TextBlockAlign) => {
+    focusEditor();
+    const el = ref.current;
+    const selection = window.getSelection();
+    if (!el || !selection || selection.rangeCount === 0) return;
+    const blockEl = getBlockAncestor(selection.getRangeAt(0).commonAncestorContainer, el);
+    if (!blockEl) {
+      onAlignChange(value);
+      return;
+    }
+    if (value === "left") blockEl.removeAttribute("align");
+    else blockEl.setAttribute("align", value);
+    setParagraphAlign(value);
+    emit();
+  };
+
   return (
     <Column fillWidth gap="8" radius="m" border="neutral-alpha-weak" padding="8" background="page">
-      <Row gap="4" vertical="center" wrap style={{ overflowX: "auto" }}>
-        <Select
-          id="rich-text-font"
-          options={FONT_OPTIONS}
-          value=""
-          onSelect={(value) => applyStyle(value)}
-          disabled={disabled}
-          style={{ width: "9rem" }}
+      {/* Barra única: alineación y tamaño de texto aplican al PÁRRAFO del
+          cursor (ver `alignCurrentParagraph`/`setHeadingFormat`), peso "Aa"
+          sigue aplicando al bloque completo, y B/I/U/S/enlace/emoji son
+          TOGGLES reales sobre el texto seleccionado vía execCommand (ver
+          `toggleInlineFormat`). Los toggles de bloque de negrita/cursiva se
+          retiraron por duplicar la B/I inline (misma funcionalidad visible,
+          dos controles). */}
+      <Row gap="4" vertical="center" wrap overflowX="auto">
+        {ALIGN_OPTIONS.map((option) => (
+          <IconButton
+            key={option.value}
+            icon={option.icon}
+            tooltip={`Alinear párrafo: ${option.label}`}
+            variant={paragraphAlign === option.value ? "primary" : "tertiary"}
+            size="s"
+            onClick={() => alignCurrentParagraph(option.value)}
+            disabled={disabled}
+          />
+        ))}
+        <Line vert background="neutral-alpha-weak" height="20" />
+        <DropdownWrapper
+          isOpen={formatMenuOpen}
+          onOpenChange={setFormatMenuOpen}
+          placement="bottom-start"
+          trigger={
+            <IconButton
+              tooltip={`Tipo de texto: ${
+                HEADING_FORMAT_OPTIONS.find((option) => option.value === blockFormat)?.label ?? "Cuerpo"
+              }`}
+              variant={blockFormat === "p" ? "tertiary" : "primary"}
+              size="s"
+              disabled={disabled}
+            >
+              <Text variant="label-strong-s">{HEADING_FORMAT_ABBR[blockFormat]}</Text>
+            </IconButton>
+          }
+          dropdown={
+            <Column minWidth={10} padding="4" gap="2">
+              {HEADING_FORMAT_OPTIONS.map((option) => (
+                <Option
+                  key={option.value}
+                  label={option.label}
+                  value={option.value}
+                  selected={blockFormat === option.value}
+                  onClick={() => {
+                    setHeadingFormat(option.value as HeadingFormat);
+                    setFormatMenuOpen(false);
+                  }}
+                />
+              ))}
+            </Column>
+          }
         />
-        <Select
-          id="rich-text-size"
-          options={SIZE_OPTIONS}
-          value=""
-          onSelect={(value) => applyStyle(value)}
+        <Line vert background="neutral-alpha-weak" height="20" />
+        <IconButton
+          icon="textLight"
+          tooltip="Peso del bloque: ligera"
+          variant={weight === "light" ? "primary" : "tertiary"}
+          size="s"
+          onClick={() => toggleWeight("light")}
           disabled={disabled}
-          style={{ width: "7rem" }}
         />
-        <Line vert background="neutral-alpha-weak" style={{ height: "1.25rem" }} />
+        <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="bold"
           tooltip="Negrita"
-          variant="tertiary"
+          variant={activeFormats.bold ? "primary" : "tertiary"}
           size="s"
-          onClick={() => applyTag("strong")}
+          onClick={() => toggleInlineFormat("bold")}
           disabled={disabled}
         />
         <IconButton
           icon="italic"
           tooltip="Cursiva"
-          variant="tertiary"
+          variant={activeFormats.italic ? "primary" : "tertiary"}
           size="s"
-          onClick={() => applyTag("em")}
+          onClick={() => toggleInlineFormat("italic")}
           disabled={disabled}
         />
         <IconButton
           icon="underline"
           tooltip="Subrayado"
-          variant="tertiary"
+          variant={activeFormats.underline ? "primary" : "tertiary"}
           size="s"
-          onClick={() => applyTag("u")}
+          onClick={() => toggleInlineFormat("underline")}
           disabled={disabled}
         />
         <IconButton
           icon="strikethrough"
           tooltip="Tachado"
-          variant="tertiary"
+          variant={activeFormats.strikeThrough ? "primary" : "tertiary"}
           size="s"
-          onClick={() => applyTag("s")}
+          onClick={() => toggleInlineFormat("strikeThrough")}
           disabled={disabled}
         />
-        <Line vert background="neutral-alpha-weak" style={{ height: "1.25rem" }} />
+        <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="link"
           tooltip="Insertar enlace"
@@ -722,7 +1424,15 @@ function RichTextEditor({ html, onChange, disabled }: RichTextEditorProps) {
         suppressContentEditableWarning
         onInput={emit}
         onBlur={emit}
-        style={{ minHeight: "6rem", outline: "none", lineHeight: 1.6 }}
+        style={{
+          minHeight: "6rem",
+          outline: "none",
+          lineHeight: 1.6,
+          textAlign: align,
+          fontWeight: weight === "strong" ? "var(--font-weight-display-strong)" : undefined,
+          color: weight === "light" ? "var(--neutral-on-background-weak)" : undefined,
+          fontStyle: italic ? "italic" : undefined,
+        }}
       />
     </Column>
   );
@@ -832,7 +1542,13 @@ export function ContentBlockCard({
       {!collapsed && block.type === "text" && (
         <RichTextEditor
           html={block.html}
+          align={block.align ?? "left"}
+          weight={block.weight ?? "default"}
+          italic={block.italic ?? false}
           onChange={(next) => onChange({ ...block, html: next })}
+          onAlignChange={(align) => onChange({ ...block, align })}
+          onWeightChange={(weight) => onChange({ ...block, weight })}
+          onItalicChange={(italic) => onChange({ ...block, italic })}
           disabled={disabled}
         />
       )}
@@ -934,12 +1650,14 @@ export function ContentBlockCard({
 
       {!collapsed && block.type === "embed" && (
         <Column gap="8">
-          <Input
+          <Select
             id={`block-${block.id}-language`}
-            label="Lenguaje (opcional)"
+            label="Lenguaje"
+            options={CODE_LANGUAGE_OPTIONS}
             value={block.language}
-            onChange={(e) => onChange({ ...block, language: e.target.value })}
+            onSelect={(value) => onChange({ ...block, language: value })}
             disabled={disabled}
+            style={{ width: "12rem" }}
           />
           <Textarea
             id={`block-${block.id}-code`}
