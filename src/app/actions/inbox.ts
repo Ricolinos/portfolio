@@ -150,6 +150,29 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
     : [];
   const unreadMap = new Map(unreadCounts.map((entry) => [entry.threadId, entry._count._all]));
 
+  // Aprovisionamiento idempotente: la creación de salas vive dentro de la
+  // conversación, así que un proyecto activo sin ningún ProjectChannel
+  // quedaría inaccesible desde /mensajes. Si channels.length === 0 se crea
+  // automáticamente un canal "General". Solo se dispara cuando no hay
+  // canales; en cargas concurrentes del mismo usuario podría dispararse dos
+  // veces para el mismo proyecto (carrera benigna, no hay unique constraint
+  // en projectId+name), pero nunca duplica sobre un proyecto que ya tiene
+  // canal ni corrompe datos existentes.
+  const projectsNeedingChannel = projects.filter((project) => project.channels.length === 0);
+  const autoChannels = projectsNeedingChannel.length
+    ? await Promise.all(
+        projectsNeedingChannel.map((project) =>
+          prisma.projectChannel.create({
+            data: { projectId: project.id, name: "General" },
+            select: { id: true, name: true, createdAt: true },
+          }),
+        ),
+      )
+    : [];
+  const autoChannelByProjectId = new Map(
+    projectsNeedingChannel.map((project, index) => [project.id, autoChannels[index]]),
+  );
+
   const directConversations: ConversationSummary[] = directThreads.map((thread) => {
     const otherParticipant = thread.initiatorId === userId ? thread.recipient : thread.initiator;
     const lastMessage = thread.messages[0] ?? null;
@@ -177,8 +200,18 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
   // ChannelMessage no tiene modelo de lectura por usuario (sin campo readAt ni
   // tabla de recibos, a diferencia de DirectMessage): unreadCount de los
   // canales grupales queda fijo en 0 hasta que se agregue esa pieza de datos.
-  const groupConversations: ConversationSummary[] = projects.flatMap((project) =>
-    project.channels.map((channel) => {
+  const groupConversations: ConversationSummary[] = projects.flatMap((project) => {
+    const channels =
+      project.channels.length > 0
+        ? project.channels
+        : [
+            {
+              ...autoChannelByProjectId.get(project.id)!,
+              messages: [] as (typeof project.channels)[number]["messages"],
+            },
+          ];
+
+    return channels.map((channel) => {
       const lastMessage = channel.messages[0] ?? null;
       const lastActivityDate = lastMessage ? lastMessage.createdAt : channel.createdAt;
       return {
@@ -199,8 +232,8 @@ export async function getInbox(): Promise<Result<{ conversations: ConversationSu
         unreadCount: 0,
         lastActivityAt: lastActivityDate.toISOString(),
       };
-    }),
-  );
+    });
+  });
 
   const conversations = [...directConversations, ...groupConversations].sort(
     (a, b) => new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),

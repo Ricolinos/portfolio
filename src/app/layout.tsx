@@ -15,7 +15,7 @@ import {
   RevealFx,
   SpacingToken,
 } from "@once-ui-system/core";
-import { Footer, Header, RouteGuard, Providers } from "@/components";
+import { Footer, Header, LayoutShell, RouteGuard, Providers } from "@/components";
 import { baseURL, effects, fonts, style, dataStyle, home } from "@/resources";
 
 export const viewport: Viewport = {
@@ -127,12 +127,9 @@ export default async function RootLayout({
           {/* Mobile: compensa el header fixed (48px) sacado del flujo.
               minHeight="48" → var(--static-space-48) = 3rem = 48px (prop nativo Once UI) */}
           <Flex s={{ hide: false }} fillWidth minHeight="48" />
-          <Flex zIndex={0} fillWidth padding="l" horizontal="center" flex={1}>
-            <Flex horizontal="center" fillWidth>
-              <RouteGuard>{children}</RouteGuard>
-            </Flex>
-          </Flex>
-          <Footer />
+          <LayoutShell footer={<Footer />}>
+            <RouteGuard>{children}</RouteGuard>
+          </LayoutShell>
         </Column>
       </Providers>
     </Flex>

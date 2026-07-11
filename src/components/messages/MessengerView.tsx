@@ -278,62 +278,55 @@ export function MessengerView({
   const assets = channelContext?.assets ?? [];
 
   return (
-    <Column
-      fillWidth
-      fillHeight
-      border="neutral-alpha-weak"
-      radius="l"
-      background="surface"
-      overflow="hidden"
-      style={{ minHeight: "70vh" }}
-    >
-      <Row fillWidth fillHeight style={{ minWidth: 0 }}>
-        <Column
-          borderRight="neutral-alpha-weak"
-          style={{ width: 320, minWidth: 0, flexShrink: 0 }}
-          s={{ hide: mobileView !== "list" }}
-          xs={{ hide: mobileView !== "list" }}
-        >
-          <ConversationList
-            conversations={conversations}
-            loading={loadingConversations}
-            selectedKey={selectedKey}
-            onSelect={handleSelect}
-            onCreated={handleConversationCreated}
-          />
-        </Column>
+    <Row fillWidth fillHeight gap="8" padding="8" style={{ minWidth: 0 }}>
+      <Column
+        background="surface"
+        border="neutral-alpha-weak"
+        radius="l"
+        overflow="hidden"
+        style={{ width: 320, minWidth: 0, flexShrink: 0 }}
+        s={{ hide: mobileView !== "list" }}
+        xs={{ hide: mobileView !== "list" }}
+      >
+        <ConversationList
+          conversations={conversations}
+          loading={loadingConversations}
+          selectedKey={selectedKey}
+          onSelect={handleSelect}
+          onCreated={handleConversationCreated}
+        />
+      </Column>
 
-        <ConversationPanel
+      <ConversationPanel
+        conversation={selectedConversation}
+        viewerId={viewerId}
+        messages={messages}
+        loadingMessages={loadingMessages}
+        sending={sending}
+        onSend={handleSend}
+        infoOpen={infoOpen}
+        onToggleInfo={handleToggleInfo}
+        onBack={handleBackToList}
+        mobileView={mobileView}
+        partnerParticipants={partnerParticipants}
+        assets={assets}
+        onTaskChanged={handleTaskChanged}
+      />
+
+      {selectedConversation && infoOpen && (
+        <DetailsPanel
           conversation={selectedConversation}
           viewerId={viewerId}
+          channelContext={channelContext}
+          loadingContext={loadingContext}
           messages={messages}
-          loadingMessages={loadingMessages}
-          sending={sending}
-          onSend={handleSend}
-          infoOpen={infoOpen}
-          onToggleInfo={handleToggleInfo}
-          onBack={handleBackToList}
           mobileView={mobileView}
-          partnerParticipants={partnerParticipants}
-          assets={assets}
-          onTaskChanged={handleTaskChanged}
+          onBack={handleBackFromInfo}
+          onContextRefresh={handleContextRefresh}
+          onChannelsChanged={handleChannelsChanged}
+          onChannelDeleted={handleChannelDeleted}
         />
-
-        {selectedConversation && infoOpen && (
-          <DetailsPanel
-            conversation={selectedConversation}
-            viewerId={viewerId}
-            channelContext={channelContext}
-            loadingContext={loadingContext}
-            messages={messages}
-            mobileView={mobileView}
-            onBack={handleBackFromInfo}
-            onContextRefresh={handleContextRefresh}
-            onChannelsChanged={handleChannelsChanged}
-            onChannelDeleted={handleChannelDeleted}
-          />
-        )}
-      </Row>
-    </Column>
+      )}
+    </Row>
   );
 }

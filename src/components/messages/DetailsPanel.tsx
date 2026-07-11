@@ -569,7 +569,9 @@ export function DetailsPanel({
       gap="20"
       padding="16"
       overflowY="auto"
-      borderLeft="neutral-alpha-weak"
+      background="surface"
+      border="neutral-alpha-weak"
+      radius="l"
       style={{ width: 320, minWidth: 0, flexShrink: 0 }}
       s={{ hide: mobileView !== "info" }}
       xs={{ hide: mobileView !== "info" }}

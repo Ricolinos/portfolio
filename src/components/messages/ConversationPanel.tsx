@@ -64,6 +64,10 @@ export function ConversationPanel({
   return (
     <Column
       fillHeight
+      background="surface"
+      border="neutral-alpha-weak"
+      radius="l"
+      overflow="hidden"
       style={{ flex: 1, minWidth: 0 }}
       s={{ hide: mobileView !== "conversation" }}
       xs={{ hide: mobileView !== "conversation" }}
