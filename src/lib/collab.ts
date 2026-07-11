@@ -84,16 +84,32 @@ export interface CollabLink {
   // brand = assets de marca (subidos por el cliente) | final = activos
   // finales (subidos por cualquier partner/colaborador)
   type: string;
+  // Etiqueta libre de archivo (FILE_SUBTYPES en src/lib/projectTypes.ts)
+  subtype: string | null;
+  // Tarea de activo a la que queda ligado este adjunto, si aplica
+  assetTaskId: string | null;
   addedById: string;
   projectId: string;
   createdAt: string;
+}
+
+// Responsable asignado a una tarea de activo (checklist de ProjectAsset)
+export interface AssetTaskAssigneeData {
+  userId: string;
+  name: string | null;
+  imageUrl: string | null;
 }
 
 export interface ProjectAssetTaskData {
   id: string;
   title: string;
   done: boolean;
+  // pending | in_review | approved
+  status: string;
+  dueDate: string | null;
+  deliverableUrl: string | null;
   order: number;
+  assignees: AssetTaskAssigneeData[];
 }
 
 export interface ProjectAssetData {
@@ -118,6 +134,9 @@ export interface CollabProjectData {
   dueDate: string | null;
   // Imagen corporativa/logotipo del proyecto (data URL comprimida)
   logoUrl: string | null;
+  // Categorización del proyecto (panel de administración)
+  projectType: string | null;
+  projectSubtype: string | null;
   connectionId: string;
   createdAt: string;
   updatedAt: string;
@@ -255,6 +274,8 @@ function toLink(link: {
   url: string;
   provider: string;
   type: string;
+  subtype: string | null;
+  assetTaskId: string | null;
   addedById: string;
   projectId: string;
   createdAt: Date;
@@ -265,6 +286,8 @@ function toLink(link: {
     url: link.url,
     provider: link.provider,
     type: link.type,
+    subtype: link.subtype,
+    assetTaskId: link.assetTaskId,
     addedById: link.addedById,
     projectId: link.projectId,
     createdAt: link.createdAt.toISOString(),
@@ -275,13 +298,25 @@ function toAssetTask(task: {
   id: string;
   title: string;
   done: boolean;
+  status: string;
+  dueDate: Date | null;
+  deliverableUrl: string | null;
   order: number;
+  assignees: { user: { id: string; name: string | null; imageUrl: string | null } }[];
 }): ProjectAssetTaskData {
   return {
     id: task.id,
     title: task.title,
     done: task.done,
+    status: task.status,
+    dueDate: task.dueDate === null ? null : task.dueDate.toISOString(),
+    deliverableUrl: task.deliverableUrl,
     order: task.order,
+    assignees: task.assignees.map((assignee) => ({
+      userId: assignee.user.id,
+      name: assignee.user.name,
+      imageUrl: assignee.user.imageUrl,
+    })),
   };
 }
 
@@ -331,6 +366,8 @@ function toProject(project: {
   startDate: Date | null;
   dueDate: Date | null;
   logoUrl: string | null;
+  projectType: string | null;
+  projectSubtype: string | null;
   connectionId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -351,6 +388,8 @@ function toProject(project: {
     startDate: project.startDate === null ? null : project.startDate.toISOString(),
     dueDate: project.dueDate === null ? null : project.dueDate.toISOString(),
     logoUrl: project.logoUrl,
+    projectType: project.projectType,
+    projectSubtype: project.projectSubtype,
     connectionId: project.connectionId,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
@@ -396,7 +435,16 @@ const PROJECT_INCLUDE = {
   },
   links: { orderBy: { createdAt: "asc" as const } },
   assets: {
-    include: { tasks: { orderBy: { order: "asc" as const } } },
+    include: {
+      tasks: {
+        orderBy: { order: "asc" as const },
+        include: {
+          assignees: {
+            include: { user: { select: { id: true, name: true, imageUrl: true } } },
+          },
+        },
+      },
+    },
     orderBy: { order: "asc" as const },
   },
   collaborators: {

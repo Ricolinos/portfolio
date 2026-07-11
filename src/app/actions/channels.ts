@@ -75,38 +75,51 @@ function assertActiveProject(status: string): { ok: false; error: string } | nul
 }
 
 /* ══ Control de acceso por sala (ChannelMember) ═══════════════════════════
-   Un canal SIN filas de ChannelMember es abierto a todos los miembros del
-   proyecto (retrocompatible con salas existentes); un canal CON filas queda
-   restringido a esos usuarios + el cliente dueño del proyecto, que siempre
-   puede entrar. Este helper centraliza la regla para no duplicarla entre
-   getChannels, getChannelMessages, sendChannelMessage y getChannelContext. */
+   ProjectChannel.restricted es la fuente de verdad de si la sala es
+   restringida (una fila de ChannelMember ya no basta: también existen filas
+   solo para portar el flag isAdmin en salas abiertas). Acceso = miembro del
+   proyecto Y (sala no restringida O tiene fila ChannelMember O es el
+   cliente dueño del proyecto, que siempre entra). Este helper centraliza la
+   regla para no duplicarla entre getChannels, getChannelMessages,
+   sendChannelMessage y getChannelContext. */
 
-// Trae, para un lote de canales, el set de userIds con acceso explícito.
-// Un canal ausente del mapa resultante está abierto (sin restricción).
-async function getChannelMemberSets(channelIds: string[]): Promise<Map<string, Set<string>>> {
+// Trae, para un lote de canales, si están restringidos y el set de userIds
+// con fila ChannelMember explícita (independientemente de si son admin).
+async function getChannelAccessData(
+  channelIds: string[],
+): Promise<Map<string, { restricted: boolean; memberIds: Set<string> }>> {
   if (channelIds.length === 0) return new Map();
-  const rows = await prisma.channelMember.findMany({
-    where: { channelId: { in: channelIds } },
-    select: { channelId: true, userId: true },
-  });
-  const sets = new Map<string, Set<string>>();
-  for (const row of rows) {
-    const set = sets.get(row.channelId) ?? new Set<string>();
-    set.add(row.userId);
-    sets.set(row.channelId, set);
+  const [channels, rows] = await Promise.all([
+    prisma.projectChannel.findMany({
+      where: { id: { in: channelIds } },
+      select: { id: true, restricted: true },
+    }),
+    prisma.channelMember.findMany({
+      where: { channelId: { in: channelIds } },
+      select: { channelId: true, userId: true },
+    }),
+  ]);
+
+  const data = new Map<string, { restricted: boolean; memberIds: Set<string> }>();
+  for (const channel of channels) {
+    data.set(channel.id, { restricted: channel.restricted, memberIds: new Set() });
   }
-  return sets;
+  for (const row of rows) {
+    const entry = data.get(row.channelId);
+    if (entry) entry.memberIds.add(row.userId);
+  }
+  return data;
 }
 
 function channelIsAccessible(
-  memberSets: Map<string, Set<string>>,
+  accessData: Map<string, { restricted: boolean; memberIds: Set<string> }>,
   channelId: string,
   userId: string,
   isClient: boolean,
 ): boolean {
-  const restrictedTo = memberSets.get(channelId);
-  if (!restrictedTo) return true; // sala abierta, sin filas de ChannelMember
-  return isClient || restrictedTo.has(userId);
+  const entry = accessData.get(channelId);
+  if (!entry?.restricted) return true; // sala abierta o inexistente
+  return isClient || entry.memberIds.has(userId);
 }
 
 // Verificación puntual (1 canal) para las acciones de mensajería. `isClient`
@@ -118,8 +131,8 @@ export async function requireChannelAccess(
   userId: string,
   isClient: boolean,
 ): Promise<Result> {
-  const memberSets = await getChannelMemberSets([channelId]);
-  if (!channelIsAccessible(memberSets, channelId, userId, isClient)) {
+  const accessData = await getChannelAccessData([channelId]);
+  if (!channelIsAccessible(accessData, channelId, userId, isClient)) {
     return { ok: false, error: "No tienes acceso a esta sala." };
   }
   return { ok: true };
@@ -235,11 +248,11 @@ export async function getChannels(projectId: string): Promise<Result<{ channels:
     include: { _count: { select: { messages: true } } },
   });
 
-  // Salas restringidas (con filas de ChannelMember) se ocultan a quien no
-  // sea miembro explícito ni el cliente dueño del proyecto.
-  const memberSets = await getChannelMemberSets(channels.map((channel) => channel.id));
+  // Salas restringidas se ocultan a quien no sea miembro explícito ni el
+  // cliente dueño del proyecto.
+  const accessData = await getChannelAccessData(channels.map((channel) => channel.id));
   const visibleChannels = channels.filter((channel) =>
-    channelIsAccessible(memberSets, channel.id, userId, member.isClient ?? false),
+    channelIsAccessible(accessData, channel.id, userId, member.isClient ?? false),
   );
 
   return {
@@ -297,8 +310,8 @@ export async function sendChannelMessage(
   const activeError = assertActiveProject(member.status!);
   if (activeError) return activeError;
 
-  const memberSets = await getChannelMemberSets([channelId]);
-  if (!channelIsAccessible(memberSets, channelId, userId, member.isClient ?? false)) {
+  const accessData = await getChannelAccessData([channelId]);
+  if (!channelIsAccessible(accessData, channelId, userId, member.isClient ?? false)) {
     return { ok: false, error: "No tienes acceso a esta sala." };
   }
 
@@ -314,7 +327,7 @@ export async function sendChannelMessage(
   });
 
   const recipients = member.participantIds!.filter(
-    (id) => id !== userId && channelIsAccessible(memberSets, channelId, id, id === member.clientId),
+    (id) => id !== userId && channelIsAccessible(accessData, channelId, id, id === member.clientId),
   );
   if (recipients.length > 0) {
     await prisma.notification.createMany({
@@ -636,6 +649,7 @@ export interface ChannelMemberData {
   name: string | null;
   username: string | null;
   imageUrl: string | null;
+  isAdmin: boolean;
 }
 
 export async function getChannelMembers(
@@ -646,7 +660,7 @@ export async function getChannelMembers(
 
   const channel = await prisma.projectChannel.findUnique({
     where: { id: channelId },
-    select: { projectId: true },
+    select: { projectId: true, restricted: true },
   });
   if (!channel) return { ok: false, error: "Canal no encontrado." };
 
@@ -659,26 +673,41 @@ export async function getChannelMembers(
   const rows = await prisma.channelMember.findMany({
     where: { channelId },
     orderBy: { createdAt: "asc" },
-    select: { user: { select: { id: true, name: true, username: true, imageUrl: true } } },
+    select: {
+      isAdmin: true,
+      user: { select: { id: true, name: true, username: true, imageUrl: true } },
+    },
   });
 
   return {
     ok: true,
-    restricted: rows.length > 0,
+    restricted: channel.restricted,
     members: rows.map((row) => ({
       userId: row.user.id,
       name: row.user.name,
       username: row.user.username,
       imageUrl: row.user.imageUrl,
+      isAdmin: row.isAdmin,
     })),
   };
 }
 
-// Solo el cliente dueño del proyecto o el partner fundador de la Connection
-// pueden configurar el acceso de una sala (mismo criterio de administración
-// que createChannel/renameChannel, extendido al partner fundador). userIds
-// vacío deja la sala abierta a todo el proyecto; cada id debe pertenecer a
-// los participantes reales del proyecto (member.participantIds).
+// Un usuario es admin de la sala si tiene una fila ChannelMember con
+// isAdmin = true (independientemente de si la sala está restringida).
+async function isChannelAdmin(channelId: string, userId: string): Promise<boolean> {
+  const row = await prisma.channelMember.findUnique({
+    where: { channelId_userId: { channelId, userId } },
+    select: { isAdmin: true },
+  });
+  return row?.isAdmin ?? false;
+}
+
+// El cliente dueño del proyecto, el partner fundador de la Connection, o un
+// ADMIN de la sala pueden configurar el acceso a esa sala (mismo criterio de
+// administración que createChannel/renameChannel, extendido al partner
+// fundador y a los admins). userIds vacío deja la sala abierta a todo el
+// proyecto (restricted = false); no vacío la restringe (restricted = true).
+// Se preservan los flags isAdmin de quienes permanezcan en la lista.
 export async function setChannelMembers(channelId: string, userIds: string[]): Promise<Result> {
   const userId = await requireAuth();
   if (!userId) return { ok: false, error: "No autenticado" };
@@ -694,10 +723,10 @@ export async function setChannelMembers(channelId: string, userIds: string[]): P
   const activeError = assertActiveProject(member.status ?? "");
   if (activeError) return activeError;
 
-  if (!member.isClient && userId !== member.partnerId) {
+  if (!member.isClient && userId !== member.partnerId && !(await isChannelAdmin(channelId, userId))) {
     return {
       ok: false,
-      error: "Solo el cliente o el partner fundador pueden configurar el acceso a la sala.",
+      error: "Solo el cliente, el partner fundador o un admin de la sala pueden configurar su acceso.",
     };
   }
 
@@ -707,16 +736,155 @@ export async function setChannelMembers(channelId: string, userIds: string[]): P
     return { ok: false, error: "Todos los usuarios deben ser participantes del proyecto." };
   }
 
+  const existingAdmins = await prisma.channelMember.findMany({
+    where: { channelId, isAdmin: true },
+    select: { userId: true },
+  });
+  const adminIds = new Set(existingAdmins.map((row) => row.userId));
+
   await prisma.$transaction([
     prisma.channelMember.deleteMany({ where: { channelId } }),
     ...(uniqueUserIds.length > 0
       ? [
           prisma.channelMember.createMany({
-            data: uniqueUserIds.map((memberId) => ({ channelId, userId: memberId })),
+            data: uniqueUserIds.map((memberId) => ({
+              channelId,
+              userId: memberId,
+              isAdmin: adminIds.has(memberId),
+            })),
           }),
         ]
       : []),
+    prisma.projectChannel.update({
+      where: { id: channelId },
+      data: { restricted: uniqueUserIds.length > 0 },
+    }),
   ]);
+
+  revalidatePath(`/proyectos/${channel.projectId}`);
+  return { ok: true };
+}
+
+/* ══ Administración de la sala (nombre/descripción/imagen, admins) ══════ */
+
+const MAX_CHANNEL_DESCRIPTION_LENGTH = 280;
+// Data URL comprimida, mismo patrón que CollabProject.logoUrl
+const MAX_CHANNEL_IMAGE_DATA_URL_CHARS = 700_000; // ≈ 500KB de imagen
+
+export interface UpdateChannelInfoInput {
+  name?: string;
+  description?: string | null;
+  imageUrl?: string | null;
+}
+
+// Solo admins de la sala (ChannelMember.isAdmin) o el cliente dueño del
+// proyecto pueden editar nombre/descripción/imagen de la sala.
+export async function updateChannelInfo(
+  channelId: string,
+  data: UpdateChannelInfoInput,
+): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const channel = await prisma.projectChannel.findUnique({
+    where: { id: channelId },
+    select: { projectId: true },
+  });
+  if (!channel) return { ok: false, error: "Canal no encontrado." };
+
+  const member = await requireProjectMember(channel.projectId, userId);
+  if (!member.ok) return { ok: false, error: member.error ?? "Proyecto no encontrado." };
+  const activeError = assertActiveProject(member.status ?? "");
+  if (activeError) return activeError;
+
+  if (!member.isClient && !(await isChannelAdmin(channelId, userId))) {
+    return { ok: false, error: "Solo un admin de la sala o el cliente pueden editar la sala." };
+  }
+
+  let trimmedName: string | undefined;
+  if (data.name !== undefined) {
+    const nameCheck = validateChannelName(data.name);
+    if (!nameCheck.ok) return nameCheck;
+    trimmedName = nameCheck.trimmed;
+  }
+
+  let description: string | null | undefined;
+  if (data.description !== undefined) {
+    const trimmed = data.description === null ? null : data.description.trim() || null;
+    if (trimmed && trimmed.length > MAX_CHANNEL_DESCRIPTION_LENGTH) {
+      return {
+        ok: false,
+        error: `La descripción no puede exceder ${MAX_CHANNEL_DESCRIPTION_LENGTH} caracteres.`,
+      };
+    }
+    description = trimmed;
+  }
+
+  if (data.imageUrl !== undefined && data.imageUrl !== null) {
+    if (!data.imageUrl.startsWith("data:image/jpeg;base64,")) {
+      return { ok: false, error: "Formato de imagen no válido." };
+    }
+    if (data.imageUrl.length > MAX_CHANNEL_IMAGE_DATA_URL_CHARS) {
+      return { ok: false, error: "La imagen es demasiado pesada." };
+    }
+  }
+
+  await prisma.projectChannel.update({
+    where: { id: channelId },
+    data: {
+      name: trimmedName,
+      description: data.description !== undefined ? description : undefined,
+      imageUrl: data.imageUrl !== undefined ? data.imageUrl : undefined,
+    },
+  });
+
+  revalidatePath(`/proyectos/${channel.projectId}`);
+  return { ok: true };
+}
+
+// Otorgar admin: solo el cliente dueño del proyecto. Quitar admin: el
+// cliente dueño o el propio userId (auto-quitarse). El userId debe ser
+// miembro del proyecto; se crea la fila ChannelMember (upsert) si no existe,
+// sin tocar `restricted`.
+export async function setChannelAdmin(
+  channelId: string,
+  targetUserId: string,
+  isAdmin: boolean,
+): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const channel = await prisma.projectChannel.findUnique({
+    where: { id: channelId },
+    select: { projectId: true },
+  });
+  if (!channel) return { ok: false, error: "Canal no encontrado." };
+
+  const member = await requireProjectMember(channel.projectId, userId);
+  if (!member.ok) return { ok: false, error: member.error ?? "Proyecto no encontrado." };
+  const activeError = assertActiveProject(member.status ?? "");
+  if (activeError) return activeError;
+
+  if (isAdmin) {
+    if (!member.isClient) {
+      return { ok: false, error: "Solo el cliente puede otorgar administración de la sala." };
+    }
+  } else if (!member.isClient && userId !== targetUserId) {
+    return {
+      ok: false,
+      error: "Solo el cliente o el propio usuario pueden quitar administración de la sala.",
+    };
+  }
+
+  if (!member.participantIds?.includes(targetUserId)) {
+    return { ok: false, error: "El usuario debe ser miembro del proyecto." };
+  }
+
+  await prisma.channelMember.upsert({
+    where: { channelId_userId: { channelId, userId: targetUserId } },
+    update: { isAdmin },
+    create: { channelId, userId: targetUserId, isAdmin },
+  });
 
   revalidatePath(`/proyectos/${channel.projectId}`);
   return { ok: true };

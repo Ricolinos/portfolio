@@ -78,7 +78,7 @@ export interface ChannelContextLink {
 }
 
 export interface ChannelContextData {
-  channel: { id: string; name: string };
+  channel: { id: string; name: string; description: string | null; imageUrl: string | null };
   project: { id: string; title: string; status: string; logoUrl: string | null };
   isAdmin: boolean;
   // Partner "fundador" de la Connection (partnerParticipants[0]): junto al
@@ -294,7 +294,7 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
 
   const channel = await prisma.projectChannel.findUnique({
     where: { id: channelId },
-    select: { id: true, name: true, projectId: true },
+    select: { id: true, name: true, description: true, imageUrl: true, projectId: true },
   });
   if (!channel) return { ok: false, error: "Canal no encontrado." };
 
@@ -411,7 +411,12 @@ export async function getChannelContext(channelId: string): Promise<Result<Chann
 
   return {
     ok: true,
-    channel: { id: channel.id, name: channel.name },
+    channel: {
+      id: channel.id,
+      name: channel.name,
+      description: channel.description,
+      imageUrl: channel.imageUrl,
+    },
     project: {
       id: project.id,
       title: project.title,

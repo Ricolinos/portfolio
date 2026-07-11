@@ -1,13 +1,16 @@
-import { Column, Row, Skeleton } from "@once-ui-system/core";
+import { Column, Line, Row, Skeleton } from "@once-ui-system/core";
 
-const RAIL_TAB_KEYS = ["rail-1", "rail-2", "rail-3"];
+const USER_AVATAR_KEYS = ["rail-user-1", "rail-user-2"];
+const PROJECT_AVATAR_KEYS = ["rail-project-1", "rail-project-2"];
 const THREAD_KEYS = ["thread-1", "thread-2", "thread-3", "thread-4", "thread-5", "thread-6"];
 
 // Replica los 3 paneles reales de MessengerView: mismo Row raíz (gap 8,
-// padding 8), ProjectRail (64px, pestañas circulares), ConversationList
-// (320px fijo, header + buscador + segmented control + filas) y
-// ConversationPanel (flex restante). DetailsPanel se omite: no está montado
-// por defecto (solo aparece si el usuario abre "info").
+// padding 8). ProjectRail (64px) con sus DOS secciones — icono de sección +
+// avatares + botón "+" en Usuarios, separador, icono de sección + avatares
+// en Proyectos —, ConversationList (320px fijo, header contextual con
+// avatar+nombre + buscador + SegmentedControl + filas) y ConversationPanel
+// (flex restante). DetailsPanel se omite: no está montado por defecto (solo
+// aparece si el usuario abre "info").
 export default function MensajesLoading() {
   return (
     <Row fillWidth fillHeight gap="8" padding="8" style={{ minWidth: 0 }}>
@@ -21,7 +24,16 @@ export default function MensajesLoading() {
         horizontal="center"
         style={{ width: 64, minWidth: 0, flexShrink: 0 }}
       >
-        {RAIL_TAB_KEYS.map((key) => (
+        <Skeleton shape="circle" width="xs" />
+        {USER_AVATAR_KEYS.map((key) => (
+          <Skeleton key={key} shape="circle" width="s" />
+        ))}
+        <Skeleton shape="circle" width="xs" />
+
+        <Line background="neutral-alpha-weak" style={{ width: 32 }} />
+
+        <Skeleton shape="circle" width="xs" />
+        {PROJECT_AVATAR_KEYS.map((key) => (
           <Skeleton key={key} shape="circle" width="s" />
         ))}
       </Column>
@@ -43,7 +55,10 @@ export default function MensajesLoading() {
           paddingBottom="16"
           borderBottom="neutral-alpha-weak"
         >
-          <Skeleton shape="line" width="s" height="m" />
+          <Row gap="8" vertical="center">
+            <Skeleton shape="circle" width="xs" />
+            <Skeleton shape="line" width="s" height="m" />
+          </Row>
           <Row gap="4">
             <Skeleton shape="circle" width="xs" />
             <Skeleton shape="circle" width="xs" />

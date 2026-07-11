@@ -44,9 +44,14 @@ type MobileView = "list" | "conversation" | "info";
 export function MessengerView({
   viewerId,
   initialProjectId,
+  initialChannelId,
 }: {
   viewerId: string;
   initialProjectId?: string;
+  // Preselecciona una sala en particular (accesos directos desde el gestor
+  // de proyectos, punto 3): tiene prioridad sobre initialProjectId si ambos
+  // llegan y el canal existe.
+  initialChannelId?: string;
 }) {
   const { addToast } = useToast();
   const { currentBreakpoint } = useLayout();
@@ -161,15 +166,24 @@ export function MessengerView({
         setConversations(result.conversations);
         if (!initApplied.current) {
           initApplied.current = true;
-          const target = initialProjectId
+          // ?channel= (acceso directo desde el gestor de proyectos) tiene
+          // prioridad sobre ?project= si ambos llegan y el canal existe.
+          const channelTarget = initialChannelId
             ? result.conversations.find(
-                (c) => c.kind === "group" && c.project?.id === initialProjectId,
+                (c) => c.kind === "group" && c.channelId === initialChannelId,
               )
             : undefined;
+          const target =
+            channelTarget ??
+            (initialProjectId
+              ? result.conversations.find(
+                  (c) => c.kind === "group" && c.project?.id === initialProjectId,
+                )
+              : undefined);
           if (target) {
             setSelectedKey(target.key);
             setMobileView("conversation");
-            setScope({ type: "project", id: initialProjectId! });
+            setScope({ type: "project", id: target.project!.id });
           } else {
             const hasDirect = result.conversations.some((c) => c.kind === "direct");
             const firstProject = result.conversations.find(
@@ -211,7 +225,7 @@ export function MessengerView({
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialProjectId]);
+  }, [initialProjectId, initialChannelId]);
 
   /* ── Conversación activa: stream de mensajes con polling ─────────────── */
 
@@ -424,6 +438,7 @@ export function MessengerView({
         }
         onSelectScope={handleScopeSelect}
         onSelectUser={handleSelectUser}
+        onConversationCreated={handleConversationCreated}
         mobileView={mobileView}
       />
 

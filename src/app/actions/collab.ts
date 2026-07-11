@@ -8,6 +8,11 @@ import { type AssigneeSuggestion, suggestAssignees } from "@/lib/collab";
 import { sendCollabNotification } from "@/lib/collabNotify";
 import { detectProvider, validateExternalUrl } from "@/lib/externalLink";
 import { prisma } from "@/lib/prisma";
+import {
+  isValidFileSubtype,
+  isValidProjectSubtype,
+  isValidProjectType,
+} from "@/lib/projectTypes";
 
 /* ══ Colaboración cliente ↔ partner: solicitudes de contacto, proyectos ══
    ══ conjuntos con tareas/links externos, y recursos compartibles del ══
@@ -356,6 +361,10 @@ export interface UpdateCollabProjectInput {
   quoteNotes?: string;
   startDate?: string | null;
   dueDate?: string | null;
+  // Categorización del proyecto (panel de administración), validada contra
+  // src/lib/projectTypes.ts
+  projectType?: string | null;
+  projectSubtype?: string | null;
 }
 
 // El cliente puede editar todos los campos; el partner solo title,
@@ -374,11 +383,32 @@ export async function updateCollabProject(
   ) {
     return { ok: false, error: "Estatus de proyecto inválido." };
   }
+  if (
+    data.projectType !== undefined &&
+    data.projectType !== null &&
+    !isValidProjectType(data.projectType)
+  ) {
+    return { ok: false, error: "Tipo de proyecto inválido." };
+  }
 
   const auth = await getProjectAuth(projectId, userId);
   if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
   const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) return { ok: false, error: "No autorizado" };
+
+  if (data.projectSubtype !== undefined && data.projectSubtype !== null) {
+    let effectiveType: string | null | undefined = data.projectType;
+    if (effectiveType === undefined) {
+      const current = await prisma.collabProject.findUnique({
+        where: { id: projectId },
+        select: { projectType: true },
+      });
+      effectiveType = current?.projectType ?? null;
+    }
+    if (!effectiveType || !isValidProjectSubtype(effectiveType, data.projectSubtype)) {
+      return { ok: false, error: "El subtipo no pertenece al tipo de proyecto seleccionado." };
+    }
+  }
 
   await prisma.collabProject.update({
     where: { id: projectId },
@@ -404,6 +434,8 @@ export async function updateCollabProject(
             ? null
             : new Date(data.dueDate)
           : undefined,
+      projectType: data.projectType !== undefined ? data.projectType : undefined,
+      projectSubtype: data.projectSubtype !== undefined ? data.projectSubtype : undefined,
     },
   });
 
@@ -755,7 +787,174 @@ export async function getAssigneeSuggestions(
   return { ok: true, suggestions };
 }
 
+/* ══ Tareas de activos (checklist enriquecido de ProjectAsset) ════════ */
+
+const ASSET_TASK_STATUSES = ["pending", "in_review", "approved"] as const;
+type AssetTaskStatus = (typeof ASSET_TASK_STATUSES)[number];
+
+async function getAssetTaskContext(taskId: string) {
+  return prisma.projectAssetTask.findUnique({
+    where: { id: taskId },
+    select: { status: true, asset: { select: { projectId: true } } },
+  });
+}
+
+export interface UpdateAssetTaskDetailsInput {
+  dueDate?: string | null;
+  deliverableUrl?: string | null;
+}
+
+// Mismas reglas de autorización que toggleProjectAssetTask
+// (src/app/actions/projectAssets.ts): cualquier autorizado del proyecto,
+// cliente o partner/colaborador, puede editar dueDate/deliverableUrl.
+export async function updateAssetTaskDetails(
+  taskId: string,
+  data: UpdateAssetTaskDetailsInput,
+): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const task = await getAssetTaskContext(taskId);
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+
+  const auth = await getProjectAuth(task.asset.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  if (!auth.isClient && !auth.isPartner) return { ok: false, error: "No autorizado" };
+
+  let dueDate: Date | null | undefined;
+  if (data.dueDate !== undefined) {
+    dueDate = data.dueDate === null ? null : new Date(data.dueDate);
+    if (dueDate !== null && Number.isNaN(dueDate.getTime())) {
+      return { ok: false, error: "La fecha límite no es válida." };
+    }
+  }
+
+  let deliverableUrl: string | null | undefined;
+  if (data.deliverableUrl !== undefined) {
+    if (data.deliverableUrl === null) {
+      deliverableUrl = null;
+    } else {
+      const validUrl = validateExternalUrl(data.deliverableUrl);
+      if (!validUrl) return { ok: false, error: "La URL del entregable no es válida." };
+      deliverableUrl = validUrl;
+    }
+  }
+
+  await prisma.projectAssetTask.update({
+    where: { id: taskId },
+    data: {
+      dueDate: data.dueDate !== undefined ? dueDate : undefined,
+      deliverableUrl: data.deliverableUrl !== undefined ? deliverableUrl : undefined,
+    },
+  });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
+// Responsables de la tarea de activo: reemplaza el set completo en una
+// transacción. Solo el partner asigna responsables (mismo criterio que
+// addProjectAssetTask en projectAssets.ts), y cada userId debe ser miembro
+// real del proyecto (cliente o cualquier partner/colaborador).
+export async function setAssetTaskAssignees(taskId: string, userIds: string[]): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const task = await getAssetTaskContext(taskId);
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+
+  const auth = await getProjectAuth(task.asset.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede asignar responsables." };
+
+  const participantIds = new Set(
+    [auth.clientId, ...(auth.partnerIds ?? [])].filter((id): id is string => Boolean(id)),
+  );
+  const uniqueUserIds = Array.from(new Set(userIds));
+  const invalidUserId = uniqueUserIds.find((id) => !participantIds.has(id));
+  if (invalidUserId) {
+    return { ok: false, error: "Todos los responsables deben ser miembros del proyecto." };
+  }
+
+  await prisma.$transaction([
+    prisma.assetTaskAssignee.deleteMany({ where: { assetTaskId: taskId } }),
+    ...(uniqueUserIds.length > 0
+      ? [
+          prisma.assetTaskAssignee.createMany({
+            data: uniqueUserIds.map((assigneeId) => ({ assetTaskId: taskId, userId: assigneeId })),
+          }),
+        ]
+      : []),
+  ]);
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
+// Solicita aprobación al cliente: solo el partner, y solo desde "pending".
+// Replica la transición partnerTransition de updateTaskStatus (ProjectTask).
+export async function requestAssetTaskApproval(taskId: string): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const task = await getAssetTaskContext(taskId);
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+
+  const auth = await getProjectAuth(task.asset.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  if (!auth.isPartner) return { ok: false, error: "Solo el partner puede pedir aprobación." };
+  if ((task.status as AssetTaskStatus) !== "pending") {
+    return { ok: false, error: "Solo se puede pedir aprobación de una tarea pendiente." };
+  }
+
+  await prisma.projectAssetTask.update({
+    where: { id: taskId },
+    data: { status: "in_review" satisfies AssetTaskStatus },
+  });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
+// Resuelve la aprobación: solo el cliente, y solo desde "in_review".
+// Replica clientApprove/clientReject de updateTaskStatus (ProjectTask):
+// aprobar sincroniza done=true, rechazar (vuelve a pending) done=false.
+export async function resolveAssetTaskApproval(
+  taskId: string,
+  approve: boolean,
+): Promise<Result> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const task = await getAssetTaskContext(taskId);
+  if (!task) return { ok: false, error: "Tarea no encontrada." };
+
+  const auth = await getProjectAuth(task.asset.projectId, userId);
+  if (!auth.ok) return { ok: false, error: auth.error ?? "Tarea no encontrada." };
+  if (!auth.isClient) return { ok: false, error: "Solo el cliente puede resolver la aprobación." };
+  if ((task.status as AssetTaskStatus) !== "in_review") {
+    return { ok: false, error: "Esta tarea no está pendiente de aprobación." };
+  }
+
+  const status: AssetTaskStatus = approve ? "approved" : "pending";
+  await prisma.projectAssetTask.update({
+    where: { id: taskId },
+    data: { status, done: approve },
+  });
+
+  revalidateUsernames(auth.clientUsername, auth.partnerUsername);
+  return { ok: true };
+}
+
 /* ══ Links de archivos externos ═══════════════════════════════════════ */
+
+export interface AddProjectLinkOptions {
+  // Etiqueta libre de archivo (FILE_SUBTYPES en src/lib/projectTypes.ts)
+  subtype?: string;
+  // Tarea de activo (checklist de ProjectAsset) a la que queda ligado este
+  // adjunto; debe pertenecer al mismo proyecto.
+  assetTaskId?: string;
+}
 
 // Cualquiera de las dos partes puede agregar un link; se valida que sea
 // http(s) real y no apunte a la propia plataforma.
@@ -763,6 +962,7 @@ export async function addProjectLink(
   projectId: string,
   label: string,
   url: string,
+  options?: AddProjectLinkOptions,
 ): Promise<Result<{ linkId: string }>> {
   const userId = await requireAuth();
   if (!userId) return { ok: false, error: "No autenticado" };
@@ -773,11 +973,25 @@ export async function addProjectLink(
   const validUrl = validateExternalUrl(url);
   if (!validUrl) return { ok: false, error: "La URL no es válida." };
 
+  if (options?.subtype !== undefined && !isValidFileSubtype(options.subtype)) {
+    return { ok: false, error: "Etiqueta de archivo inválida." };
+  }
+
   const auth = await getProjectAuth(projectId, userId);
   if (!auth.ok) return { ok: false, error: auth.error ?? "Proyecto no encontrado." };
   const { isClient, isPartner } = auth;
   if (!isClient && !isPartner) {
     return { ok: false, error: "No autorizado" };
+  }
+
+  if (options?.assetTaskId !== undefined) {
+    const assetTask = await prisma.projectAssetTask.findUnique({
+      where: { id: options.assetTaskId },
+      select: { asset: { select: { projectId: true } } },
+    });
+    if (!assetTask || assetTask.asset.projectId !== projectId) {
+      return { ok: false, error: "La tarea de activo no pertenece a este proyecto." };
+    }
   }
 
   // El tipo se infiere del rol de quien sube el link, nunca se recibe como
@@ -791,6 +1005,8 @@ export async function addProjectLink(
       provider: detectProvider(validUrl),
       addedById: userId,
       type: isClient ? "brand" : "final",
+      subtype: options?.subtype ?? null,
+      assetTaskId: options?.assetTaskId ?? null,
     },
     select: { id: true },
   });

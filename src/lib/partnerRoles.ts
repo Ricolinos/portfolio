@@ -3,13 +3,20 @@
 // mexicano (branding, plecas, videobugs, wippers). Módulo compartido
 // server/client: NO agregar "use server".
 export const PARTNER_ROLES = [
-  "Diseñador de Marca",
-  "Motion Animator",
-  "Ilustrador",
-  "Diseñador Editorial",
-  "Brander",
+  "Diseñador UX/UI",
   "Animador 2D",
+  "Animador 3D",
+  "Ilustrador",
+  "Coder",
+  "Modelador 3D",
+  "Planner",
+  "Director de arte",
+  "Motion Designer",
   "Editor de Video",
+  "Diseñador de Marca",
+  "Copywriter",
+  "Fotógrafo",
+  "Sound Designer",
 ] as const;
 
 export type PartnerRole = (typeof PARTNER_ROLES)[number];
