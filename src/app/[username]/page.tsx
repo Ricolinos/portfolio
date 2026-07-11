@@ -2,7 +2,12 @@ import { currentUser } from "@clerk/nextjs/server";
 import { Meta } from "@once-ui-system/core";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { ClientProfileView } from "@/components/profile/ClientProfileView";
+import {
+  ClientProfileSkeleton,
+  PartnerProfileSkeleton,
+} from "@/components/profile/ProfileSkeletons";
 import { ProfileView } from "@/components/profile/ProfileView";
 import { caseStudyHref } from "@/lib/caseStudies";
 import { getClientCollabData, getPartnerCollabData } from "@/lib/collab";
@@ -13,6 +18,9 @@ import { baseURL } from "@/resources";
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
 }
+
+type ClerkViewer = Awaited<ReturnType<typeof currentUser>>;
+type ProfileUserRecord = Awaited<ReturnType<typeof prisma.user.findUnique>>;
 
 // Igual que la página: perfiles de cliente son privados y los de partner no
 // públicos no deben filtrar nombre/avatar en la tarjeta de preview al
@@ -48,17 +56,16 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   const viewer = await currentUser();
 
   const isOwnProfile = viewer?.username === username;
+  // Query ligera (lookup indexado por username) que resuelve el 404 temprano
+  // y decide el rol para elegir el fallback de Suspense correcto. Todo el
+  // fetch pesado (piezas, cotizaciones, colaboración, discoverablePartners)
+  // vive en ProfileContent, dentro del boundary.
   const profileUser = await prisma.user.findUnique({ where: { username } });
 
   // Username sin usuario en BD y que tampoco es el perfil propio del viewer → 404
   if (!profileUser && !isOwnProfile) {
     notFound();
   }
-
-  const displayName = isOwnProfile
-    ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
-    : profileUser?.name || username;
-  const avatarUrl = isOwnProfile ? viewer?.imageUrl : (profileUser?.imageUrl ?? undefined);
 
   // Rol del dueño del perfil: BD primero; para perfil propio aún sin fila, metadata de Clerk.
   const viewerRole = viewer?.publicMetadata?.role;
@@ -74,6 +81,45 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
   if (role !== "collaborator" && !isOwnProfile) {
     notFound();
   }
+
+  return (
+    <Suspense
+      fallback={role === "collaborator" ? <PartnerProfileSkeleton /> : <ClientProfileSkeleton />}
+    >
+      <ProfileContent
+        username={username}
+        viewer={viewer}
+        profileUser={profileUser}
+        isOwnProfile={isOwnProfile}
+        role={role}
+      />
+    </Suspense>
+  );
+}
+
+interface ProfileContentProps {
+  username: string;
+  viewer: ClerkViewer;
+  profileUser: ProfileUserRecord;
+  isOwnProfile: boolean;
+  role: string;
+}
+
+// Todo el fetch pesado (piezas de portafolio, cotizaciones, colaboración con
+// clientes/partners, discoverablePartners) vive aquí para que el Suspense de
+// la página muestre el skeleton correcto (partner o cliente) mientras
+// resuelve, sin bloquear el 404/bifurcación temprana de arriba.
+async function ProfileContent({
+  username,
+  viewer,
+  profileUser,
+  isOwnProfile,
+  role,
+}: ProfileContentProps) {
+  const displayName = isOwnProfile
+    ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
+    : profileUser?.name || username;
+  const avatarUrl = isOwnProfile ? viewer?.imageUrl : (profileUser?.imageUrl ?? undefined);
 
   const ownerId = profileUser?.id ?? (isOwnProfile ? viewer?.id : undefined);
   const quotes = ownerId
