@@ -444,14 +444,30 @@ function createInlineCode({ children }: { children: ReactNode }) {
   return <InlineCode>{children}</InlineCode>;
 }
 
+// GOTCHA (auditoría "proyecto-prueba-de-texto", comandos mostrados como
+// pastilla InlineCode en vez del CodeBlock completo): un fenced block SIN
+// tag de lenguaje (``` a secas, sin "bash"/"js"/etc en la misma línea) llega
+// aquí con `props.children.props.className` UNDEFINED — remark/mdx solo
+// agrega `language-xxx` cuando el fence trae un info string. La condición
+// original exigía ese `className` para entrar a `CodeBlock` y, si faltaba,
+// caía a un `<pre>` nativo envolviendo lo que sea que `components.code`
+// (mapeado a `InlineCode` más abajo) ya haya devuelto para ese nodo —de ahí
+// la pastilla dentro de una caja sin estilo, en vez de la barra completa del
+// demo. El AST de un fenced block (con o sin lenguaje) SIEMPRE anida
+// `pre > code`, así que basta con detectar esa forma (`children.props`
+// existe) para enrutar a `CodeBlock` real; el `language`/`label` quedan en
+// blanco solo cuando el usuario no especificó ninguno (Prism no resalta,
+// pero la barra full-width + botón de copiar sí aparecen, igual que el
+// demo). Esto sana también el Markdown YA guardado en BD (piezas
+// publicadas antes de este fix) sin requerir volver a guardarlas.
 function createCodeBlock(props: any) {
-  // For pre tags that contain code blocks
-  if (props.children && props.children.props && props.children.props.className) {
+  // For pre tags that contain code blocks (con o sin lenguaje declarado)
+  if (props.children && props.children.props) {
     const { className, children } = props.children.props;
 
-    // Extract language from className (format: language-xxx)
-    const language = className.replace("language-", "");
-    const label = language.charAt(0).toUpperCase() + language.slice(1);
+    // Extract language from className (format: language-xxx), si existe
+    const language = typeof className === "string" ? className.replace("language-", "") : "";
+    const label = language ? language.charAt(0).toUpperCase() + language.slice(1) : "Code";
 
     return (
       <CodeBlock
@@ -469,7 +485,8 @@ function createCodeBlock(props: any) {
     );
   }
 
-  // Fallback for other pre tags or empty code blocks
+  // Fallback real para `pre` sin un `code` anidado (no debería ocurrir con
+  // Markdown estándar, pero evita romper si llegara HTML `<pre>` suelto).
   return <pre {...props} />;
 }
 
