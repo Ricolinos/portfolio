@@ -67,6 +67,15 @@ model User {
   resources             ClientResource[]      @relation("clientResources")
   projectCollaborations ProjectCollaborator[] @relation("projectCollaborations")
   sentMessages          Message[]             @relation("sentMessages")
+
+  // Subsistema de mensajería/tareas del chat (Fase 1: chat-requirements.md)
+  startedThreads      DirectThread[]          @relation("startedThreads")
+  receivedThreads     DirectThread[]          @relation("receivedThreads")
+  sentDirectMessages  DirectMessage[]         @relation("sentDirectMessages")
+  sentChannelMessages ChannelMessage[]        @relation("sentChannelMessages")
+  projectRoles        ProjectRoleAssignment[] @relation("projectRoles")
+  assignedTasks       ProjectTask[]           @relation("assignedTasks")
+  notifications       Notification[]          @relation("notifications")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -224,44 +233,65 @@ model Connection {
 
 // Proyecto conjunto entre el cliente y el partner de una Connection aceptada
 model CollabProject {
-  id            String                @id @default(cuid())
-  title         String
-  description   String?               @db.Text
-  status        String                @default("active") // active | completed | archived
+  id              String                  @id @default(cuid())
+  title           String
+  description     String?                 @db.Text
+  status          String                  @default("active") // active | completed | archived
   // Notas/configuración editables por el cliente
-  clientNotes   String?               @db.Text
+  clientNotes     String?                 @db.Text
   // Cotización y calendario del borrador; editables por ambas partes
-  quoteAmount   Decimal?              @db.Decimal(12, 2)
-  quoteCurrency String                @default("MXN")
-  quoteNotes    String?               @db.Text
-  startDate     DateTime?
-  dueDate       DateTime?
-  connectionId  String
-  connection    Connection            @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  tasks         ProjectTask[]
-  links         ProjectLink[]
-  assets        ProjectAsset[]
+  quoteAmount     Decimal?                @db.Decimal(12, 2)
+  quoteCurrency   String                  @default("MXN")
+  quoteNotes      String?                 @db.Text
+  startDate       DateTime?
+  dueDate         DateTime?
+  connectionId    String
+  connection      Connection              @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  tasks           ProjectTask[]
+  links           ProjectLink[]
+  assets          ProjectAsset[]
   // Colaboradores ADICIONALES al partner "fundador" de la Connection (ej.
   // otros diseñadores invitados a este proyecto en particular).
-  collaborators ProjectCollaborator[]
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
+  collaborators   ProjectCollaborator[]
+  // Mensajería robusta (Fase 1: chat-requirements.md) y matriz de roles
+  channels        ProjectChannel[]
+  roleAssignments ProjectRoleAssignment[]
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
 
   @@index([connectionId])
 }
 
-// Tarea del proyecto; el partner la marca in_review para pedir aprobación del cliente
+// Tarea del proyecto; el partner la marca in_review para pedir aprobación del cliente.
+// Las tareas creadas desde el chat (pipeline mensaje->tarea, chat-requirements.md)
+// nacen con status "pending_approval" (los valores viejos pending | in_review |
+// approved siguen válidos); solo el partner asignado puede mutarlas a "approved"
+// o "rejected" — se valida en la server action, no en el schema.
 model ProjectTask {
   id        String        @id @default(cuid())
   title     String
-  status    String        @default("pending") // pending | in_review | approved
+  status    String        @default("pending") // pending | in_review | approved | pending_approval | rejected
   order     Int           @default(0)
   projectId String
   project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+
+  // Campos del pipeline mensaje->tarea (todos opcionales, aditivos)
+  description     String?         @db.Text
+  assigneeId      String?
+  assignee        User?           @relation("assignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+  // ID del activo del proyecto
+  assetId         String?
+  asset           ProjectAsset?   @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  dueDate         DateTime?
+  // Mapeo 0:1 mensaje->tarea
+  sourceMessageId String?         @unique
+  sourceMessage   ChannelMessage? @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([projectId])
+  @@index([assigneeId])
 }
 
 // Archivo del proyecto como link externo (la plataforma solo guarda URLs)
@@ -327,6 +357,8 @@ model ProjectAsset {
   assetTemplate   AssetTemplate?     @relation(fields: [assetTemplateId], references: [id], onDelete: SetNull)
   order           Int                @default(0)
   tasks           ProjectAssetTask[]
+  // Lado inverso de ProjectTask.assetId (pipeline mensaje->tarea)
+  linkedTasks     ProjectTask[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -397,4 +429,119 @@ model Message {
 
   @@index([connectionId])
   @@index([senderId])
+}
+
+// ---------------------------------------------------------------------------
+// Subsistema de mensajería dual + pipeline mensaje->tarea (chat-requirements.md)
+// ---------------------------------------------------------------------------
+
+// Inbox Light: hilos 1-a-1 fuera de proyectos. Las ACLs de dirección (client
+// solo inicia con partner; partner no inicia con client; partner<->partner
+// libre) se validan en la server action, no en el schema.
+model DirectThread {
+  id          String @id @default(cuid())
+  initiatorId String
+  initiator   User   @relation("startedThreads", fields: [initiatorId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User   @relation("receivedThreads", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  messages DirectMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([initiatorId, recipientId])
+  @@index([recipientId])
+}
+
+model DirectMessage {
+  id       String       @id @default(cuid())
+  threadId String
+  thread   DirectThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId String
+  sender   User         @relation("sentDirectMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  body     String       @db.Text
+  readAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([threadId])
+  @@index([senderId])
+}
+
+// Salas de chat del gestor colaborativo, 1:N con CollabProject
+model ProjectChannel {
+  id        String        @id @default(cuid())
+  name      String
+  projectId String
+  project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  messages ChannelMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model ChannelMessage {
+  id        String         @id @default(cuid())
+  channelId String
+  channel   ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User           @relation("sentChannelMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  body      String         @db.Text
+
+  // Lado inverso de la relación 0:1 ProjectTask.sourceMessageId
+  task ProjectTask?
+
+  createdAt DateTime @default(now())
+
+  @@index([channelId])
+  @@index([senderId])
+}
+
+enum ProjectMemberRole {
+  PLANNER
+  REALIZADOR
+  DESIGNER
+  EDITOR
+}
+
+// Matriz de roles del proyecto: un partner puede tener varios roles
+// simultáneos en el mismo proyecto, sin duplicar el mismo rol. Solo el
+// Client dueño del proyecto puede asignar/modificar (validado en la server action).
+model ProjectRoleAssignment {
+  id        String            @id @default(cuid())
+  projectId String
+  project   CollabProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User              @relation("projectRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role      ProjectMemberRole
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId, role])
+  @@index([projectId])
+  @@index([userId])
+}
+
+enum NotificationType {
+  NEW_MESSAGE
+  TASK_ASSIGNED
+  TASK_STATUS_CHANGED
+}
+
+model Notification {
+  id      String           @id @default(cuid())
+  userId  String
+  user    User             @relation("notifications", fields: [userId], references: [id], onDelete: Cascade)
+  type    NotificationType
+  // ids de canal/mensaje/tarea/proyecto relevantes al evento
+  payload Json?
+  readAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
 }
