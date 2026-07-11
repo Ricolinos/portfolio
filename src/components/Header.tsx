@@ -286,7 +286,7 @@ const SiteLogo = ({ onClick }: { onClick?: () => void }) => (
     <Badge
       position="absolute"
       top="calc(-10px)"
-      right="calc(-22px)"
+      right="0"
       paddingX="8"
       paddingY="2"
       radius="full"

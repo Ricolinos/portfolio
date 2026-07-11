@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { IconButton, Row } from "@once-ui-system/core";
 
 // Ancho/alto real de IconButton size="l" (--static-space-40 = 2.5rem = 40px),
@@ -55,19 +56,30 @@ function defaultPos(): StoredPos {
   return { side: "right", y: clampY(window.innerHeight - BUBBLE_SIZE - EDGE_MARGIN - 24) };
 }
 
+// Coordenada `left` de reposo para cada costado. Se posiciona SIEMPRE con
+// `left` (nunca alternando left/right): CSS no puede animar la transición
+// entre `left: auto` y `right: Npx`, así que imantar hacia la derecha
+// cambiando de propiedad se veía sin animación.
+function restingLeft(side: Side): number {
+  return side === "left" ? EDGE_MARGIN : window.innerWidth - BUBBLE_SIZE - EDGE_MARGIN;
+}
+
 /**
  * Burbuja flotante de mensajes, global al sitio pero solo para sesiones
- * autenticadas (Clerk) — visitantes anónimos nunca la montan. Puramente
- * decorativa por ahora (el click no hace nada): en un paso posterior se
- * conecta al centro de mensajes. Se puede arrastrar con Pointer Events; al
- * soltar, se imanta con una transición elástica al costado izquierdo o
- * derecho más cercano y recuerda su posición.
+ * autenticadas (Clerk) — visitantes anónimos nunca la montan. El click/tap
+ * navega al centro de mensajes (/mensajes). Se puede arrastrar con Pointer
+ * Events; al soltar, se imanta con una transición elástica al costado
+ * izquierdo o derecho más cercano y recuerda su posición.
  */
 export const FloatingChatBubble = () => {
   const { isLoaded, isSignedIn } = useUser();
+  const router = useRouter();
   const [pos, setPos] = useState<StoredPos | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragState = useRef<{ offsetX: number; offsetY: number; moved: boolean } | null>(null);
+  // Tras un arrastre real, el navegador dispara igualmente el click sintético
+  // sobre el botón: se suprime para que soltar la burbuja no navegue.
+  const suppressClick = useRef(false);
 
   // Restaura la posición guardada (re-clampeada contra el viewport actual) o
   // cae a la posición por defecto si no hay nada guardado / localStorage falla.
@@ -143,7 +155,8 @@ export const FloatingChatBubble = () => {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
       if (!drag || !drop) return;
-      if (!drag.moved) return; // Click (no-op): no re-snapea ni persiste.
+      if (!drag.moved) return; // Click simple: navega (onClick), no re-snapea ni persiste.
+      suppressClick.current = true;
       const side: Side = drop.x + BUBBLE_SIZE / 2 < window.innerWidth / 2 ? "left" : "right";
       const next: StoredPos = { side, y: clampY(drop.y) };
       setPos(next);
@@ -157,10 +170,8 @@ export const FloatingChatBubble = () => {
 
   const dragging = dragPos !== null;
   const sideStyle: React.CSSProperties = dragging
-    ? { left: dragPos.x, top: dragPos.y, right: "auto" }
-    : pos.side === "left"
-      ? { left: EDGE_MARGIN, top: pos.y, right: "auto" }
-      : { right: EDGE_MARGIN, top: pos.y, left: "auto" };
+    ? { left: dragPos.x, top: dragPos.y }
+    : { left: restingLeft(pos.side), top: pos.y };
 
   // Imantación elástica al soltar: cubic-bezier con leve overshoot (back-out)
   // en vez de ease lineal, para que el "snap" a los bordes se sienta con
@@ -179,7 +190,7 @@ export const FloatingChatBubble = () => {
         cursor: dragging ? "grabbing" : "grab",
         transition: dragging
           ? "none"
-          : `left 0.42s ${ELASTIC_EASE}, right 0.42s ${ELASTIC_EASE}, top 0.32s ${ELASTIC_EASE}`,
+          : `left 0.42s ${ELASTIC_EASE}, top 0.32s ${ELASTIC_EASE}`,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -191,10 +202,14 @@ export const FloatingChatBubble = () => {
         size="l"
         variant="primary"
         rounded
-        aria-label="Mensajes (próximamente)"
-        tooltip="Mensajes (próximamente)"
+        aria-label="Mensajes"
+        tooltip="Mensajes"
         onClick={() => {
-          // No-op: el centro de mensajes se conecta en un paso posterior.
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          router.push("/mensajes");
         }}
       />
     </Row>
