@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { useUser } from "@clerk/nextjs";
 import { IconButton, Row } from "@once-ui-system/core";
 
 // Ancho/alto real de IconButton size="l" (--static-space-40 = 2.5rem = 40px),
@@ -55,12 +56,15 @@ function defaultPos(): StoredPos {
 }
 
 /**
- * Burbuja flotante de mensajes, exclusiva del Home. Puramente decorativa por
- * ahora (el click no hace nada): en un paso posterior se conecta al centro de
- * mensajes. Se puede arrastrar con Pointer Events; al soltar, "snapea" al
- * costado izquierdo o derecho más cercano y recuerda su posición.
+ * Burbuja flotante de mensajes, global al sitio pero solo para sesiones
+ * autenticadas (Clerk) — visitantes anónimos nunca la montan. Puramente
+ * decorativa por ahora (el click no hace nada): en un paso posterior se
+ * conecta al centro de mensajes. Se puede arrastrar con Pointer Events; al
+ * soltar, se imanta con una transición elástica al costado izquierdo o
+ * derecho más cercano y recuerda su posición.
  */
 export const FloatingChatBubble = () => {
+  const { isLoaded, isSignedIn } = useUser();
   const [pos, setPos] = useState<StoredPos | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragState = useRef<{ offsetX: number; offsetY: number; moved: boolean } | null>(null);
@@ -148,7 +152,8 @@ export const FloatingChatBubble = () => {
     [dragPos, persist],
   );
 
-  if (!pos) return null;
+  // Solo sesiones Clerk válidas montan la burbuja; visitantes anónimos nunca la ven.
+  if (!isLoaded || !isSignedIn || !pos) return null;
 
   const dragging = dragPos !== null;
   const sideStyle: React.CSSProperties = dragging
@@ -156,6 +161,11 @@ export const FloatingChatBubble = () => {
     : pos.side === "left"
       ? { left: EDGE_MARGIN, top: pos.y, right: "auto" }
       : { right: EDGE_MARGIN, top: pos.y, left: "auto" };
+
+  // Imantación elástica al soltar: cubic-bezier con leve overshoot (back-out)
+  // en vez de ease lineal, para que el "snap" a los bordes se sienta con
+  // resorte en lugar de un desplazamiento plano.
+  const ELASTIC_EASE = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 
   return (
     <Row
@@ -167,7 +177,9 @@ export const FloatingChatBubble = () => {
         ...sideStyle,
         touchAction: "none",
         cursor: dragging ? "grabbing" : "grab",
-        transition: dragging ? "none" : "left 0.24s ease, right 0.24s ease, top 0.24s ease",
+        transition: dragging
+          ? "none"
+          : `left 0.42s ${ELASTIC_EASE}, right 0.42s ${ELASTIC_EASE}, top 0.32s ${ELASTIC_EASE}`,
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

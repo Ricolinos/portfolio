@@ -1,5 +1,5 @@
 import { Column, Meta, Schema } from "@once-ui-system/core";
-import { FloatingChatBubble, HomeCreatorsCTA, HomeHero, HomeShowcase } from "@/components";
+import { HomeCreatorsCTA, HomeHero, HomeShowcase } from "@/components";
 import { about, baseURL, home, person } from "@/resources";
 import { getPortfolioFeed } from "@/lib/portfolio";
 import { caseStudyHref } from "@/lib/caseStudies";
@@ -51,7 +51,6 @@ export default async function Home() {
       <HomeHero />
       <HomeShowcase pieces={pieces} />
       <HomeCreatorsCTA />
-      <FloatingChatBubble />
     </Column>
   );
 }

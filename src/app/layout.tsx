@@ -15,7 +15,7 @@ import {
   RevealFx,
   SpacingToken,
 } from "@once-ui-system/core";
-import { Footer, Header, LayoutShell, RouteGuard, Providers } from "@/components";
+import { FloatingChatBubble, Footer, Header, LayoutShell, RouteGuard, Providers } from "@/components";
 import { baseURL, effects, fonts, style, dataStyle, home } from "@/resources";
 
 export const viewport: Viewport = {
@@ -130,6 +130,7 @@ export default async function RootLayout({
           <LayoutShell footer={<Footer />}>
             <RouteGuard>{children}</RouteGuard>
           </LayoutShell>
+          <FloatingChatBubble />
         </Column>
       </Providers>
     </Flex>
