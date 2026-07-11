@@ -25,7 +25,7 @@ import {
   Textarea,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
-import { useEffect, useRef } from "react";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 import { readFileAsDataUrl } from "@/lib/files";
 
 // El Canvas no edita un .md crudo: el usuario arma bloques estructurados y
@@ -586,6 +586,14 @@ interface ContentBlockCardProps {
   canMoveUp: boolean;
   canMoveDown: boolean;
   disabled?: boolean;
+  // Reordenamiento por arrastre (ver CreateProjectModal): el estado de "qué
+  // bloque se arrastra" y el cómputo del índice de inserción viven en el
+  // padre (dueño del array de bloques); esta tarjeta solo dispara el gesto
+  // desde su handle dedicado, nunca desde el cuerpo completo — así no
+  // compite con los inputs/textarea/contentEditable/MediaUpload internos.
+  isDragging?: boolean;
+  onDragHandleStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onDragHandleEnd: () => void;
 }
 
 export function ContentBlockCard({
@@ -597,7 +605,15 @@ export function ContentBlockCard({
   canMoveUp,
   canMoveDown,
   disabled,
+  isDragging,
+  onDragHandleStart,
+  onDragHandleEnd,
 }: ContentBlockCardProps) {
+  // Colapso puramente de UI: vive en este componente (keyed por block.id vía
+  // el `key` que le pone el padre), nunca se escribe en `block` ni entra a
+  // blocksToMarkdown/blockToMarkdown.
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <Column
       fillWidth
@@ -606,9 +622,29 @@ export function ContentBlockCard({
       radius="m"
       border="neutral-alpha-weak"
       background="page"
+      opacity={isDragging ? 50 : 100}
     >
       <Row fillWidth horizontal="between" vertical="center">
-        <Row gap="8" vertical="center">
+        <Row gap="4" vertical="center">
+          <IconButton
+            icon={collapsed ? "chevronRight" : "chevronDown"}
+            variant="tertiary"
+            size="s"
+            tooltip={collapsed ? "Expandir sección" : "Colapsar sección"}
+            onClick={() => setCollapsed((current) => !current)}
+            disabled={disabled}
+          />
+          <IconButton
+            icon="dragHandle"
+            variant="tertiary"
+            size="s"
+            tooltip="Arrastrar para reordenar"
+            disabled={disabled}
+            draggable={!disabled}
+            onDragStart={onDragHandleStart}
+            onDragEnd={onDragHandleEnd}
+            style={{ cursor: disabled ? "not-allowed" : "grab" }}
+          />
           <Icon name={BLOCK_ICON[block.type]} size="s" onBackground="neutral-weak" />
           <Text variant="label-strong-s" onBackground="neutral-weak">
             {BLOCK_LABEL[block.type]}
@@ -642,7 +678,7 @@ export function ContentBlockCard({
         </Row>
       </Row>
 
-      {block.type === "text" && (
+      {!collapsed && block.type === "text" && (
         <RichTextEditor
           html={block.html}
           onChange={(next) => onChange({ ...block, html: next })}
@@ -650,7 +686,7 @@ export function ContentBlockCard({
         />
       )}
 
-      {block.type === "image" && (
+      {!collapsed && block.type === "image" && (
         <Column gap="8">
           <MediaUpload
             aspectRatio="16 / 9"
@@ -674,7 +710,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "carousel" && (
+      {!collapsed && block.type === "carousel" && (
         <Column gap="12">
           <Carousel
             indicator="thumbnail"
@@ -745,7 +781,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "embed" && (
+      {!collapsed && block.type === "embed" && (
         <Column gap="8">
           <Input
             id={`block-${block.id}-language`}
@@ -768,7 +804,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "link" && (
+      {!collapsed && block.type === "link" && (
         <Column gap="8">
           <Input
             id={`block-${block.id}-label`}
@@ -787,7 +823,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "video" && (
+      {!collapsed && block.type === "video" && (
         <Column gap="8">
           <Input
             id={`block-${block.id}-url`}
@@ -827,7 +863,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "divider" && (
+      {!collapsed && block.type === "divider" && (
         <Row fillWidth vertical="center" gap="8">
           <Line background="neutral-alpha-medium" style={{ flex: 1 }} />
           <Text variant="body-default-xs" onBackground="neutral-weak">
@@ -837,7 +873,7 @@ export function ContentBlockCard({
         </Row>
       )}
 
-      {block.type === "tag" && (
+      {!collapsed && block.type === "tag" && (
         <Column gap="12">
           <Row gap="8" wrap>
             <Select
@@ -874,7 +910,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "badge" && (
+      {!collapsed && block.type === "badge" && (
         <Column gap="8">
           <Input
             id={`block-${block.id}-title`}
@@ -898,7 +934,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "status" && (
+      {!collapsed && block.type === "status" && (
         <Column gap="8">
           <Select
             id={`block-${block.id}-color`}
@@ -927,7 +963,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "progress" && (
+      {!collapsed && block.type === "progress" && (
         <Column gap="12">
           <Row gap="8" wrap>
             <Input
@@ -975,7 +1011,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "avatarGroup" && (
+      {!collapsed && block.type === "avatarGroup" && (
         <Column gap="12">
           <Row gap="12" wrap>
             {block.avatars.map((avatar) => (
@@ -1072,7 +1108,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "logoCloud" && (
+      {!collapsed && block.type === "logoCloud" && (
         <Column gap="12">
           <Input
             id={`block-${block.id}-columns`}
@@ -1142,7 +1178,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "scroller" && (
+      {!collapsed && block.type === "scroller" && (
         <Column gap="12">
           <Column gap="8">
             {block.items.map((item, index) => (
@@ -1198,7 +1234,7 @@ export function ContentBlockCard({
         </Column>
       )}
 
-      {block.type === "masonry" && (
+      {!collapsed && block.type === "masonry" && (
         <Column gap="12">
           <Input
             id={`block-${block.id}-columns`}

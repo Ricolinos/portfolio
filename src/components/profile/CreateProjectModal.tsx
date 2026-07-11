@@ -22,7 +22,7 @@ import {
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import {
   createPortfolioPiece,
@@ -503,6 +503,98 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     });
   };
 
+  // --- Drag-and-drop del Canvas -------------------------------------------
+  // Dos orígenes posibles de arrastre comparten el mismo destino (el lienzo):
+  // reordenar un bloque ya existente (handle dedicado en ContentBlockCard) o
+  // instanciar uno nuevo arrastrando una herramienta del panel derecho. HTML5
+  // DnD nativo (no framer-motion/Reorder) porque el mismo dropzone necesita
+  // aceptar ambos orígenes con un único cómputo de índice de inserción; mezclar
+  // el motor de gestos de Reorder.Group (pointer events) con dragstart/dragover
+  // nativo del panel de herramientas duplicaría la lógica de la línea
+  // indicadora en dos sistemas de eventos distintos.
+  type BlockDragPayload =
+    | { kind: "block"; id: string }
+    | { kind: "tool"; blockType: ContentBlockType };
+
+  const [dragPayload, setDragPayload] = useState<BlockDragPayload | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  const handleBlockDragStart = (id: string) => (event: DragEvent<HTMLButtonElement>) => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+    setDragPayload({ kind: "block", id });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  };
+
+  const handleToolDragStart = (blockType: ContentBlockType) => (event: DragEvent) => {
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+    setDragPayload({ kind: "tool", blockType });
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("text/plain", blockType);
+  };
+
+  const handleDragEnd = () => {
+    setDragPayload(null);
+    setDropIndex(null);
+  };
+
+  // Sobre un bloque puntual: decide si la línea de inserción va antes o
+  // después según la mitad vertical del bloque sobre el que está el puntero.
+  const handleBlockDragOver = (index: number) => (event: DragEvent) => {
+    if (!dragPayload) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = dragPayload.kind === "block" ? "move" : "copy";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const isAfter = event.clientY - rect.top > rect.height / 2;
+    setDropIndex(isAfter ? index + 1 : index);
+  };
+
+  // Fallback del lienzo completo: cualquier punto que no sea un bloque
+  // puntual (huecos, lienzo vacío) inserta al final.
+  const handleCanvasDragOver = (event: DragEvent) => {
+    if (!dragPayload) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = dragPayload.kind === "block" ? "move" : "copy";
+    setDropIndex(blocks.length);
+  };
+
+  const handleCanvasDrop = (event: DragEvent) => {
+    event.preventDefault();
+    if (!dragPayload || dropIndex === null) {
+      handleDragEnd();
+      return;
+    }
+    if (dragPayload.kind === "block") {
+      const sourceId = dragPayload.id;
+      const targetIndex = dropIndex;
+      setBlocks((current) => {
+        const fromIndex = current.findIndex((b) => b.id === sourceId);
+        if (fromIndex === -1) return current;
+        const next = [...current];
+        const [moved] = next.splice(fromIndex, 1);
+        const insertAt = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+        next.splice(insertAt, 0, moved);
+        return next;
+      });
+    } else {
+      const blockType = dragPayload.blockType;
+      const targetIndex = dropIndex;
+      setBlocks((current) => {
+        const next = [...current];
+        next.splice(targetIndex, 0, createBlock(blockType));
+        return next;
+      });
+    }
+    handleDragEnd();
+  };
+
   const handleSave = async (publish: boolean) => {
     if (!title.trim() || !markdown.trim()) {
       setError("El título y al menos una sección de contenido son obligatorios.");
@@ -645,23 +737,77 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                     />
                   </Column>
 
-                  {blocks.map((block, index) => (
-                    <ContentBlockCard
-                      key={block.id}
-                      block={block}
-                      disabled={disabled}
-                      canMoveUp={index > 0}
-                      canMoveDown={index < blocks.length - 1}
-                      onMoveUp={() => moveBlock(block.id, "up")}
-                      onMoveDown={() => moveBlock(block.id, "down")}
-                      onChange={(next) =>
-                        setBlocks((current) => current.map((b) => (b.id === next.id ? next : b)))
-                      }
-                      onRemove={() =>
-                        setBlocks((current) => current.filter((b) => b.id !== block.id))
-                      }
-                    />
-                  ))}
+                  <Column
+                    fillWidth
+                    gap="16"
+                    onDragOver={handleCanvasDragOver}
+                    onDrop={handleCanvasDrop}
+                  >
+                    {blocks.length === 0 ? (
+                      <Column
+                        fillWidth
+                        horizontal="center"
+                        vertical="center"
+                        radius="m"
+                        border="neutral-alpha-weak"
+                        borderStyle="dashed"
+                        padding="24"
+                        style={{ minHeight: "4rem" }}
+                      >
+                        <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+                          Arrastra una herramienta del panel derecho aquí, o usa sus íconos
+                        </Text>
+                      </Column>
+                    ) : (
+                      blocks.map((block, index) => (
+                        <Column
+                          key={block.id}
+                          fillWidth
+                          gap="16"
+                          onDragOver={handleBlockDragOver(index)}
+                        >
+                          {dragPayload && dropIndex === index && (
+                            <Row
+                              fillWidth
+                              radius="full"
+                              background="brand-strong"
+                              style={{ height: "0.1875rem" }}
+                            />
+                          )}
+                          <ContentBlockCard
+                            block={block}
+                            disabled={disabled}
+                            canMoveUp={index > 0}
+                            canMoveDown={index < blocks.length - 1}
+                            isDragging={
+                              dragPayload?.kind === "block" && dragPayload.id === block.id
+                            }
+                            onMoveUp={() => moveBlock(block.id, "up")}
+                            onMoveDown={() => moveBlock(block.id, "down")}
+                            onDragHandleStart={handleBlockDragStart(block.id)}
+                            onDragHandleEnd={handleDragEnd}
+                            onChange={(next) =>
+                              setBlocks((current) =>
+                                current.map((b) => (b.id === next.id ? next : b)),
+                              )
+                            }
+                            onRemove={() =>
+                              setBlocks((current) => current.filter((b) => b.id !== block.id))
+                            }
+                          />
+                        </Column>
+                      ))
+                    )}
+                    {dragPayload && dropIndex === blocks.length && blocks.length > 0 && (
+                      <Row
+                        fillWidth
+                        radius="full"
+                        background="brand-strong"
+                        style={{ height: "0.1875rem" }}
+                      />
+                    )}
+                  </Column>
+
 
                   <Row horizontal="center" paddingTop="8">
                     <BlockTypePicker
@@ -696,6 +842,15 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                         style={{ minHeight: "5rem" }}
                         opacity={disabled ? 50 : 100}
                         cursor={disabled ? "not-allowed" : "interactive"}
+                        // Instanciación directa (además del click, que se conserva
+                        // abajo): arrastrar este tile y soltarlo en el lienzo agrega
+                        // el bloque en el índice exacto donde se suelta. `onDragStart`
+                        // no sufre el bug de doble disparo de `onClick` (ver comentario
+                        // abajo) porque Card.js solo esparce el resto de props UNA vez,
+                        // sobre el Flex interno.
+                        draggable={!disabled}
+                        onDragStart={disabled ? undefined : handleToolDragStart(type)}
+                        onDragEnd={handleDragEnd}
                         onClick={
                           disabled
                             ? undefined

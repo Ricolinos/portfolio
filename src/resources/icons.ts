@@ -66,6 +66,7 @@ import {
 import {
   PiBookBookmarkDuotone,
   PiCameraDuotone,
+  PiDotsSixVerticalDuotone,
   PiGridFourDuotone,
   PiHouseDuotone,
   PiImageDuotone,
@@ -149,6 +150,7 @@ export const iconLibrary: Record<string, IconType> = {
   images: PiImagesDuotone,
   camera: PiCameraDuotone,
   shapes: PiShapes,
+  dragHandle: PiDotsSixVerticalDuotone,
   javascript: SiJavascript,
   nextjs: SiNextdotjs,
   supabase: SiSupabase,
