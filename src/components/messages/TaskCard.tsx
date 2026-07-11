@@ -87,7 +87,7 @@ export function TaskCard({
       border="neutral-alpha-medium"
       background="surface"
       fillWidth={variant === "row"}
-      style={variant === "bubble" ? { maxWidth: "80%", minWidth: 0 } : { minWidth: 0 }}
+      style={variant === "bubble" ? { maxWidth: "70%", minWidth: 0 } : { minWidth: 0 }}
     >
       <Row fillWidth gap="8" horizontal="between" vertical="center" wrap>
         <Text

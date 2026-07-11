@@ -27,6 +27,7 @@ import {
   HiOutlineArrowsRightLeft,
   HiOutlineBell,
   HiOutlineBriefcase,
+  HiOutlineChatBubbleOvalLeftEllipsis,
   HiOutlineCheckCircle,
   HiOutlineCodeBracket,
   HiOutlineCog8Tooth,
@@ -132,6 +133,7 @@ export const iconLibrary: Record<string, IconType> = {
   bell: HiOutlineBell,
   phone: HiOutlinePhone,
   video: HiOutlineVideoCamera,
+  chat: HiOutlineChatBubbleOvalLeftEllipsis,
   check: HiOutlineCheckCircle,
   shield: HiOutlineShieldCheck,
   // Icono que el componente Feedback busca para variant="warning"

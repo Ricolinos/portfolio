@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Column, Icon, IconButton, Input, Line, Row, Text } from "@once-ui-system/core";
+import {
+  Avatar,
+  Column,
+  Heading,
+  Icon,
+  IconButton,
+  Input,
+  Line,
+  Row,
+  Text,
+} from "@once-ui-system/core";
 import type { ConversationSummary } from "@/app/actions/inbox";
 import { MessageBubble } from "./MessageBubble";
 import { CreateTaskModal, type TaskParticipant } from "./TaskCard";
@@ -104,7 +114,7 @@ export function ConversationPanel({
                 />
               </Row>
               <Avatar
-                size="s"
+                size="m"
                 {...(conversation.avatarUrl
                   ? { src: conversation.avatarUrl }
                   : isGroup
@@ -112,14 +122,9 @@ export function ConversationPanel({
                     : { value: personInitial({ name: conversation.title, username: null }) })}
               />
               <Column gap="0" style={{ minWidth: 0 }}>
-                <Text
-                  variant="label-default-s"
-                  onBackground="neutral-strong"
-                  truncate
-                  style={{ minWidth: 0 }}
-                >
+                <Heading variant="heading-strong-s" truncate style={{ minWidth: 0 }}>
                   {headerTitle}
-                </Text>
+                </Heading>
                 {!isGroup && conversation.subtitle && (
                   <Text
                     variant="label-default-s"
@@ -168,11 +173,12 @@ export function ConversationPanel({
             style={{ flex: 1, minWidth: 0, minHeight: 0 }}
           >
             {!loadingMessages && messages.length === 0 ? (
-              <Row fillWidth center paddingY="32">
+              <Column fillWidth fillHeight center gap="12" padding="24">
+                <Icon name="email" size="l" onBackground="neutral-weak" />
                 <Text variant="body-default-s" onBackground="neutral-weak" align="center">
                   Aún no hay mensajes. Escribe el primero.
                 </Text>
-              </Row>
+              </Column>
             ) : (
               messages.map((message) => (
                 <MessageBubble
@@ -190,7 +196,7 @@ export function ConversationPanel({
 
           <Line background="neutral-alpha-weak" />
 
-          <Row fillWidth gap="8" vertical="end" padding="16">
+          <Row fillWidth gap="8" vertical="center" padding="16">
             <IconButton
               icon="attach"
               size="m"

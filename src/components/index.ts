@@ -1,4 +1,5 @@
 export { DesignerStrip } from "@/components/DesignerStrip";
+export { FloatingChatBubble } from "@/components/FloatingChatBubble";
 export { Footer } from "@/components/layout/Footer";
 export { Header } from "@/components/Header";
 export { HeadingLink } from "@/components/HeadingLink";

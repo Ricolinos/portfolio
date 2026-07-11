@@ -7,6 +7,8 @@ import {
   Button,
   Column,
   Grid,
+  Heading,
+  Icon,
   IconButton,
   Input,
   Line,
@@ -79,7 +81,7 @@ function RolesSection({
   };
 
   return (
-    <Column gap="20" fillWidth>
+    <Column gap="16" fillWidth>
       {partners.length === 0 ? (
         <Text variant="body-default-s" onBackground="neutral-weak">
           Todavía no hay partners en este proyecto.
@@ -94,7 +96,7 @@ function RolesSection({
                   {ROLE_LABELS[role]}
                 </Text>
                 {withRole.length === 0 ? (
-                  <Text variant="label-default-s" onBackground="neutral-weak">
+                  <Text variant="body-default-s" onBackground="neutral-weak">
                     Nadie asignado.
                   </Text>
                 ) : (
@@ -107,7 +109,7 @@ function RolesSection({
                             ? { src: person.imageUrl }
                             : { value: personInitial(person) })}
                         />
-                        <Text variant="label-default-s" onBackground="neutral-weak">
+                        <Text variant="body-default-s" onBackground="neutral-weak">
                           {personLabel(person)}
                         </Text>
                       </Row>
@@ -123,7 +125,7 @@ function RolesSection({
               Sin rol
             </Text>
             {withoutRole.length === 0 ? (
-              <Text variant="label-default-s" onBackground="neutral-weak">
+              <Text variant="body-default-s" onBackground="neutral-weak">
                 Todos los partners tienen al menos un rol.
               </Text>
             ) : (
@@ -136,7 +138,7 @@ function RolesSection({
                         ? { src: person.imageUrl }
                         : { value: personInitial(person) })}
                     />
-                    <Text variant="label-default-s" onBackground="neutral-weak">
+                    <Text variant="body-default-s" onBackground="neutral-weak">
                       {personLabel(person)}
                     </Text>
                   </Row>
@@ -159,7 +161,7 @@ function RolesSection({
                         ? { src: partner.imageUrl }
                         : { value: personInitial(partner) })}
                     />
-                    <Text variant="label-default-s" onBackground="neutral-strong">
+                    <Text variant="body-default-s" onBackground="neutral-strong">
                       {personLabel(partner)}
                     </Text>
                   </Row>
@@ -206,7 +208,7 @@ function TasksSection({
         Convierte cualquier mensaje en tarea desde el chat.
       </Text>
       {context.tasks.length === 0 ? (
-        <Text variant="label-default-s" onBackground="neutral-weak">
+        <Text variant="body-default-s" onBackground="neutral-weak">
           Sin tareas todavía.
         </Text>
       ) : (
@@ -240,9 +242,12 @@ function MediaSection({ messages }: { messages: StreamMessage[] }) {
 
   if (images.length === 0 && links.length === 0) {
     return (
-      <Text variant="label-default-s" onBackground="neutral-weak">
-        Sin imágenes ni enlaces compartidos todavía.
-      </Text>
+      <Column fillWidth center gap="12" padding="24">
+        <Icon name="gallery" size="l" onBackground="neutral-weak" />
+        <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+          Sin imágenes ni enlaces compartidos todavía.
+        </Text>
+      </Column>
     );
   }
 
@@ -567,7 +572,7 @@ export function DetailsPanel({
   return (
     <Column
       fillHeight
-      gap="20"
+      gap="16"
       padding="16"
       overflowY="auto"
       background="surface"
@@ -585,7 +590,7 @@ export function DetailsPanel({
           : { style: { width: "auto", flexGrow: 1, flexShrink: 1 } }
       }
     >
-      <Row fillWidth gap="8" vertical="center">
+      <Row fillWidth gap="8" vertical="center" paddingBottom="16" borderBottom="neutral-alpha-weak">
         <Row hide s={{ hide: false }} xs={{ hide: false }}>
           <IconButton
             icon="chevronLeft"
@@ -595,9 +600,7 @@ export function DetailsPanel({
             onClick={onBack}
           />
         </Row>
-        <Text variant="label-strong-s" onBackground="neutral-strong">
-          Detalles
-        </Text>
+        <Heading variant="heading-strong-s">Detalles</Heading>
       </Row>
 
       <Column fillWidth gap="12" horizontal="center">
@@ -614,7 +617,7 @@ export function DetailsPanel({
             {profileName}
           </Text>
           {profileMeta && (
-            <Text variant="body-default-s" onBackground="neutral-weak" align="center">
+            <Text variant="label-default-s" onBackground="neutral-weak" align="center">
               {profileMeta}
             </Text>
           )}

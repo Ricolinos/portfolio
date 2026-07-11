@@ -204,7 +204,7 @@ function ConversationRow({
         <Row fillWidth gap="8" horizontal="between" vertical="center">
           <Text
             variant="body-default-s"
-            onBackground="neutral-weak"
+            onBackground="neutral-medium"
             truncate
             style={{ minWidth: 0 }}
           >
@@ -253,9 +253,15 @@ export function ConversationList({
 
   return (
     <Column fillHeight fillWidth gap="12" padding="16" style={{ minWidth: 0 }}>
-      <Row fillWidth horizontal="between" vertical="center">
+      <Row
+        fillWidth
+        horizontal="between"
+        vertical="center"
+        paddingBottom="16"
+        borderBottom="neutral-alpha-weak"
+      >
         <Column gap="0">
-          <Heading variant="heading-strong-m">Chats</Heading>
+          <Heading variant="heading-strong-s">Chats</Heading>
           {scopeTitle && (
             <Text variant="label-default-s" onBackground="neutral-weak" truncate>
               {scopeTitle}
