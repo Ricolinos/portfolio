@@ -16,6 +16,7 @@ import {
   SpacingToken,
 } from "@once-ui-system/core";
 import { FloatingChatBubble, Footer, Header, LayoutShell, RouteGuard, Providers } from "@/components";
+import { LIBRARY_FONT_VARIABLES } from "@/lib/fontLibrary";
 import { baseURL, effects, fonts, style, dataStyle, home } from "@/resources";
 
 export const viewport: Viewport = {
@@ -74,6 +75,12 @@ export default async function RootLayout({
         fonts.body.variable,
         fonts.label.variable,
         fonts.code.variable,
+        // Biblioteca de fuentes del bloque "text" del editor de piezas (ver
+        // src/lib/fontLibrary.ts) — SOLO expone las CSS variables
+        // `--font-lib-*` para que `var(--font-lib-roboto)` etc. resuelvan en
+        // cualquier parte del sitio; no altera fonts.heading/body/label/code
+        // (fuentes del TEMA, sin tocar).
+        ...LIBRARY_FONT_VARIABLES,
       )}
     >
       <head>

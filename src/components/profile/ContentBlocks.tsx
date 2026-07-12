@@ -5,6 +5,7 @@ import {
   AvatarGroup,
   Badge,
   Chip,
+  ColorInput,
   Column,
   DropdownWrapper,
   EmojiPickerDropdown,
@@ -16,6 +17,7 @@ import {
   LogoCloud,
   MasonryGrid,
   Media,
+  NumberInput,
   Option,
   ProgressBar,
   Row,
@@ -29,9 +31,10 @@ import {
   Textarea,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useId, useRef, useState } from "react";
 import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
 import { readFileAsDataUrl } from "@/lib/files";
+import { DEFAULT_TEXT_PT, FONT_LIBRARY, ptToPx, resolveFontStack } from "@/lib/fontLibrary";
 import { PROJECT_SUBCATEGORIES, PROJECT_VERTICALS } from "@/lib/projectCategories";
 
 // El Canvas no edita un .md crudo: el usuario arma bloques estructurados y
@@ -118,10 +121,29 @@ export type ContentBlock =
       type: "text";
       html: string;
       align?: TextBlockAlign;
+      // `weight`/`color`/`family` (tokens semánticos) quedan SOLO para
+      // retrocompatibilidad de piezas publicadas antes de la tarea
+      // "controles universales" (ver comentario extenso junto a
+      // `TEXT_COLOR_OPTIONS`/`TEXT_FAMILY_OPTIONS` más abajo): la toolbar ya
+      // no ofrece forma de ESCRIBIR estos 3 campos, pero sigue
+      // leyéndolos/serializándolos igual para que una pieza vieja renderice
+      // IDÉNTICO. Los bloques nuevos usan `font`/`pt`/`hexColor` en su lugar.
       weight?: TextBlockWeight;
       italic?: boolean;
       color?: TextBlockColor;
       family?: TextBlockFamily;
+      // FEATURE (controles universales, tarea "herramienta de texto
+      // amigable"): reemplazo de `family`/`color` por props libres tipo
+      // procesador de texto — `font` es un nombre de FONT_LIBRARY (ver
+      // src/lib/fontLibrary.ts), `pt` un tamaño en puntos, `hexColor` un
+      // color hex libre. Los 3 sobreviven el pipeline de MDX como props
+      // string reales (`font="Roboto"` `pt="18"` `color="#0c6367"`, ver
+      // `serializeTextSegment`) y el wrapper de `Text` en mdx.tsx los
+      // traduce a `style` al renderizar. `undefined` en cualquiera de los 3
+      // = sin override (hereda el tema/tamaño/color de siempre).
+      font?: string;
+      pt?: number;
+      hexColor?: string;
     }
   | { id: string; type: "image"; url: string; alt: string }
   | { id: string; type: "carousel"; images: { id: string; url: string; alt: string }[] }
@@ -407,49 +429,25 @@ const HEADING_VARIANT_VALUES = new Set([
     (option) => option.value,
   ),
   ...LEGACY_HEADING_VARIANT_VALUES,
-]
-);
+]);
 
-// FEATURE (color de texto, tarea 4): curaduría corta de `onBackground`
-// reales de Once UI (ver ai/spec.json — Colors = `${ColorScheme}-${Color
-// Weight}`). Verificado en pantalla contra una pieza publicada de prueba
-// que las 7 opciones sobreviven el pipeline completo (mismo prop string que
-// ya usa `onBackground="neutral-medium"` en el camino default): editor →
-// Markdown guardado → visor público, sin ningún atributo perdido por el
-// GOTCHA de props con llaves (`onBackground` siempre viaja como string
-// entre comillas, nunca `{...}`).
-// FIX (ver comentario extenso junto a `TextBlockColor`): brand/accent/
-// danger/success usan el sufijo "-medium" (no "-strong") — verificado con
-// `getComputedStyle` en el visor real que "-strong" resuelve casi negro en
-// las 4 escalas de este tema (token de máximo contraste, no pensado para
-// mostrar matiz), mientras "-medium" sí es distinguible y sigue siendo
-// legible.
-const TEXT_COLOR_OPTIONS: { value: TextBlockColor; label: string; swatch: string }[] = [
-  { value: "default", label: "Predeterminado", swatch: "neutral-medium" },
-  { value: "neutral-strong", label: "Neutro fuerte", swatch: "neutral-strong" },
-  { value: "neutral-medium", label: "Neutro medio", swatch: "neutral-medium" },
-  { value: "neutral-weak", label: "Neutro suave", swatch: "neutral-weak" },
-  { value: "brand-medium", label: "Marca", swatch: "brand-medium" },
-  { value: "accent-medium", label: "Acento", swatch: "accent-medium" },
-  { value: "danger-medium", label: "Peligro", swatch: "danger-medium" },
-  { value: "success-medium", label: "Éxito", swatch: "success-medium" },
-];
+// FEATURE (color de texto, tarea 4, RETIRADA de la toolbar en la auditoría
+// "controles universales" — ver `TextBlockColor` arriba): esta curaduría de
+// tokens semánticos (`onBackground`) ya NO tiene dropdown propio; el control
+// "Color" de la toolbar ahora es el `ColorInput` (hex libre, ver
+// `RichTextEditor` más abajo). `TEXT_COLOR_OPTIONS` se retira junto con el
+// dropdown — `TextBlockColor`/`color` (el campo, no el picker) siguen vivos
+// solo para que una pieza publicada ANTES de esta tarea con
+// `onBackground="brand-medium"` (etc.) en su Markdown guardado siga
+// serializando/renderizando IDÉNTICO (ver `serializeTextSegment`).
 
-// FEATURE (familia tipográfica, tarea 4): `family` (TextType real: body/
-// heading/label/code, ver ai/components/Text.json) es el mismo tipo de prop
-// string que `variant`/`onBackground` — sobrevive el pipeline igual.
-// "Cuerpo" queda fuera de la lista (es el default "sin override", ya
-// cubierto por el valor "default"); DESCARTADO "display" a propósito: un
-// párrafo de cuerpo con family="display" se ve desproporcionado (esa
-// familia está pensada para tamaños grandes de hero/heading, no body/m) —
-// verificado en pantalla, el line-height/tracking de "display" no calza con
-// texto corrido.
-const TEXT_FAMILY_OPTIONS: { value: TextBlockFamily; label: string }[] = [
-  { value: "default", label: "Cuerpo" },
-  { value: "heading", label: "Encabezado" },
-  { value: "label", label: "Etiqueta" },
-  { value: "code", label: "Código" },
-];
+// FEATURE (familia tipográfica, tarea 4, RETIRADA de la toolbar en la misma
+// auditoría — ver `TextBlockFamily` arriba): mismo criterio que el color de
+// arriba. El control "Fuente" de la toolbar ahora es libre (nombre real,
+// FONT_LIBRARY) en vez de las 4 familias semánticas de Once UI
+// (body/heading/label/code); `TEXT_FAMILY_OPTIONS` se retira junto con su
+// dropdown — `TextBlockFamily`/`family` siguen vivos solo para
+// retrocompatibilidad de piezas ya publicadas.
 
 // El texto de un heading pasa a vivir como children de JSX (`<Heading>texto
 // </Heading>`) en vez de texto plano de Markdown ATX (`## texto`): a
@@ -515,6 +513,16 @@ function splitTextBlockHtml(html: string): TextSegment[] {
 // Serializa un segmento de párrafo normal: es el mismo cuerpo que antes
 // serializaba TODO el bloque de una sola vez (ver blame), ahora reutilizable
 // por segmento cuando el bloque se partió por headings.
+// FEATURE (controles universales — Fuente/Tamaño/Color, ver comentario junto
+// a `ContentBlock["font"|"pt"|"hexColor"]` arriba): `font`/`pt`/`hexColor`
+// son props STRING reales (mismo tipo de prop que `variant`/`onBackground`,
+// sobreviven el GOTCHA de props con llaves igual que esos), así que se
+// emiten como atributos planos adicionales del mismo `<Text>` cuando el
+// usuario los definió — el wrapper de `Text` en mdx.tsx (`createTextElement`)
+// los traduce a `style` al renderizar. `hexColor` tiene prioridad de
+// RENDER sobre `color` (legacy) cuando ambos coexisten (no debería pasar
+// desde este editor: la toolbar ya no permite fijar ambos a la vez), pero
+// `onBackground` se sigue emitiendo siempre como fallback semántico.
 function serializeTextSegment(
   html: string,
   align: TextBlockAlign,
@@ -522,6 +530,9 @@ function serializeTextSegment(
   italic: boolean,
   color: TextBlockColor,
   family: TextBlockFamily,
+  font: string | undefined,
+  pt: number | undefined,
+  hexColor: string | undefined,
 ): string {
   const trimmed = html.trim();
   if (!trimmed) return "";
@@ -533,7 +544,10 @@ function serializeTextSegment(
     weight === "default" &&
     !italic &&
     color === "default" &&
-    family === "default"
+    family === "default" &&
+    !font &&
+    pt === undefined &&
+    !hexColor
   ) {
     return `<Text variant="body-default-m" onBackground="neutral-medium">\n${trimmed}\n</Text>`;
   }
@@ -562,6 +576,9 @@ function serializeTextSegment(
   ];
   if (align !== "left") attrs.push(`align="${align}"`);
   if (weight === "strong") attrs.push(`weight="strong"`);
+  if (font) attrs.push(`font="${escapeAttr(font)}"`);
+  if (pt !== undefined) attrs.push(`pt="${pt}"`);
+  if (hexColor) attrs.push(`color="${escapeAttr(hexColor)}"`);
   // GOTCHA (verificado en pantalla contra la pieza real de prueba):
   // cuando el contenido del bloque queda en su PROPIA línea dentro del
   // <Text> (con saltos de línea antes/después, como en el camino
@@ -592,10 +609,23 @@ function blockToMarkdown(block: ContentBlock): string {
       const italic = block.italic ?? false;
       const color = block.color ?? "default";
       const family = block.family ?? "default";
+      const font = block.font;
+      const pt = block.pt;
+      const hexColor = block.hexColor;
       const segments = splitTextBlockHtml(html);
       const parts = segments.map((segment) => {
         if (segment.type !== "heading") {
-          return serializeTextSegment(segment.html, align, weight, italic, color, family);
+          return serializeTextSegment(
+            segment.html,
+            align,
+            weight,
+            italic,
+            color,
+            family,
+            font,
+            pt,
+            hexColor,
+          );
         }
         // Ver GOTCHA extenso junto a `TextSegment`/`escapeJsxText`: un heading
         // sin align NI variante propia sigue el camino ATX de siempre (con
@@ -1058,16 +1088,33 @@ function insertTextAtCursor(text: string): void {
 interface RichTextEditorProps {
   html: string;
   align: TextBlockAlign;
+  // `weight`/`color`/`family` (tokens semánticos legacy, ver comentario junto
+  // a `ContentBlock["font"|"pt"|"hexColor"]`): ya no tienen control propio en
+  // la toolbar, pero se siguen recibiendo/reenviando para que el preview en
+  // vivo de una pieza vieja (cargada para editar) se vea idéntico a como se
+  // publicó, y para que `blockToMarkdown` los siga serializando igual.
   weight: TextBlockWeight;
   italic: boolean;
   color: TextBlockColor;
   family: TextBlockFamily;
+  // FEATURE (controles universales — Fuente/Tamaño/Color): reemplazos libres
+  // de `family`/`color`, ver comentario extenso junto a `ContentBlock`.
+  font?: string;
+  pt?: number;
+  hexColor?: string;
   onChange: (html: string) => void;
   onAlignChange: (align: TextBlockAlign) => void;
-  onWeightChange: (weight: TextBlockWeight) => void;
   onItalicChange: (italic: boolean) => void;
-  onColorChange: (color: TextBlockColor) => void;
-  onFamilyChange: (family: TextBlockFamily) => void;
+  // `onWeightChange`/`onColorChange`/`onFamilyChange` (setters de los 3
+  // controles retirados de la toolbar, ver comentario junto a `weight`/
+  // `color`/`family` arriba) se quitaron de esta interfaz: sin botón que los
+  // dispare, `RichTextEditor` nunca los llamaba (parámetros muertos,
+  // detectado por Biome). `ContentBlockCard` sigue leyendo `block.weight`/
+  // `block.color`/`block.family` directo del estado para el `onChange` que sí
+  // usa (guardar el bloque completo), sin pasar por estos.
+  onFontChange: (font: string | undefined) => void;
+  onPtChange: (pt: number | undefined) => void;
+  onHexColorChange: (hexColor: string | undefined) => void;
   disabled?: boolean;
 }
 
@@ -1078,29 +1125,14 @@ const ALIGN_OPTIONS: { value: TextBlockAlign; icon: string; label: string }[] = 
   { value: "justify", icon: "alignJustify", label: "Justificado" },
 ];
 
-// FEATURE (tamaños de texto): opciones del Select de la toolbar. El value
-// coincide con el tag real que arma `document.execCommand("formatBlock", ...)`
-// ("p" = cuerpo/sin formato de bloque).
+// `HeadingFormat` (p/h2/h3/h4): ya NO tiene selector propio en la toolbar
+// (ver comentario junto a `RichTextEditorProps` — "Tipo de texto" se retiró
+// en la auditoría "controles universales"). El tipo se conserva SOLO para
+// `blockFormat`/`cursorInHeading` (detección de si el cursor vive dentro de
+// un heading legacy ya guardado en una pieza vieja, ver `syncSelectionState`
+// más abajo) — `HEADING_FORMAT_OPTIONS`/`HEADING_FORMAT_ABBR` (el catálogo
+// del dropdown retirado) se eliminaron por quedar sin ningún uso.
 type HeadingFormat = "p" | "h2" | "h3" | "h4";
-const HEADING_FORMAT_OPTIONS: { value: HeadingFormat; label: string }[] = [
-  { value: "p", label: "Cuerpo" },
-  { value: "h2", label: "Título" },
-  { value: "h3", label: "Subtítulo" },
-  { value: "h4", label: "Encabezado pequeño" },
-];
-// Abreviatura mostrada en el trigger compacto (ver nota en la barra de
-// RichTextEditor): reemplaza al <Select> —desentonaba en altura con el resto
-// de la fila (38px medido vs 24px de los IconButton size="s", ver
-// IconButton.module.scss/.s y Input.module.scss/.s del harness: no existe una
-// altura de Select que baje de 40px)— por un IconButton+DropdownWrapper, el
-// mismo patrón que ya usan BlockTypePicker (el "+" del lienzo) y
-// EmojiPickerDropdown en este mismo flujo.
-const HEADING_FORMAT_ABBR: Record<HeadingFormat, string> = {
-  p: "P",
-  h2: "H2",
-  h3: "H3",
-  h4: "H4",
-};
 
 // Alineación POR PÁRRAFO (tarea 4): investigado y confirmado con Playwright
 // (test_align.mjs, descartado tras la prueba) que `document.execCommand(
@@ -1133,7 +1165,10 @@ const BLOCK_LEVEL_TAGS = new Set(["P", "DIV", "H2", "H3", "H4", "LI", "BLOCKQUOT
 function getBlockAncestor(node: Node | null, root: HTMLElement): HTMLElement | null {
   let current: Node | null = node;
   while (current && current !== root) {
-    if (current.nodeType === Node.ELEMENT_NODE && BLOCK_LEVEL_TAGS.has((current as HTMLElement).tagName)) {
+    if (
+      current.nodeType === Node.ELEMENT_NODE &&
+      BLOCK_LEVEL_TAGS.has((current as HTMLElement).tagName)
+    ) {
       return current as HTMLElement;
     }
     current = current.parentNode;
@@ -1248,7 +1283,8 @@ function getParagraphPreviewClassName(
       " ",
     );
   }
-  const resolvedColor = color !== "default" ? color : weight === "light" ? "neutral-weak" : "neutral-medium";
+  const resolvedColor =
+    color !== "default" ? color : weight === "light" ? "neutral-weak" : "neutral-medium";
   const resolvedFamily = family !== "default" ? family : "body";
   const classes = ["font-m", getOnBackgroundClass(resolvedColor), `font-family-${resolvedFamily}`];
   if (weight === "strong") classes.push("font-strong");
@@ -1265,7 +1301,8 @@ function getParagraphPreviewClassName(
 // debe heredarlos del párrafo exterior.
 function getHeadingPreviewClassName(level: 2 | 3 | 4, rawVariant: string | null): string {
   const variant =
-    rawVariant && (HEADING_VARIANT_VALUES.has(rawVariant) || LEGACY_HEADING_VARIANT_VALUES.has(rawVariant))
+    rawVariant &&
+    (HEADING_VARIANT_VALUES.has(rawVariant) || LEGACY_HEADING_VARIANT_VALUES.has(rawVariant))
       ? rawVariant
       : HEADING_VARIANT[level];
   return [...getVariantClasses(variant), "neutral-on-background-strong"].join(" ");
@@ -1287,6 +1324,16 @@ function syncHeadingPreviewStyles(root: HTMLElement): void {
     el.className = getHeadingPreviewClassName(level, el.getAttribute("data-variant"));
     el.style.fontStyle = "normal";
     el.style.fontWeight = "";
+    // FEATURE (controles universales — Fuente/Tamaño/Color): igual que
+    // fontStyle/fontWeight arriba, `fontFamily`/`fontSize`/`color` del
+    // `<div>` exterior (ver `style` del contentEditable, RichTextEditor) son
+    // propiedades heredadas por CSS — un heading NUNCA recibe estos 3
+    // overrides de bloque (ver `blockToMarkdown`: los headings van por su
+    // propia ruta JSX/ATX, sin `font`/`pt`/`color`), así que se resetean a
+    // mano para que el preview en vivo coincida con el visor publicado.
+    el.style.fontFamily = "";
+    el.style.fontSize = "";
+    el.style.color = "";
   });
 }
 
@@ -1297,15 +1344,25 @@ function RichTextEditor({
   italic,
   color,
   family,
+  font,
+  pt,
+  hexColor,
   onChange,
   onAlignChange,
-  onWeightChange,
   onItalicChange,
-  onColorChange,
-  onFamilyChange,
+  onFontChange,
+  onPtChange,
+  onHexColorChange,
   disabled,
 }: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
+  // IDs únicos por instancia (un `RichTextEditor` por bloque de texto, ver
+  // `ContentBlockCard`): `NumberInput`/`ColorInput` (ambos extienden `Input`,
+  // que exige `id` real, ver ai/components/Input.json — `id: "!string"`) no
+  // pueden compartir un id fijo si el usuario tiene varios bloques de texto
+  // en la misma pieza.
+  const sizeInputId = useId();
+  const colorInputId = useId();
   // BUG CRÍTICO (texto guardado desaparece al reabrir con "Editar"): este
   // ref arrancaba en `useRef(html)` — con el `html` que llega YA cargado
   // (ej. al precargar una pieza guardada para editar). El div (sin
@@ -1343,20 +1400,18 @@ function RichTextEditor({
     underline: false,
     strikeThrough: false,
   });
+  // `blockFormat` (p/h2/h3/h4) ya NO tiene control de creación en la
+  // toolbar (ver `cursorInHeading` más abajo) — se conserva SOLO para
+  // DETECTAR si el cursor vive dentro de un heading legacy (h2/h3/h4 ya
+  // guardado en una pieza vieja) y así deshabilitar los controles que no
+  // aplican ahí (B/I/U/S/enlace/Fuente/Tamaño/Color), igual que siempre.
   const [blockFormat, setBlockFormat] = useState<HeadingFormat>("p");
   const [paragraphAlign, setParagraphAlign] = useState<TextBlockAlign>(align);
-  // "default" = sin `data-variant` propio (usa el mapeo fijo por nivel de
-  // `HEADING_VARIANT`); solo tiene efecto visible cuando `blockFormat` es
-  // h2/h3/h4 (ver `setHeadingVariant`/UI de la toolbar).
-  const [paragraphVariant, setParagraphVariant] = useState<string>("default");
-  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
-  const [variantMenuOpen, setVariantMenuOpen] = useState(false);
-  // Color/familia (tarea 4): a diferencia de align/variant (por párrafo, ver
-  // `paragraphAlign`/`paragraphVariant`), aplican al BLOQUE completo — mismo
-  // nivel que `weight`/`italic` (ver `onColorChange`/`onFamilyChange`,
-  // controlados por el padre igual que esos dos).
-  const [colorMenuOpen, setColorMenuOpen] = useState(false);
-  const [familyMenuOpen, setFamilyMenuOpen] = useState(false);
+  // FEATURE (controles universales — Fuente/Tamaño/Color): estado de
+  // apertura del dropdown de Fuente (mismo patrón `DropdownWrapper` que ya
+  // usaba el resto de la toolbar). Tamaño/Color no necesitan uno propio:
+  // `NumberInput`/`ColorInput` son controles directos, sin popover.
+  const [fontMenuOpen, setFontMenuOpen] = useState(false);
 
   // Solo sincroniza el DOM cuando el cambio viene de afuera (ej. al cargar
   // un borrador): si lo hiciéramos en cada emit, el cursor saltaría al
@@ -1451,13 +1506,15 @@ function RichTextEditor({
     }
     const blockEl = getBlockAncestor(range.commonAncestorContainer, el);
     const tag = blockEl?.tagName;
-    setBlockFormat(tag === "H2" || tag === "H3" || tag === "H4" ? (tag.toLowerCase() as HeadingFormat) : "p");
+    setBlockFormat(
+      tag === "H2" || tag === "H3" || tag === "H4" ? (tag.toLowerCase() as HeadingFormat) : "p",
+    );
     const attrAlign = blockEl?.getAttribute("align");
     setParagraphAlign(
-      attrAlign === "center" || attrAlign === "right" || attrAlign === "justify" ? attrAlign : "left",
+      attrAlign === "center" || attrAlign === "right" || attrAlign === "justify"
+        ? attrAlign
+        : "left",
     );
-    const attrVariant = blockEl?.getAttribute("data-variant");
-    setParagraphVariant(attrVariant && HEADING_VARIANT_VALUES.has(attrVariant) ? attrVariant : "default");
   };
 
   useEffect(() => {
@@ -1544,7 +1601,10 @@ function RichTextEditor({
     const el = ref.current;
     const selection = window.getSelection();
     const liveRangeAlreadyInEditor =
-      !!el && !!selection && selection.rangeCount > 0 && el.contains(selection.getRangeAt(0).commonAncestorContainer);
+      !!el &&
+      !!selection &&
+      selection.rangeCount > 0 &&
+      el.contains(selection.getRangeAt(0).commonAncestorContainer);
     el?.focus();
     if (liveRangeAlreadyInEditor && selection) {
       lastRangeRef.current = selection.getRangeAt(0).cloneRange();
@@ -1588,84 +1648,15 @@ function RichTextEditor({
     emit();
   };
 
-  const toggleWeight = (value: TextBlockWeight) => onWeightChange(weight === value ? "default" : value);
-
-  // FEATURE tamaños de texto (tarea 3): convierte el elemento de bloque de la
-  // línea del cursor en h2/h3/h4, o de vuelta a un párrafo normal ("p" =
-  // Cuerpo). `<h2>` con corchetes (no solo "h2") es necesario para Firefox;
-  // Chromium acepta ambas formas (verificado con Playwright).
-  //
-  // BUG CONFIRMADO (auditoría con Playwright, matriz punto 3 — "alinear →
-  // convertir a heading después"): `execCommand("formatBlock", ...)` en
-  // Chromium NO conserva el atributo `align` del elemento de bloque viejo al
-  // crear el nuevo (verificado en pantalla en ambos sentidos: un
-  // `<div align="center">` se convierte en `<h2>` PLANO, sin align; un
-  // `<h2 align="center">` se convierte en `<div>` plano al volver a "Cuerpo").
-  // El usuario que alinea un párrafo y LUEGO decide convertirlo en título
-  // (o viceversa) veía el ajuste de alineación desaparecer sin tocar la
-  // barra de alineación — otra causa de la intermitencia percibida. FIX:
-  // se lee el `align` del bloque ANTES de la conversión y, si el nuevo
-  // elemento de bloque no lo trae de por sí, se reaplica manualmente.
-  const setHeadingFormat = (format: HeadingFormat) => {
-    focusEditor();
-    const el = ref.current;
-    const selectionBefore = window.getSelection();
-    const prevBlock =
-      el && selectionBefore && selectionBefore.rangeCount > 0
-        ? getBlockAncestor(selectionBefore.getRangeAt(0).commonAncestorContainer, el)
-        : null;
-    const prevAlign = prevBlock?.getAttribute("align");
-    // Mismo GOTCHA que `align` (ver comentario arriba): `data-variant` (el
-    // selector de estilo de heading) tampoco sobrevive la conversión de
-    // `execCommand("formatBlock", ...)` — se reaplica igual que `align`.
-    const prevVariant = prevBlock?.getAttribute("data-variant");
-    document.execCommand("formatBlock", false, `<${format}>`);
-    if (el) {
-      const selectionAfter = window.getSelection();
-      const newBlock =
-        selectionAfter && selectionAfter.rangeCount > 0
-          ? getBlockAncestor(selectionAfter.getRangeAt(0).commonAncestorContainer, el)
-          : null;
-      if (newBlock && prevAlign && !newBlock.getAttribute("align")) {
-        newBlock.setAttribute("align", prevAlign);
-        setParagraphAlign(prevAlign as TextBlockAlign);
-      }
-      if (newBlock && prevVariant && !newBlock.getAttribute("data-variant")) {
-        newBlock.setAttribute("data-variant", prevVariant);
-        setParagraphVariant(prevVariant);
-      }
-    }
-    setBlockFormat(format);
-    // Preview en vivo (ver `syncHeadingPreviewStyles`): tanto al convertir a
-    // heading (aplica tamaño/color reales) como al volver a "Cuerpo"
-    // (limpia cualquier clase de heading que haya quedado en otro nodo).
-    if (el) syncHeadingPreviewStyles(el);
-    emit();
-  };
-
-  // FEATURE (variantes de encabezado): mismo patrón que
-  // `alignCurrentParagraph`, pero sobre `data-variant` en vez de `align` (ver
-  // GOTCHA extenso junto a `HEADING_VARIANT_OPTIONS`). Solo tiene efecto real
-  // cuando el bloque del cursor es h2/h3/h4 — la UI ya deshabilita este
-  // control cuando `blockFormat === "p"`.
-  const setHeadingVariant = (value: string) => {
-    focusEditor();
-    const el = ref.current;
-    const selection = window.getSelection();
-    if (!el || !selection || selection.rangeCount === 0) return;
-    const blockEl = getBlockAncestor(selection.getRangeAt(0).commonAncestorContainer, el);
-    if (!blockEl) return;
-    if (value === "default") blockEl.removeAttribute("data-variant");
-    else blockEl.setAttribute("data-variant", value);
-    setParagraphVariant(value);
-    // Preview en vivo (BUG CONFIRMADO, ver `syncHeadingPreviewStyles`):
-    // antes este control solo escribía el atributo `data-variant` —sin
-    // ninguna clase CSS que lo lea—, así que elegir cualquier "Estilo de
-    // encabezado" no cambiaba nada visible en el editor aunque sí llegara
-    // correctamente al visor publicado.
-    syncHeadingPreviewStyles(el);
-    emit();
-  };
+  // NOTA (auditoría "controles universales"): `toggleWeight`/
+  // `setHeadingFormat`/`setHeadingVariant` (peso de bloque, conversión a
+  // heading, variante de heading) se retiraron junto con sus 3 botones de la
+  // toolbar (ver comentario junto a `RichTextEditorProps` y el `return` de
+  // este componente) — un heading ya NO se puede crear/editar desde aquí,
+  // solo detectarse si ya existía en una pieza vieja (ver `blockFormat`/
+  // `cursorInHeading`). `weight`/`onWeightChange` siguen viviendo como props
+  // pasivas (preview + serialización de piezas ya publicadas, ver comentario
+  // junto a `RichTextEditorProps`).
 
   // Alineación POR PÁRRAFO (tarea 4, ver nota extensa junto a
   // `BLOCK_LEVEL_TAGS` arriba): en vez de aplicar `align` a todo el bloque,
@@ -1729,194 +1720,109 @@ function RichTextEditor({
           />
         ))}
         <Line vert background="neutral-alpha-weak" height="20" />
+        {/* FEATURE (controles universales, auditoría "herramienta de texto
+            amigable"): reemplaza los 3 controles poco reconocibles (Tipo de
+            texto/Estilo de encabezado/Peso del bloque, ver comentario junto a
+            `RichTextEditorProps`) por Fuente/Tamaño/Color — mismo mental
+            model que cualquier procesador de texto (Word/Docs), aplican al
+            BLOQUE completo (mismo nivel que antes `color`/`family`, ver
+            `onFontChange`/`onPtChange`/`onHexColorChange`). Deshabilitados
+            con el cursor en un heading legacy por el mismo motivo que ya
+            aplicaba a color/familia: un heading nunca recibe estos overrides
+            de bloque (ver `getHeadingPreviewClassName`/`blockToMarkdown`, van
+            por su propia ruta JSX/ATX sin `font`/`pt`/`color`). */}
         <DropdownWrapper
-          isOpen={formatMenuOpen}
-          onOpenChange={setFormatMenuOpen}
+          isOpen={fontMenuOpen}
+          onOpenChange={setFontMenuOpen}
           placement="bottom-start"
           trigger={
             <IconButton
-              tooltip={`Tipo de texto: ${
-                HEADING_FORMAT_OPTIONS.find((option) => option.value === blockFormat)?.label ?? "Cuerpo"
-              }`}
-              variant={blockFormat === "p" ? "tertiary" : "primary"}
-              size="s"
-              disabled={disabled}
-            >
-              <Text variant="label-strong-s">{HEADING_FORMAT_ABBR[blockFormat]}</Text>
-            </IconButton>
-          }
-          dropdown={
-            <Column minWidth={10} padding="4" gap="2">
-              {HEADING_FORMAT_OPTIONS.map((option) => (
-                <Option
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                  selected={blockFormat === option.value}
-                  onClick={() => {
-                    setHeadingFormat(option.value as HeadingFormat);
-                    setFormatMenuOpen(false);
-                  }}
-                />
-              ))}
-            </Column>
-          }
-        />
-        {/* Estilo del encabezado (tarea Heading variants): solo tiene efecto
-            visible sobre h2/h3/h4 (ver `setHeadingVariant`), deshabilitado
-            para "Cuerpo" — un párrafo normal ya usa `serializeTextSegment`
-            (align/weight/italic del bloque completo), no este mecanismo por
-            párrafo. */}
-        <DropdownWrapper
-          isOpen={variantMenuOpen}
-          onOpenChange={setVariantMenuOpen}
-          placement="bottom-start"
-          trigger={
-            <IconButton
-              icon="sparkles"
-              tooltip={`Estilo de encabezado: ${
-                HEADING_VARIANT_OPTIONS.find((option) => option.value === paragraphVariant)
-                  ?.label ?? "Predeterminado"
-              }`}
-              variant={paragraphVariant !== "default" ? "primary" : "tertiary"}
-              size="s"
-              disabled={disabled || blockFormat === "p"}
-            />
-          }
-          dropdown={
-            <Column minWidth={12} padding="4" gap="2">
-              {HEADING_VARIANT_OPTIONS.map((option) => (
-                <Option
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                  selected={paragraphVariant === option.value}
-                  onClick={() => {
-                    setHeadingVariant(option.value);
-                    setVariantMenuOpen(false);
-                  }}
-                />
-              ))}
-            </Column>
-          }
-        />
-        <Line vert background="neutral-alpha-weak" height="20" />
-        {/* Peso del bloque (párrafo normal, no heading): "fuerte" faltaba su
-            propio botón —el campo `weight="strong"` ya existía completo en
-            tipo/serialización (ver `serializeTextSegment`)/vista previa,
-            pero solo "ligera" tenía trigger en la barra, dejándolo
-            inalcanzable desde la UI (auditoría, hallazgo de paridad).
-            Se agrega el botón simétrico ("textStrong", mismo ícono base que
-            "textLight") para que ambos extremos de peso sean alcanzables sin
-            convertir el párrafo en heading. */}
-        <IconButton
-          icon="textStrong"
-          tooltip="Peso del bloque: fuerte"
-          variant={weight === "strong" ? "primary" : "tertiary"}
-          size="s"
-          onClick={() => toggleWeight("strong")}
-          disabled={disabled}
-        />
-        <IconButton
-          icon="textLight"
-          tooltip="Peso del bloque: ligera"
-          variant={weight === "light" ? "primary" : "tertiary"}
-          size="s"
-          onClick={() => toggleWeight("light")}
-          disabled={disabled}
-        />
-        <Line vert background="neutral-alpha-weak" height="20" />
-        {/* Color de texto (tarea 4): aplica a TODO el bloque, mismo nivel
-            que `weight`/`italic` (ver `onColorChange`). El swatch del
-            trigger se tiñe con `color` (prop real de `IconButton`, ver
-            ai/components/IconButton.json) para previsualizar la selección
-            actual sin abrir el dropdown.
-            BUG CONFIRMADO (auditoría, "color en heading"): igual que color/
-            familia nunca llegaban al `<Heading>` real (ver comentario junto
-            a `getHeadingPreviewClassName` — headings van por su propia ruta
-            JSX/ATX en `blockToMarkdown`, sin `color`/`family` de bloque),
-            este control quedaba habilitado con el cursor en un h2/h3/h4:
-            elegir un color ahí no tenía NINGÚN efecto visible (ni en el
-            heading, que no lo recibe, ni en el resto del párrafo, que no
-            está seleccionado) — mismo tipo de affordance engañosa que ya se
-            resolvió para negrita/cursiva/subrayado/tachado (ver
-            `cursorInHeading` arriba). Se deshabilita con el mismo criterio. */}
-        <DropdownWrapper
-          isOpen={colorMenuOpen}
-          onOpenChange={setColorMenuOpen}
-          placement="bottom-start"
-          trigger={
-            <IconButton
-              icon="paintBrush"
-              tooltip={inlineFormatTooltip(
-                `Color de texto: ${
-                  TEXT_COLOR_OPTIONS.find((option) => option.value === color)?.label ??
-                  "Predeterminado"
-                }`,
-              )}
-              variant={color !== "default" ? "primary" : "tertiary"}
-              color={color !== "default" ? color : undefined}
-              size="s"
-              disabled={disabled || cursorInHeading}
-            />
-          }
-          dropdown={
-            <Column minWidth={11} padding="4" gap="2">
-              {TEXT_COLOR_OPTIONS.map((option) => (
-                <Option
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                  selected={color === option.value}
-                  onClick={() => {
-                    onColorChange(option.value);
-                    setColorMenuOpen(false);
-                  }}
-                />
-              ))}
-            </Column>
-          }
-        />
-        {/* Familia tipográfica (tarea 4): `family` real de Once UI (body/
-            heading/label/code), mismo nivel de bloque que color/weight.
-            Deshabilitada con el cursor en heading por el mismo motivo que
-            color (ver comentario extenso arriba): tampoco llega al
-            `<Heading>` real. */}
-        <DropdownWrapper
-          isOpen={familyMenuOpen}
-          onOpenChange={setFamilyMenuOpen}
-          placement="bottom-start"
-          trigger={
-            <IconButton
-              tooltip={inlineFormatTooltip(
-                `Familia tipográfica: ${
-                  TEXT_FAMILY_OPTIONS.find((option) => option.value === family)?.label ?? "Cuerpo"
-                }`,
-              )}
-              variant={family !== "default" ? "primary" : "tertiary"}
+              tooltip={inlineFormatTooltip(`Fuente: ${font ? font : "Predeterminada"}`)}
+              variant={font ? "primary" : "tertiary"}
               size="s"
               disabled={disabled || cursorInHeading}
             >
-              <Text variant="label-strong-s">Aa</Text>
+              {/* Preview inmediato: el trigger muestra "Aa" en la fuente
+                  activa — mismo criterio que ya usaba el trigger "Aa" de
+                  Familia, ahora con `style.fontFamily` real en vez de una
+                  clase token (no hay token Once UI para un nombre de fuente
+                  libre, ver GOTCHA `color.tokens` — esto es contenido
+                  editable del USUARIO, no decoración de layout). */}
+              <Text variant="label-strong-s" style={{ fontFamily: resolveFontStack(font) }}>
+                Aa
+              </Text>
             </IconButton>
           }
           dropdown={
-            <Column minWidth={10} padding="4" gap="2">
-              {TEXT_FAMILY_OPTIONS.map((option) => (
+            <Column
+              minWidth={12}
+              padding="4"
+              gap="2"
+              style={{ maxHeight: "16rem", overflowY: "auto" }}
+            >
+              <Option
+                label="Predeterminada"
+                value="default"
+                selected={!font}
+                onClick={() => {
+                  onFontChange(undefined);
+                  setFontMenuOpen(false);
+                }}
+              />
+              {FONT_LIBRARY.map((entry) => (
                 <Option
-                  key={option.value}
-                  label={option.label}
-                  value={option.value}
-                  selected={family === option.value}
+                  key={entry.name}
+                  label={<span style={{ fontFamily: entry.cssValue }}>{entry.name}</span>}
+                  value={entry.name}
+                  selected={font === entry.name}
                   onClick={() => {
-                    onFamilyChange(option.value);
-                    setFamilyMenuOpen(false);
+                    onFontChange(entry.name);
+                    setFontMenuOpen(false);
                   }}
                 />
               ))}
             </Column>
           }
         />
+        {/* Tamaño por puntaje: `NumberInput` real de Once UI (ver
+            ai/components/NumberInput.json / docs.once-ui.com/once-ui/
+            form-controls/input) — incrementa/decrementa con los chevrons
+            propios del componente además de tecleo libre. Ancho acotado con
+            un `Row maxWidth` (token nativo, no CSS a mano) porque `Input`
+            —de quien extiende `NumberInput`— siempre es `fillWidth` por
+            dentro (ver dist/components/Input.js: Column raíz `fillWidth:
+            true`), y esta barra es compacta. */}
+        <Row maxWidth={8}>
+          <NumberInput
+            id={sizeInputId}
+            value={pt ?? DEFAULT_TEXT_PT}
+            onChange={(value) => onPtChange(value)}
+            min={8}
+            max={96}
+            step={1}
+            height="s"
+            disabled={disabled || cursorInHeading}
+          />
+        </Row>
+        {/* Color libre: `ColorInput` real de Once UI (ver ai/components/
+            ColorInput.json / docs.once-ui.com/once-ui/form-controls/
+            colorInput) — hex libre con su propio botón de reset (icono
+            "close" nativo del componente) que dispara
+            `onChange({ target: { value: "" } })`; se traduce aquí a
+            `hexColor = undefined` = "sin color, hereda el token de tema de
+            siempre". AVISO (documentado también en mdx.tsx y en el reporte
+            de la tarea): un hex fijo NO se adapta a modo claro/oscuro —
+            decisión consciente del usuario al elegir un color libre en vez
+            de dejarlo en "Predeterminado". */}
+        <Row maxWidth={13}>
+          <ColorInput
+            id={colorInputId}
+            value={hexColor ?? ""}
+            onChange={(e) => onHexColorChange(e.target.value || undefined)}
+            height="s"
+            disabled={disabled || cursorInHeading}
+          />
+        </Row>
         <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="bold"
@@ -1983,13 +1889,21 @@ function RichTextEditor({
         onBlur={emit}
         // `className` reproduce el estilo real del párrafo publicado (ver
         // `getParagraphPreviewClassName`, fix del bug de preview de
-        // Color/Familia/Peso); `style` solo cubre lo que esas clases NO
+        // Color/Familia/Peso, legacy); `style` cubre lo que esas clases NO
         // pueden expresar: alineación de bloque completo (fallback legado,
-        // ver `alignCurrentParagraph`) y cursiva (bloque sin control en la
-        // UI, ver GOTCHA junto a `onItalicChange` — se conserva por
-        // retrocompatibilidad con piezas viejas). Los headings internos se
-        // sacan de este color/familia/peso vía `syncHeadingPreviewStyles`
-        // (nunca los heredan en el visor tampoco).
+        // ver `alignCurrentParagraph`), cursiva (bloque sin control en la UI,
+        // ver GOTCHA junto a `onItalicChange` — se conserva por
+        // retrocompatibilidad con piezas viejas), y los 3 controles nuevos
+        // Fuente/Tamaño/Color (`font`/`pt`/`hexColor`, ver
+        // `resolveFontStack`/`ptToPx` — valores LIBRES sin token Once UI
+        // equivalente, mismo criterio de "estilo inline solo en el
+        // contentEditable, ahí no hay pipeline" del objetivo de la tarea).
+        // `style` inline SIEMPRE gana sobre las clases de
+        // `getParagraphPreviewClassName` (mayor especificidad), así que
+        // font/pt/hexColor se ven de inmediato aunque `family`/`color`
+        // legacy también estén presentes en un bloque viejo. Los headings
+        // internos se sacan de los 3 vía `syncHeadingPreviewStyles` (nunca
+        // los heredan en el visor tampoco).
         className={getParagraphPreviewClassName(weight, color, family)}
         style={{
           minHeight: "6rem",
@@ -1997,6 +1911,9 @@ function RichTextEditor({
           lineHeight: 1.6,
           textAlign: align,
           fontStyle: italic ? "italic" : undefined,
+          fontFamily: resolveFontStack(font),
+          fontSize: pt !== undefined ? `${ptToPx(pt)}px` : undefined,
+          color: hexColor || undefined,
         }}
       />
     </Column>
@@ -2121,12 +2038,15 @@ export function ContentBlockCard({
           italic={block.italic ?? false}
           color={block.color ?? "default"}
           family={block.family ?? "default"}
+          font={block.font}
+          pt={block.pt}
+          hexColor={block.hexColor}
           onChange={(next) => onChange({ ...block, html: next })}
           onAlignChange={(align) => onChange({ ...block, align })}
-          onWeightChange={(weight) => onChange({ ...block, weight })}
           onItalicChange={(italic) => onChange({ ...block, italic })}
-          onColorChange={(color) => onChange({ ...block, color })}
-          onFamilyChange={(family) => onChange({ ...block, family })}
+          onFontChange={(font) => onChange({ ...block, font })}
+          onPtChange={(pt) => onChange({ ...block, pt })}
+          onHexColorChange={(hexColor) => onChange({ ...block, hexColor })}
           disabled={disabled}
         />
       )}
@@ -2355,8 +2275,8 @@ export function ContentBlockCard({
       {!collapsed && block.type === "categoryTags" && (
         <Column gap="16">
           <Text variant="body-default-xs" onBackground="neutral-weak">
-            Selecciona las categorías del proyecto. Se guardan como etiquetas estáticas en la
-            pieza publicada.
+            Selecciona las categorías del proyecto. Se guardan como etiquetas estáticas en la pieza
+            publicada.
           </Text>
           {PROJECT_VERTICALS.map((vertical) => (
             <Column key={vertical} gap="8">
