@@ -350,6 +350,20 @@ const HEADING_VARIANT: Record<2 | 3 | 4, string> = {
 // el heading toma la MISMA ruta JSX (`<Heading variant=... />`) que ya usa
 // `align`, ampliada para disparar también cuando el usuario elige un estilo
 // no-default (ver `blockToMarkdown`, case "text").
+// AUDITORÍA (duplicidad confirmada, ver informe): "body-strong-l"/
+// "body-default-l" ("Texto destacado"/"Texto grande") duplicaban, con un
+// mecanismo distinto y más costoso (obliga a convertir el párrafo en h2/h3/h4
+// real —tag semántico, ver `setHeadingFormat`—, y este Select solo se
+// habilita cuando `blockFormat !== "p"`), lo que el usuario ya espera resolver
+// con "Peso del bloque" a nivel párrafo normal: texto grande/destacado SIN
+// pagar el costo semántico de un heading. Se retiran de la curaduría
+// visible (este array, fuente única del dropdown) para no ofrecer dos
+// caminos a la misma intención — pero se CONSERVAN en
+// `LEGACY_HEADING_VARIANT_VALUES` (ver abajo) para que una pieza YA
+// guardada con ese valor en `data-variant` siga reconociéndose/
+// serializándose IDÉNTICO (round-trip intacto, ver `syncSelectionState` y
+// `splitTextBlockHtml`), aunque ya no aparezca como opción para elegir de
+// nuevo.
 const HEADING_VARIANT_OPTIONS: { value: string; label: string }[] = [
   { value: "default", label: "Predeterminado" },
   { value: "display-strong-l", label: "Título grande" },
@@ -357,14 +371,19 @@ const HEADING_VARIANT_OPTIONS: { value: string; label: string }[] = [
   { value: "heading-strong-l", label: "Subtítulo" },
   { value: "heading-strong-m", label: "Encabezado" },
   { value: "heading-default-m", label: "Encabezado ligero" },
-  { value: "body-strong-l", label: "Texto destacado" },
-  { value: "body-default-l", label: "Texto grande" },
 ];
 
-const HEADING_VARIANT_VALUES = new Set(
-  HEADING_VARIANT_OPTIONS.filter((option) => option.value !== "default").map(
+// Valores retirados de `HEADING_VARIANT_OPTIONS` (ver comentario arriba) que
+// una pieza guardada ANTES de esta auditoría puede seguir trayendo en su
+// `data-variant`: solo se usan para no romper el round-trip de esas piezas.
+const LEGACY_HEADING_VARIANT_VALUES = new Set(["body-strong-l", "body-default-l"]);
+
+const HEADING_VARIANT_VALUES = new Set([
+  ...HEADING_VARIANT_OPTIONS.filter((option) => option.value !== "default").map(
     (option) => option.value,
   ),
+  ...LEGACY_HEADING_VARIANT_VALUES,
+]
 );
 
 // FEATURE (color de texto, tarea 4): curaduría corta de `onBackground`
@@ -1153,6 +1172,94 @@ function ensureBlockWrapping(el: HTMLElement): boolean {
 // contentEditable — ver GOTCHA de `ensureBlockWrapping` arriba.
 const EMPTY_TEXT_BLOCK_SEED = "<div><br></div>";
 
+// BUG CONFIRMADO (auditoría, clase 2 — "opciones que no se reflejan en la
+// previsualización del editor pero SÍ renderizan en el visor"): Color,
+// Familia y Estilo de encabezado escribían únicamente en el estado del
+// bloque (`onColorChange`/`onFamilyChange`/`data-variant`) sin tocar NUNCA
+// el DOM del `contentEditable` — el editor en vivo se veía exactamente
+// igual sin importar qué opción de esos 3 controles estuviera activa,
+// mientras que el visor publicado (que sí lee esos valores en
+// `serializeTextSegment`/`splitTextBlockHtml`) los aplicaba. Fix: reproducir
+// en el propio `contentEditable` las MISMAS clases utilitarias que Once UI
+// genera internamente para `Text`/`Heading` (ver dist/components/Text.js y
+// Heading.js — `getVariantClasses`/`colorClass`, verificadas leyendo el
+// paquete y confirmadas contra dist/css/styles.css: `.font-{type}`,
+// `.font-{weight}`, `.font-{size}`, `.{scheme}-on-background-{weight}`,
+// `.font-family-{family}` son clases REALES ya cargadas globalmente, no CSS
+// nuevo). Se referencian por nombre en vez de re-renderizar `<Text>`/
+// `<Heading>` de React porque el contenido es un DOM crudo editado por
+// `execCommand` — envolverlo en componentes React competiría por el mismo
+// nodo y perdería el caret en cada tecla.
+function getVariantClasses(variant: string): string[] {
+  const parts = variant.split("-");
+  const size = parts.pop() ?? "m";
+  const weight = parts.pop() ?? "default";
+  const fontType = parts.join("-") || "body";
+  return [`font-${fontType}`, `font-${weight}`, `font-${size}`];
+}
+
+function getOnBackgroundClass(value: string): string {
+  const [scheme, weight] = value.split("-");
+  return `${scheme}-on-background-${weight}`;
+}
+
+// Clases del párrafo/bloque normal (no-heading), calcadas 1:1 de
+// `serializeTextSegment` (mismo par de caminos: "sin cambios" usa el
+// shorthand `variant="body-default-m"`; cualquier override reconstruye
+// `family`+`size="m"`+`onBackground`+`weight` sueltos — ver ese comentario
+// para el detalle de por qué `variant` deja de usarse ahí).
+function getParagraphPreviewClassName(
+  weight: TextBlockWeight,
+  color: TextBlockColor,
+  family: TextBlockFamily,
+): string {
+  if (weight === "default" && color === "default" && family === "default") {
+    return [...getVariantClasses("body-default-m"), getOnBackgroundClass("neutral-medium")].join(
+      " ",
+    );
+  }
+  const resolvedColor = color !== "default" ? color : weight === "light" ? "neutral-weak" : "neutral-medium";
+  const resolvedFamily = family !== "default" ? family : "body";
+  const classes = ["font-m", getOnBackgroundClass(resolvedColor), `font-family-${resolvedFamily}`];
+  if (weight === "strong") classes.push("font-strong");
+  return classes.join(" ");
+}
+
+// Estilo de un heading (h2/h3/h4) en vivo: mismo mapeo `HEADING_VARIANT`/
+// `HEADING_VARIANT_VALUES` que ya usa la serialización, más el color fijo
+// "neutral-on-background-strong" que `Heading.js` aplica por defecto sin
+// `onBackground` (ver dist/components/Heading.js: `colorClass =
+// "neutral-on-background-strong"` cuando no hay override) — los headings
+// NUNCA reciben `color`/`family` de bloque en `blockToMarkdown` (van por su
+// propia ruta `<Heading>`/ATX sin esos props), así que su preview tampoco
+// debe heredarlos del párrafo exterior.
+function getHeadingPreviewClassName(level: 2 | 3 | 4, rawVariant: string | null): string {
+  const variant =
+    rawVariant && (HEADING_VARIANT_VALUES.has(rawVariant) || LEGACY_HEADING_VARIANT_VALUES.has(rawVariant))
+      ? rawVariant
+      : HEADING_VARIANT[level];
+  return [...getVariantClasses(variant), "neutral-on-background-strong"].join(" ");
+}
+
+// Aplica `getHeadingPreviewClassName` a TODOS los h2/h3/h4 dentro de `root` y
+// neutraliza `fontStyle`/`fontWeight` heredados por CSS del `<div>` exterior
+// (color/tamaño/familia sí quedan resueltos por las clases de arriba, que
+// SIEMPRE ganan sobre un valor heredado — pero `fontStyle`/`fontWeight`
+// inline del padre son propiedades heredadas y no hay clase equivalente que
+// las pise, así que se resetean a mano). Se llama tras cualquier mutación
+// que pueda crear/actualizar un heading: carga inicial del bloque,
+// conversión de formato y cambio de variante.
+function syncHeadingPreviewStyles(root: HTMLElement): void {
+  root.querySelectorAll("h2, h3, h4").forEach((node) => {
+    const el = node as HTMLElement;
+    const level = HEADING_TAG_LEVEL[el.tagName];
+    if (!level) return;
+    el.className = getHeadingPreviewClassName(level, el.getAttribute("data-variant"));
+    el.style.fontStyle = "normal";
+    el.style.fontWeight = "";
+  });
+}
+
 function RichTextEditor({
   html,
   align,
@@ -1251,6 +1358,11 @@ function RichTextEditor({
     if (el.childNodes.length === 0) {
       el.innerHTML = EMPTY_TEXT_BLOCK_SEED;
     }
+    // Preview de headings (ver `syncHeadingPreviewStyles`): una pieza
+    // cargada para editar puede traer h2/h3/h4 con `data-variant` ya
+    // guardado — sin esto, el editor los mostraría con el tamaño por
+    // defecto del navegador hasta la primera interacción con la barra.
+    syncHeadingPreviewStyles(el);
   }, [html, onChange]);
 
   // BUG INTERMITENTE (el estilo elegido a veces no se aplica — reproducido
@@ -1494,6 +1606,10 @@ function RichTextEditor({
       }
     }
     setBlockFormat(format);
+    // Preview en vivo (ver `syncHeadingPreviewStyles`): tanto al convertir a
+    // heading (aplica tamaño/color reales) como al volver a "Cuerpo"
+    // (limpia cualquier clase de heading que haya quedado en otro nodo).
+    if (el) syncHeadingPreviewStyles(el);
     emit();
   };
 
@@ -1512,6 +1628,12 @@ function RichTextEditor({
     if (value === "default") blockEl.removeAttribute("data-variant");
     else blockEl.setAttribute("data-variant", value);
     setParagraphVariant(value);
+    // Preview en vivo (BUG CONFIRMADO, ver `syncHeadingPreviewStyles`):
+    // antes este control solo escribía el atributo `data-variant` —sin
+    // ninguna clase CSS que lo lea—, así que elegir cualquier "Estilo de
+    // encabezado" no cambiaba nada visible en el editor aunque sí llegara
+    // correctamente al visor publicado.
+    syncHeadingPreviewStyles(el);
     emit();
   };
 
@@ -1538,6 +1660,22 @@ function RichTextEditor({
     setParagraphAlign(value);
     emit();
   };
+
+  // BUG CONFIRMADO (auditoría, clase 3 — "opciones que se rompen o no hacen
+  // nada en el visor final"): `splitTextBlockHtml` aplana un heading a texto
+  // plano vía `node.textContent` (ver ese comentario) — cualquier
+  // negrita/cursiva/subrayado/tachado/enlace aplicado DENTRO de un h2/h3/h4
+  // se ve bien en el editor pero desaparece silenciosamente al publicar (el
+  // heading YA se ve fuerte con su propio peso tipográfico, así que "Negrita"
+  // ahí no solo no sobrevive: no comunica nada distinto tampoco). No es
+  // corregible sin reescribir el heading a HTML enriquecido (abre los
+  // GOTCHAs de Markdown-dentro-de-heading que ese mismo comentario decidió
+  // evitar), así que se deshabilitan estos controles mientras el cursor está
+  // en un heading, en vez de dejar una opción visible que se pierde en
+  // silencio.
+  const cursorInHeading = blockFormat !== "p";
+  const inlineFormatTooltip = (label: string) =>
+    cursorInHeading ? `${label} (no disponible en títulos)` : label;
 
   return (
     <Column fillWidth gap="8" radius="m" border="neutral-alpha-weak" padding="8" background="page">
@@ -1633,6 +1771,22 @@ function RichTextEditor({
           }
         />
         <Line vert background="neutral-alpha-weak" height="20" />
+        {/* Peso del bloque (párrafo normal, no heading): "fuerte" faltaba su
+            propio botón —el campo `weight="strong"` ya existía completo en
+            tipo/serialización (ver `serializeTextSegment`)/vista previa,
+            pero solo "ligera" tenía trigger en la barra, dejándolo
+            inalcanzable desde la UI (auditoría, hallazgo de paridad).
+            Se agrega el botón simétrico ("textStrong", mismo ícono base que
+            "textLight") para que ambos extremos de peso sean alcanzables sin
+            convertir el párrafo en heading. */}
+        <IconButton
+          icon="textStrong"
+          tooltip="Peso del bloque: fuerte"
+          variant={weight === "strong" ? "primary" : "tertiary"}
+          size="s"
+          onClick={() => toggleWeight("strong")}
+          disabled={disabled}
+        />
         <IconButton
           icon="textLight"
           tooltip="Peso del bloque: ligera"
@@ -1719,44 +1873,44 @@ function RichTextEditor({
         <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="bold"
-          tooltip="Negrita"
+          tooltip={inlineFormatTooltip("Negrita")}
           variant={activeFormats.bold ? "primary" : "tertiary"}
           size="s"
           onClick={() => toggleInlineFormat("bold")}
-          disabled={disabled}
+          disabled={disabled || cursorInHeading}
         />
         <IconButton
           icon="italic"
-          tooltip="Cursiva"
+          tooltip={inlineFormatTooltip("Cursiva")}
           variant={activeFormats.italic ? "primary" : "tertiary"}
           size="s"
           onClick={() => toggleInlineFormat("italic")}
-          disabled={disabled}
+          disabled={disabled || cursorInHeading}
         />
         <IconButton
           icon="underline"
-          tooltip="Subrayado"
+          tooltip={inlineFormatTooltip("Subrayado")}
           variant={activeFormats.underline ? "primary" : "tertiary"}
           size="s"
           onClick={() => toggleInlineFormat("underline")}
-          disabled={disabled}
+          disabled={disabled || cursorInHeading}
         />
         <IconButton
           icon="strikethrough"
-          tooltip="Tachado"
+          tooltip={inlineFormatTooltip("Tachado")}
           variant={activeFormats.strikeThrough ? "primary" : "tertiary"}
           size="s"
           onClick={() => toggleInlineFormat("strikeThrough")}
-          disabled={disabled}
+          disabled={disabled || cursorInHeading}
         />
         <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="link"
-          tooltip="Insertar enlace"
+          tooltip={inlineFormatTooltip("Insertar enlace")}
           variant="tertiary"
           size="s"
           onClick={insertLink}
-          disabled={disabled}
+          disabled={disabled || cursorInHeading}
         />
         <EmojiPickerDropdown
           onSelect={insertEmoji}
@@ -1780,13 +1934,21 @@ function RichTextEditor({
         suppressContentEditableWarning
         onInput={emit}
         onBlur={emit}
+        // `className` reproduce el estilo real del párrafo publicado (ver
+        // `getParagraphPreviewClassName`, fix del bug de preview de
+        // Color/Familia/Peso); `style` solo cubre lo que esas clases NO
+        // pueden expresar: alineación de bloque completo (fallback legado,
+        // ver `alignCurrentParagraph`) y cursiva (bloque sin control en la
+        // UI, ver GOTCHA junto a `onItalicChange` — se conserva por
+        // retrocompatibilidad con piezas viejas). Los headings internos se
+        // sacan de este color/familia/peso vía `syncHeadingPreviewStyles`
+        // (nunca los heredan en el visor tampoco).
+        className={getParagraphPreviewClassName(weight, color, family)}
         style={{
           minHeight: "6rem",
           outline: "none",
           lineHeight: 1.6,
           textAlign: align,
-          fontWeight: weight === "strong" ? "var(--font-weight-display-strong)" : undefined,
-          color: weight === "light" ? "var(--neutral-on-background-weak)" : undefined,
           fontStyle: italic ? "italic" : undefined,
         }}
       />
