@@ -251,36 +251,40 @@ function DesignerBack({
         <BlobFx seed={seed} fill opacity={60} />
       </Mask>
 
-      {/* Onda de MatrixFx: overlay absoluto de toda la tarjeta, DETRÁS de los
-          datos y el avatar (zIndex 2 < 3), corriendo de fondo mientras la
-          tarjeta está volteada (trigger="manual", active=matrixActive viene
-          del `flipped` de DesignerCard, no del click). pointerEvents="none"
-          para no interceptar clicks. bulge tipo ripple con repeat:true cicla
-          continuamente mientras `matrixActive` esté encendido; revealFrom
-          "center" queda concéntrico con el avatar, que también está
-          centrado en la tarjeta. fps más bajo (30) porque puede haber 8+
-          tarjetas con el canvas corriendo en simultáneo. */}
-      <MatrixFx
-        trigger="manual"
-        active={matrixActive}
-        revealFrom="center"
-        colors={["accent-solid-strong"]}
-        bulge={{ type: "ripple", duration: 1.2, intensity: 15, repeat: true }}
-        fps={30}
-        position="absolute"
-        top="0"
-        left="0"
-        fill
-        pointerEvents="none"
-        zIndex={2}
-      />
-
       {/* Contenido, todo posicionado absoluto y centrado respecto a la
           tarjeta completa (el padding de este Column no afecta ese cálculo:
           el containing block de un hijo absoluto es la padding box del
           ancestro posicionado, que sin border/margin coincide con el tamaño
           total de la tarjeta). */}
-      <Column fillWidth fillHeight zIndex={3}>
+      <Column fillWidth fillHeight zIndex={2}>
+        {/* MatrixFx anidado DENTRO de este mismo Column (en vez de sibling
+            suelto): así comparte el MISMO containing block que el Avatar de
+            abajo (top/left 50%), en lugar de calcular su centro contra un
+            ancestro distinto. Elimina cualquier posibilidad de desfase entre
+            el punto donde arranca la onda y el centro real del avatar — la
+            onda queda literalmente detrás de él. Va primero en el DOM (sin
+            zIndex propio) para pintarse debajo del avatar y del bloque de
+            nombre/rol dentro de este mismo grupo. Corre de fondo mientras la
+            tarjeta está volteada (trigger="manual",
+            active=matrixActive viene del `flipped` de DesignerCard, no del
+            click). pointerEvents="none" para no interceptar clicks. bulge
+            tipo ripple con repeat:true cicla continuamente mientras
+            `matrixActive` esté encendido. fps más bajo (30) porque puede
+            haber 8+ tarjetas con el canvas corriendo en simultáneo. */}
+        <MatrixFx
+          trigger="manual"
+          active={matrixActive}
+          revealFrom="center"
+          colors={["accent-solid-strong"]}
+          bulge={{ type: "ripple", duration: 1.2, intensity: 15, repeat: true }}
+          fps={30}
+          position="absolute"
+          top="0"
+          left="0"
+          fill
+          pointerEvents="none"
+        />
+
         {/* Avatar centrado en AMBOS ejes al centro geométrico de la tarjeta:
             top/left 50% + translateX/translateY -50% son props nativas de
             Flex (parsePosition en dist/components/ServerFlex.js las pasa tal
@@ -291,8 +295,9 @@ function DesignerBack({
             width:"33%" + aspectRatio:"1" (height:"auto" para que aspectRatio
             controle el alto); la Media interna ya usa fill+aspectRatio "1" y
             llena ese círculo. `size={8}` solo queda como pista para el
-            `sizes` de next/image, no define el layout. El MatrixFx con
-            revealFrom="center" queda concéntrico con este mismo punto. Sin
+            `sizes` de next/image, no define el layout. El MatrixFx de arriba
+            usa este MISMO Column como referencia, así que su centro
+            (revealFrom="center") coincide exactamente con este punto. Sin
             onClick propio: un click aquí burbujea al onClick del Column
             contenedor (goToProfile), que ya cubre toda la tarjeta. */}
         <Avatar
