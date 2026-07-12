@@ -44,10 +44,23 @@ const protectedRoutes: ProtectedRoutesConfig = {
 };
 
 // Import and set font for each variant
-import { Geist } from "next/font/google";
-import { Geist_Mono } from "next/font/google";
+// FEATURE (prueba tipográfica, tarea "instalar Google Fonts de uso libre"):
+// heading/body/label/code eran los 4 la MISMA familia (Geist) — el selector
+// "Familia" del editor de piezas (ver ContentBlocks.tsx, TEXT_FAMILY_OPTIONS)
+// aplicaba la clase `font-{type}` correcta, pero las 4 clases resolvían al
+// mismo binario de fuente, así que nunca se veía ninguna diferencia (en vivo
+// NI en el visor publicado). Se sustituyen `heading` (Space Grotesk, geométrica
+// con presencia, buena distinción a tamaños grandes de título) y `label`
+// (Inter, diseñada para UI/legibilidad en tamaños chicos) — ambas SIL Open
+// Font License, variable fonts (next/font/google resuelve el eje de peso
+// completo sin declarar `weight` explícito, mismo patrón que Geist). `body`
+// se queda en Geist a propósito (no cambiar la base tipográfica del sitio de
+// golpe) y `code` se queda en Geist_Mono. Mismas CSS variables de siempre
+// (--font-heading/--font-body/--font-label/--font-code): el sistema de
+// tokens de Once UI no se toca, solo el binario detrás de cada variable.
+import { Geist, Geist_Mono, Inter, Space_Grotesk } from "next/font/google";
 
-const heading = Geist({
+const heading = Space_Grotesk({
   variable: "--font-heading",
   subsets: ["latin"],
   display: "swap",
@@ -59,7 +72,7 @@ const body = Geist({
   display: "swap",
 });
 
-const label = Geist({
+const label = Inter({
   variable: "--font-label",
   subsets: ["latin"],
   display: "swap",

@@ -77,15 +77,39 @@ export type TextBlockWeight = "default" | "strong" | "light";
 // junto a `escapeAttr`) igual que `variant`/`align`, ya probados. "default"
 // = sin override (usa el mismo cálculo de color que ya deriva `weight`, y
 // family="body" de siempre).
+// BUG CONFIRMADO (auditoría, "el color elegido no se ve en el visor"):
+// verificado con Playwright contra una pieza real (markdown guardado +
+// `getComputedStyle` en el visor publicado) que un párrafo SOLO-color SÍ
+// toma la ruta JSX de `serializeTextSegment` con el `onBackground` correcto
+// (`<Text onBackground="brand-strong">...`) — la serialización nunca fue el
+// problema. La causa raíz es el TOKEN elegido: los 4 sufijos "-strong" no
+// neutros (brand/accent/danger/success) son, en el tema real del sitio,
+// variantes de texto optimizadas para MÁXIMO CONTRASTE —Once UI las resuelve
+// casi negras sin importar el matiz (`--brand-on-background-strong:
+// #050b0d`, `--accent-on-background-strong: #050911`, `--danger-on-
+// background-strong: #130507`, `--success-on-background-strong: #040b07`,
+// todas indistinguibles entre sí y del negro por defecto `--neutral-on-
+// background-strong: #0a0a0a`), mientras que el sufijo "-medium" del MISMO
+// scheme sí muestra el matiz real y sigue siendo legible (`--brand-on-
+// background-medium: #0c6367` teal, `--accent-on-background-medium:
+// #045b9c` azul, `--danger-on-background-medium: #b6020c` rojo, `--success-
+// on-background-medium: #0c6731` verde). Se cambian los 4 valores de "fuerte"
+// a "medio" (mismo patrón semántico que ya usa "Neutro medio"); los
+// "neutral-*" no se tocan (esos SÍ son distinguibles entre sí, ver
+// `--neutral-on-background-{strong,medium,weak}` arriba). Sin cambios de
+// runtime en piezas YA publicadas con el valor viejo ("brand-strong", etc.):
+// ese string sigue siendo un `onBackground` válido de Once UI, solo que
+// republicar (re-guardar) la pieza con la opción re-seleccionada aplicará el
+// tono visible nuevo.
 export type TextBlockColor =
   | "default"
   | "neutral-strong"
   | "neutral-medium"
   | "neutral-weak"
-  | "brand-strong"
-  | "accent-strong"
-  | "danger-strong"
-  | "success-strong";
+  | "brand-medium"
+  | "accent-medium"
+  | "danger-medium"
+  | "success-medium";
 export type TextBlockFamily = "default" | "heading" | "label" | "code";
 
 export type ContentBlock =
@@ -394,15 +418,21 @@ const HEADING_VARIANT_VALUES = new Set([
 // Markdown guardado → visor público, sin ningún atributo perdido por el
 // GOTCHA de props con llaves (`onBackground` siempre viaja como string
 // entre comillas, nunca `{...}`).
+// FIX (ver comentario extenso junto a `TextBlockColor`): brand/accent/
+// danger/success usan el sufijo "-medium" (no "-strong") — verificado con
+// `getComputedStyle` en el visor real que "-strong" resuelve casi negro en
+// las 4 escalas de este tema (token de máximo contraste, no pensado para
+// mostrar matiz), mientras "-medium" sí es distinguible y sigue siendo
+// legible.
 const TEXT_COLOR_OPTIONS: { value: TextBlockColor; label: string; swatch: string }[] = [
   { value: "default", label: "Predeterminado", swatch: "neutral-medium" },
   { value: "neutral-strong", label: "Neutro fuerte", swatch: "neutral-strong" },
   { value: "neutral-medium", label: "Neutro medio", swatch: "neutral-medium" },
   { value: "neutral-weak", label: "Neutro suave", swatch: "neutral-weak" },
-  { value: "brand-strong", label: "Marca", swatch: "brand-strong" },
-  { value: "accent-strong", label: "Acento", swatch: "accent-strong" },
-  { value: "danger-strong", label: "Peligro", swatch: "danger-strong" },
-  { value: "success-strong", label: "Éxito", swatch: "success-strong" },
+  { value: "brand-medium", label: "Marca", swatch: "brand-medium" },
+  { value: "accent-medium", label: "Acento", swatch: "accent-medium" },
+  { value: "danger-medium", label: "Peligro", swatch: "danger-medium" },
+  { value: "success-medium", label: "Éxito", swatch: "success-medium" },
 ];
 
 // FEATURE (familia tipográfica, tarea 4): `family` (TextType real: body/
@@ -1800,7 +1830,17 @@ function RichTextEditor({
             que `weight`/`italic` (ver `onColorChange`). El swatch del
             trigger se tiñe con `color` (prop real de `IconButton`, ver
             ai/components/IconButton.json) para previsualizar la selección
-            actual sin abrir el dropdown. */}
+            actual sin abrir el dropdown.
+            BUG CONFIRMADO (auditoría, "color en heading"): igual que color/
+            familia nunca llegaban al `<Heading>` real (ver comentario junto
+            a `getHeadingPreviewClassName` — headings van por su propia ruta
+            JSX/ATX en `blockToMarkdown`, sin `color`/`family` de bloque),
+            este control quedaba habilitado con el cursor en un h2/h3/h4:
+            elegir un color ahí no tenía NINGÚN efecto visible (ni en el
+            heading, que no lo recibe, ni en el resto del párrafo, que no
+            está seleccionado) — mismo tipo de affordance engañosa que ya se
+            resolvió para negrita/cursiva/subrayado/tachado (ver
+            `cursorInHeading` arriba). Se deshabilita con el mismo criterio. */}
         <DropdownWrapper
           isOpen={colorMenuOpen}
           onOpenChange={setColorMenuOpen}
@@ -1808,14 +1848,16 @@ function RichTextEditor({
           trigger={
             <IconButton
               icon="paintBrush"
-              tooltip={`Color de texto: ${
-                TEXT_COLOR_OPTIONS.find((option) => option.value === color)?.label ??
-                "Predeterminado"
-              }`}
+              tooltip={inlineFormatTooltip(
+                `Color de texto: ${
+                  TEXT_COLOR_OPTIONS.find((option) => option.value === color)?.label ??
+                  "Predeterminado"
+                }`,
+              )}
               variant={color !== "default" ? "primary" : "tertiary"}
               color={color !== "default" ? color : undefined}
               size="s"
-              disabled={disabled}
+              disabled={disabled || cursorInHeading}
             />
           }
           dropdown={
@@ -1836,19 +1878,24 @@ function RichTextEditor({
           }
         />
         {/* Familia tipográfica (tarea 4): `family` real de Once UI (body/
-            heading/label/code), mismo nivel de bloque que color/weight. */}
+            heading/label/code), mismo nivel de bloque que color/weight.
+            Deshabilitada con el cursor en heading por el mismo motivo que
+            color (ver comentario extenso arriba): tampoco llega al
+            `<Heading>` real. */}
         <DropdownWrapper
           isOpen={familyMenuOpen}
           onOpenChange={setFamilyMenuOpen}
           placement="bottom-start"
           trigger={
             <IconButton
-              tooltip={`Familia tipográfica: ${
-                TEXT_FAMILY_OPTIONS.find((option) => option.value === family)?.label ?? "Cuerpo"
-              }`}
+              tooltip={inlineFormatTooltip(
+                `Familia tipográfica: ${
+                  TEXT_FAMILY_OPTIONS.find((option) => option.value === family)?.label ?? "Cuerpo"
+                }`,
+              )}
               variant={family !== "default" ? "primary" : "tertiary"}
               size="s"
-              disabled={disabled}
+              disabled={disabled || cursorInHeading}
             >
               <Text variant="label-strong-s">Aa</Text>
             </IconButton>
