@@ -83,22 +83,62 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
       )}
 
-      {/* Franja de degradado (con patrón de puntos) que hace legible el
-          nombre/rol sobre la imagen, ancla abajo y se desvanece hacia
-          arriba. Se sube a ~40% para dar aire al nombre en dos líneas. */}
+      {imageSrc && (
+        // Duplicado blurreado de la MISMA imagen (mismo src) para simular el
+        // blur progresivo de la base. NO se puede usar backdrop-filter aquí:
+        // dentro de las caras de FlipFx (contexto 3D con perspective +
+        // preserve-3d + backface-visibility hidden, capas promovidas al
+        // compositor) Chromium vuelve inerte cualquier backdrop-filter de un
+        // descendiente. `filter` + `mask-image` sobre contenido propio sí
+        // funcionan en ese contexto, así que este layer trae su propio
+        // blur(16px) recortado por un mask-image que va opaco en la base y
+        // desaparece a la mitad de la tarjeta (mismos stops que el fade de
+        // abajo). scale(1.1) evita el halo transparente que el blur deja en
+        // los bordes de la imagen.
+        <Flex
+          position="absolute"
+          top="0"
+          left="0"
+          fill
+          pointerEvents="none"
+          overflow="hidden"
+          zIndex={1}
+          style={{
+            WebkitMaskImage: "linear-gradient(to top, black 0%, black 18%, transparent 50%)",
+            maskImage: "linear-gradient(to top, black 0%, black 18%, transparent 50%)",
+          }}
+        >
+          <Media
+            aria-hidden
+            src={imageSrc}
+            alt=""
+            fill
+            fillHeight
+            objectFit="cover"
+            sizes="(max-width: 1024px) 100vw, 33vw"
+            style={{ filter: "blur(16px)", transform: "scale(1.1)" }}
+          />
+        </Flex>
+      )}
+
+      {/* Tinte de degradado que hace legible el nombre/rol sobre la imagen:
+          ancla abajo, sin patrón de puntos (pattern.display=false). El blur
+          real ya lo aporta el duplicado de arriba (zIndex 1); este Fade solo
+          suma color/contraste con opacity baja para dejar ver más imagen. */}
       <Fade
         to="top"
         base="page"
-        pattern={{ display: true, size: "8" }}
+        pattern={{ display: false }}
+        opacity={50}
         position="absolute"
         bottom="0"
         left="0"
         fillWidth
-        zIndex={1}
-        style={{ height: "40%" }}
+        zIndex={2}
+        style={{ height: "50%" }}
       />
 
-      <Column position="absolute" bottom="0" left="0" fillWidth padding="16" gap="4" zIndex={2}>
+      <Column position="absolute" bottom="0" left="0" fillWidth padding="16" gap="4" zIndex={3}>
         <Heading variant="display-strong-xs" onBackground="neutral-strong" wrap="balance">
           {designer.name}
         </Heading>
@@ -117,10 +157,14 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
 // "fadeIn" del código llega a 1). El dot más lejano del centro tiene
 // introOffset ≈ 0.95 (normalizedDistance=1 * 0.8 + randomOffset máx. 0.15),
 // así que el peor caso necesita revealProgress ≈ 1.075, es decir
-// elapsed = (1.075 / 3) ** (1/3) ≈ 0.71s. Navegamos a los 900ms para dar
-// margen (frame drops, bulge) y que la onda cubra visualmente toda la
-// tarjeta antes de salir de ella.
-const MATRIX_REVEAL_MS = 900;
+// elapsed = (1.075 / 3) ** (1/3) ≈ 0.71s. El `bulge` (ripple) no cambia esta
+// cuenta: en el branch de trigger click/manual/hover, bulgeOpacity solo
+// multiplica el alpha ya calculado por el reveal (no gatea la aparición del
+// dot), así que el "cubrir toda la tarjeta" sigue dependiendo únicamente de
+// revealProgress. Con bulge.duration=1.2s, a los 1000ms el ripple ya
+// completó ~80% de un ciclo (visible con claridad) y el reveal ya cubrió de
+// sobra la tarjeta; navegamos a ese margen.
+const MATRIX_REVEAL_MS = 1000;
 
 function DesignerBack({
   designer,
@@ -172,9 +216,9 @@ function DesignerBack({
       background="neutral-alpha-weak"
       overflow="hidden"
     >
-      {/* Capa base: patrón de puntos en toda la superficie + glow radial
-          suave detrás del centro. Solo tokens globales (mismo recipe que
-          HomeHero), respeta light/dark. */}
+      {/* Capa base: solo el glow radial suave detrás del centro (sin patrón
+          de puntos). Tokens globales, mismo esquema de color que HomeHero,
+          respeta light/dark. */}
       <Background
         position="absolute"
         top="0"
@@ -182,7 +226,6 @@ function DesignerBack({
         fill
         pointerEvents="none"
         zIndex={0}
-        dots={{ display: true, opacity: 30 }}
         gradient={{
           display: true,
           opacity: 60,
@@ -203,40 +246,65 @@ function DesignerBack({
         <BlobFx seed={seed} fill opacity={60} />
       </Mask>
 
-      {/* Contenido: avatar grande → nombre → roles, centrado verticalmente
-          (el avatar queda algo arriba del centro real por el peso del resto
-          de la columna debajo). */}
-      <Column fillWidth fillHeight padding="24" gap="12" center zIndex={2}>
-        <Avatar {...avatarProps} size="xl" cursor="interactive" onClick={handleAvatarClick} />
-        <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
-          {designer.name}
-        </Heading>
-        {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
-          <Row gap="8" wrap horizontal="center" vertical="center">
-            {designer.primaryRole && <RoleTag role={designer.primaryRole} variant="primary" />}
-            {designer.secondaryRoles.map((role) => (
-              <RoleTag key={role} role={role} variant="secondary" />
-            ))}
-          </Row>
-        )}
-      </Column>
-
       {/* Onda expansiva de MatrixFx: overlay absoluto de toda la tarjeta,
-          activado por estado (trigger="manual") desde el click en el avatar.
-          pointerEvents="none" para no bloquear el click del avatar antes de
-          activarse. */}
+          pero DETRÁS de los datos y el avatar (zIndex 2 < 3), activado por
+          estado (trigger="manual") desde el click en el avatar. pointerEvents
+          "none" para no bloquear el click del avatar antes de activarse.
+          bulge tipo ripple repite mientras `active` esté encendido; se corta
+          al navegar (ver MATRIX_REVEAL_MS). */}
       <MatrixFx
         trigger="manual"
         active={revealing}
         revealFrom="center"
-        bulge={{ type: "ripple", intensity: 8, duration: 1, repeat: false }}
+        colors={["accent-solid-strong"]}
+        bulge={{ type: "ripple", duration: 1.2, intensity: 15, repeat: true }}
         position="absolute"
         top="0"
         left="0"
         fill
         pointerEvents="none"
-        zIndex={3}
+        zIndex={2}
       />
+
+      {/* Contenido: avatar grande → nombre → roles, centrado verticalmente
+          (el avatar queda algo arriba del centro real por el peso del resto
+          de la columna debajo). */}
+      <Column fillWidth fillHeight padding="24" gap="12" center zIndex={3}>
+        {/* Diámetro ≈ 1/3 del ancho de la tarjeta y responsivo: Avatar con
+            `size` string/número solo trae anchos fijos en rem (ver
+            Avatar.module.scss / sizeInRem en dist/components/Avatar.js). El
+            `style` de Avatar se mergea último y gana sobre esos valores fijos,
+            así que forzamos width:"33%" + aspectRatio:"1" (height:"auto" para
+            que aspectRatio controle el alto); la Media interna ya usa
+            fill+aspectRatio "1" y llena ese círculo. `size={8}` solo queda
+            como pista para el `sizes` de next/image, no define el layout. */}
+        <Avatar
+          {...avatarProps}
+          size={8}
+          cursor="interactive"
+          onClick={handleAvatarClick}
+          style={{ width: "33%", height: "auto", minWidth: "0", minHeight: "0", aspectRatio: "1" }}
+        />
+        <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
+          {designer.name}
+        </Heading>
+        {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
+          <Column gap="8" horizontal="center" align="center">
+            {designer.primaryRole && (
+              <Row horizontal="center">
+                <RoleTag role={designer.primaryRole} variant="primary" />
+              </Row>
+            )}
+            {designer.secondaryRoles.length > 0 && (
+              <Row gap="8" wrap horizontal="center" vertical="center">
+                {designer.secondaryRoles.map((role) => (
+                  <RoleTag key={role} role={role} variant="secondary" />
+                ))}
+              </Row>
+            )}
+          </Column>
+        )}
+      </Column>
 
       {/* Flecha para des-voltear sin navegar; siempre visible, esquina superior
           derecha, por encima de todo lo demás (incluida la onda MatrixFx) para
