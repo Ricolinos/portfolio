@@ -64,67 +64,15 @@ type Designer = {
 function DesignerFront({ designer, seed }: { designer: Designer; seed: number }) {
   const imageSrc = designer.featuredImageUrl || designer.avatar || null;
 
-  return (
-    <Column fillWidth fillHeight radius="l" overflow="hidden" background="neutral-alpha-weak">
-      {imageSrc ? (
-        // HoloFx es el wrapper absoluto full-bleed; la Media queda dentro,
-        // sin posicionarse ella misma, rellenando el "base" de HoloFx al 100%.
-        <HoloFx position="absolute" top="0" left="0" fill radius="l">
-          <Media
-            src={imageSrc}
-            alt={designer.name}
-            fill
-            fillHeight
-            objectFit="cover"
-            sizes="(max-width: 1024px) 100vw, 33vw"
-          />
-        </HoloFx>
-      ) : (
-        <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
-      )}
-
-      {imageSrc && (
-        // Duplicado blurreado de la MISMA imagen (mismo src) para simular el
-        // blur progresivo de la base. NO se puede usar backdrop-filter aquí:
-        // dentro de las caras de FlipFx (contexto 3D con perspective +
-        // preserve-3d + backface-visibility hidden, capas promovidas al
-        // compositor) Chromium vuelve inerte cualquier backdrop-filter de un
-        // descendiente. `filter` + `mask-image` sobre contenido propio sí
-        // funcionan en ese contexto, así que este layer trae su propio
-        // blur(16px) recortado por un mask-image que va opaco en la base y
-        // desaparece a la mitad de la tarjeta (mismos stops que el fade de
-        // abajo). scale(1.1) evita el halo transparente que el blur deja en
-        // los bordes de la imagen.
-        <Flex
-          position="absolute"
-          top="0"
-          left="0"
-          fill
-          pointerEvents="none"
-          overflow="hidden"
-          zIndex={1}
-          style={{
-            WebkitMaskImage: "linear-gradient(to top, black 0%, black 18%, transparent 50%)",
-            maskImage: "linear-gradient(to top, black 0%, black 18%, transparent 50%)",
-          }}
-        >
-          <Media
-            aria-hidden
-            src={imageSrc}
-            alt=""
-            fill
-            fillHeight
-            objectFit="cover"
-            sizes="(max-width: 1024px) 100vw, 33vw"
-            style={{ filter: "blur(16px)", transform: "scale(1.1)" }}
-          />
-        </Flex>
-      )}
-
+  // Fade (tinte) + textos: se reutilizan tal cual dentro o fuera del HoloFx
+  // según haya imagen, para no duplicar el JSX.
+  const overlay = (
+    <>
       {/* Tinte de degradado que hace legible el nombre/rol sobre la imagen:
           ancla abajo, sin patrón de puntos (pattern.display=false). El blur
-          real ya lo aporta el duplicado de arriba (zIndex 1); este Fade solo
-          suma color/contraste con opacity baja para dejar ver más imagen. */}
+          real lo aporta el duplicado de imagen (zIndex 1, solo cuando hay
+          imagen); este Fade solo suma color/contraste con opacity baja para
+          dejar ver más imagen. */}
       <Fade
         to="top"
         base="page"
@@ -146,54 +94,100 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
           {designer.headline}
         </Text>
       </Column>
+    </>
+  );
+
+  return (
+    <Column fillWidth fillHeight radius="l" overflow="hidden" background="neutral-alpha-weak">
+      {imageSrc ? (
+        // HoloFx envuelve TODO el frente (imagen base + duplicado blurreado +
+        // Fade + textos), no solo la imagen: en dist/components/HoloFx.js
+        // pinta "base" (los children tal cual) y luego 3 capas overlay
+        // (burn/shine/texture) que REPITEN los mismos children con blend
+        // modes/máscara distintos, apiladas encima. Si HoloFx solo envolvía
+        // la imagen, el shine/burn quedaba tapado por el duplicado/Fade/texto
+        // que estaban fuera y por encima; como wrapper raíz, el brillo cubre
+        // toda la tarjeta.
+        <HoloFx fill radius="l">
+          <Media
+            src={imageSrc}
+            alt={designer.name}
+            fill
+            fillHeight
+            objectFit="cover"
+            sizes="(max-width: 1024px) 100vw, 33vw"
+          />
+
+          {/* Duplicado blurreado de la MISMA imagen (mismo src) para simular
+              el blur progresivo de la base. NO se puede usar backdrop-filter
+              aquí: dentro de las caras de FlipFx (contexto 3D con
+              perspective + preserve-3d + backface-visibility hidden, capas
+              promovidas al compositor) Chromium vuelve inerte cualquier
+              backdrop-filter de un descendiente. `filter` + `mask-image`
+              sobre contenido propio sí funcionan en ese contexto, así que
+              este layer trae su propio blur(16px) recortado por un
+              mask-image que va opaco en la base y desaparece a la mitad de
+              la tarjeta (mismos stops que el Fade de abajo). scale(1.1)
+              evita el halo transparente que el blur deja en los bordes de
+              la imagen. */}
+          <Flex
+            position="absolute"
+            top="0"
+            left="0"
+            fill
+            pointerEvents="none"
+            overflow="hidden"
+            zIndex={1}
+            style={{
+              WebkitMaskImage: "linear-gradient(to top, black 0%, black 18%, transparent 50%)",
+              maskImage: "linear-gradient(to top, black 0%, black 18%, transparent 50%)",
+            }}
+          >
+            <Media
+              aria-hidden
+              src={imageSrc}
+              alt=""
+              fill
+              fillHeight
+              objectFit="cover"
+              sizes="(max-width: 1024px) 100vw, 33vw"
+              style={{ filter: "blur(16px)", transform: "scale(1.1)" }}
+            />
+          </Flex>
+
+          {overlay}
+        </HoloFx>
+      ) : (
+        <>
+          <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
+          {overlay}
+        </>
+      )}
     </Column>
   );
 }
 
-// Duración de la onda de MatrixFx cronometrada sobre su propio ciclo
-// (trigger="manual", ver dist/components/MatrixFx.js): con speed=1,
-// revealProgress = elapsed^3 * speed * 3, capado a 2.0. Un dot alcanza su
-// opacidad máxima cuando revealProgress supera introOffset + 0.125 (el
-// "fadeIn" del código llega a 1). El dot más lejano del centro tiene
-// introOffset ≈ 0.95 (normalizedDistance=1 * 0.8 + randomOffset máx. 0.15),
-// así que el peor caso necesita revealProgress ≈ 1.075, es decir
-// elapsed = (1.075 / 3) ** (1/3) ≈ 0.71s. El `bulge` (ripple) no cambia esta
-// cuenta: en el branch de trigger click/manual/hover, bulgeOpacity solo
-// multiplica el alpha ya calculado por el reveal (no gatea la aparición del
-// dot), así que el "cubrir toda la tarjeta" sigue dependiendo únicamente de
-// revealProgress. Con bulge.duration=1.2s, a los 1000ms el ripple ya
-// completó ~80% de un ciclo (visible con claridad) y el reveal ya cubrió de
-// sobra la tarjeta; navegamos a ese margen.
-const MATRIX_REVEAL_MS = 1000;
-
 function DesignerBack({
   designer,
   seed,
+  matrixActive,
   onFlipBack,
 }: {
   designer: Designer;
   seed: number;
+  matrixActive: boolean;
   onFlipBack: () => void;
 }) {
   const router = useRouter();
-  const [revealing, setRevealing] = useState(false);
 
-  useEffect(() => {
-    if (!revealing) return;
-    const timeout = setTimeout(() => {
-      router.push(designer.projectHref);
-    }, MATRIX_REVEAL_MS);
-    return () => clearTimeout(timeout);
-  }, [revealing, router, designer.projectHref]);
-
-  // El click en el avatar dispara la onda de MatrixFx (trigger="manual",
-  // active=revealing) y, cuando termina, navega al perfil. stopPropagation
-  // evita que el mismo click burbujee hasta el onClick de FlipFx y vuelva a
-  // voltear la tarjeta a mitad de la animación.
+  // El click en el avatar navega directo al perfil; stopPropagation evita
+  // que el mismo click burbujee hasta el onClick de FlipFx y vuelva a
+  // voltear la tarjeta justo cuando estamos navegando. El MatrixFx ya no
+  // espera a ningún ciclo: corre de fondo mientras la tarjeta está volteada
+  // (ver `matrixActive`), así que no hay animación que cronometrar aquí.
   const handleAvatarClick = (event: MouseEvent) => {
     event.stopPropagation();
-    if (revealing) return;
-    setRevealing(true);
+    router.push(designer.projectHref);
   };
 
   // La flecha SOLO regresa al frente: nunca debe navegar ni dejar que el
@@ -246,18 +240,22 @@ function DesignerBack({
         <BlobFx seed={seed} fill opacity={60} />
       </Mask>
 
-      {/* Onda expansiva de MatrixFx: overlay absoluto de toda la tarjeta,
-          pero DETRÁS de los datos y el avatar (zIndex 2 < 3), activado por
-          estado (trigger="manual") desde el click en el avatar. pointerEvents
-          "none" para no bloquear el click del avatar antes de activarse.
-          bulge tipo ripple repite mientras `active` esté encendido; se corta
-          al navegar (ver MATRIX_REVEAL_MS). */}
+      {/* Onda de MatrixFx: overlay absoluto de toda la tarjeta, DETRÁS de los
+          datos y el avatar (zIndex 2 < 3), corriendo de fondo mientras la
+          tarjeta está volteada (trigger="manual", active=matrixActive viene
+          del `flipped` de DesignerCard, no del click). pointerEvents="none"
+          para no interceptar clicks. bulge tipo ripple con repeat:true cicla
+          continuamente mientras `matrixActive` esté encendido; revealFrom
+          "center" queda concéntrico con el avatar, que también está
+          centrado en la tarjeta. fps más bajo (30) porque puede haber 8+
+          tarjetas con el canvas corriendo en simultáneo. */}
       <MatrixFx
         trigger="manual"
-        active={revealing}
+        active={matrixActive}
         revealFrom="center"
         colors={["accent-solid-strong"]}
         bulge={{ type: "ripple", duration: 1.2, intensity: 15, repeat: true }}
+        fps={30}
         position="absolute"
         top="0"
         left="0"
@@ -266,44 +264,72 @@ function DesignerBack({
         zIndex={2}
       />
 
-      {/* Contenido: avatar grande → nombre → roles, centrado verticalmente
-          (el avatar queda algo arriba del centro real por el peso del resto
-          de la columna debajo). */}
-      <Column fillWidth fillHeight padding="24" gap="12" center zIndex={3}>
-        {/* Diámetro ≈ 1/3 del ancho de la tarjeta y responsivo: Avatar con
-            `size` string/número solo trae anchos fijos en rem (ver
-            Avatar.module.scss / sizeInRem en dist/components/Avatar.js). El
-            `style` de Avatar se mergea último y gana sobre esos valores fijos,
-            así que forzamos width:"33%" + aspectRatio:"1" (height:"auto" para
-            que aspectRatio controle el alto); la Media interna ya usa
-            fill+aspectRatio "1" y llena ese círculo. `size={8}` solo queda
-            como pista para el `sizes` de next/image, no define el layout. */}
+      {/* Contenido, todo posicionado absoluto y centrado respecto a la
+          tarjeta completa (el padding de este Column no afecta ese cálculo:
+          el containing block de un hijo absoluto es la padding box del
+          ancestro posicionado, que sin border/margin coincide con el tamaño
+          total de la tarjeta). */}
+      <Column fillWidth fillHeight zIndex={3}>
+        {/* Avatar centrado en AMBOS ejes al centro geométrico de la tarjeta:
+            top/left 50% + translateX/translateY -50% son props nativas de
+            Flex (parsePosition en dist/components/ServerFlex.js las pasa tal
+            cual como CSS y arma `transform: translate(...)`), sin CSS manual.
+            Diámetro ≈ 33% del ancho de la tarjeta: el `style` de Avatar se
+            mergea último y gana sobre sus anchos fijos en rem (ver
+            sizeInRem en dist/components/Avatar.js), así que forzamos
+            width:"33%" + aspectRatio:"1" (height:"auto" para que aspectRatio
+            controle el alto); la Media interna ya usa fill+aspectRatio "1" y
+            llena ese círculo. `size={8}` solo queda como pista para el
+            `sizes` de next/image, no define el layout. El MatrixFx con
+            revealFrom="center" queda concéntrico con este mismo punto. */}
         <Avatar
           {...avatarProps}
           size={8}
           cursor="interactive"
           onClick={handleAvatarClick}
+          position="absolute"
+          top="50%"
+          left="50%"
+          translateX="-50%"
+          translateY="-50%"
           style={{ width: "33%", height: "auto", minWidth: "0", minHeight: "0", aspectRatio: "1" }}
         />
-        <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
-          {designer.name}
-        </Heading>
-        {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
-          <Column gap="8" horizontal="center" align="center">
-            {designer.primaryRole && (
-              <Row horizontal="center">
-                <RoleTag role={designer.primaryRole} variant="primary" />
-              </Row>
-            )}
-            {designer.secondaryRoles.length > 0 && (
-              <Row gap="8" wrap horizontal="center" vertical="center">
-                {designer.secondaryRoles.map((role) => (
-                  <RoleTag key={role} role={role} variant="secondary" />
-                ))}
-              </Row>
-            )}
-          </Column>
-        )}
+
+        {/* Nombre + roles debajo del avatar. La tarjeta es 3/4 (ancho:alto =
+            3:4, ver .flipCard en el .scss): un avatar de 33% de ANCHO mide,
+            en % de ALTO, 33% * 3/4 ≈ 24.75% (radio ≈ 12.4%). Arrancamos el
+            bloque a 50% + 12.5% (borde del avatar) + 16px de aire, para que
+            no se solape ni con nombres a 2 líneas ni con 2 filas de tags. */}
+        <Column
+          position="absolute"
+          left="0"
+          fillWidth
+          paddingX="24"
+          gap="8"
+          horizontal="center"
+          align="center"
+          style={{ top: "calc(50% + 12.5% + 16px)" }}
+        >
+          <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
+            {designer.name}
+          </Heading>
+          {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
+            <Column gap="8" horizontal="center" align="center">
+              {designer.primaryRole && (
+                <Row horizontal="center">
+                  <RoleTag role={designer.primaryRole} variant="primary" />
+                </Row>
+              )}
+              {designer.secondaryRoles.length > 0 && (
+                <Row gap="8" wrap horizontal="center" vertical="center">
+                  {designer.secondaryRoles.map((role) => (
+                    <RoleTag key={role} role={role} variant="secondary" />
+                  ))}
+                </Row>
+              )}
+            </Column>
+          )}
+        </Column>
       </Column>
 
       {/* Flecha para des-voltear sin navegar; siempre visible, esquina superior
@@ -342,7 +368,14 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
         flipped={flipped}
         onFlip={setFlipped}
         front={<DesignerFront designer={designer} seed={seed} />}
-        back={<DesignerBack designer={designer} seed={seed} onFlipBack={() => setFlipped(false)} />}
+        back={
+          <DesignerBack
+            designer={designer}
+            seed={seed}
+            matrixActive={flipped}
+            onFlipBack={() => setFlipped(false)}
+          />
+        }
       />
     </TiltFx>
   );
