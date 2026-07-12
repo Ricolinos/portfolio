@@ -5,6 +5,7 @@ import {
   AvatarGroup,
   Badge,
   Carousel,
+  Chip,
   Column,
   DropdownWrapper,
   EmojiPickerDropdown,
@@ -32,6 +33,7 @@ import { MediaUpload } from "@once-ui-system/core/modules";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
 import { readFileAsDataUrl } from "@/lib/files";
+import { PROJECT_SUBCATEGORIES, PROJECT_VERTICALS } from "@/lib/projectCategories";
 
 // El Canvas no edita un .md crudo: el usuario arma bloques estructurados y
 // estos se serializan a Markdown/MDX (texto plano) tras bambalinas al
@@ -86,6 +88,12 @@ export type ContentBlock =
   | { id: string; type: "video"; url: string }
   | { id: string; type: "divider" }
   | { id: string; type: "tag"; label: string; variant: TagVariant; size: TagSize }
+  // Chips de categorías predefinidas del dominio (verticales/subcategorías
+  // reales de src/lib/projectCategories.ts): multi-select en el editor con
+  // `Chip` (interactivo, onClick de Once UI), serializado como fila de `Tag`
+  // estáticos al guardar — ver decisión documentada junto a `blockToMarkdown`
+  // (case "categoryTags").
+  | { id: string; type: "categoryTags"; selected: string[] }
   | { id: string; type: "badge"; title: string; href: string }
   | { id: string; type: "status"; color: StatusColor; text: string }
   | { id: string; type: "progress"; value: number; min: number; max: number; showLabel: boolean }
@@ -123,6 +131,7 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
   { type: "tag", label: "Etiqueta", icon: "shapes" },
+  { type: "categoryTags", label: "Categorías", icon: "briefcase" },
   { type: "badge", label: "Insignia", icon: "sparkles" },
   { type: "status", label: "Estado", icon: "infoCircle" },
   { type: "progress", label: "Barra de progreso", icon: "refreshCw" },
@@ -170,6 +179,8 @@ export function createBlock(type: ContentBlockType): ContentBlock {
       return { id: newId(), type };
     case "tag":
       return { id: newId(), type, label: "", variant: "neutral", size: "m" };
+    case "categoryTags":
+      return { id: newId(), type, selected: [] };
     case "badge":
       return { id: newId(), type, title: "", href: "" };
     case "status":
@@ -256,18 +267,57 @@ const escapeAttr = (value: string) => value.replace(/"/g, "%22");
 // comportamiento para el caso común).
 type TextSegment =
   | { type: "text"; html: string }
-  | { type: "heading"; level: 2 | 3 | 4; text: string; align?: TextBlockAlign };
+  | {
+      type: "heading";
+      level: 2 | 3 | 4;
+      text: string;
+      align?: TextBlockAlign;
+      variant?: string;
+    };
 
 const HEADING_TAG_LEVEL: Record<string, 2 | 3 | 4> = { H2: 2, H3: 3, H4: 4 };
 
 // Mismo mapeo que `variantMap` de HeadingLink.js (harness Once UI): variant
 // tipográfico real por nivel de heading, para que un heading alineado (ruta
-// JSX) se vea idéntico en tamaño/peso a uno sin alinear (ruta ATX).
+// JSX) se vea idéntico en tamaño/peso a uno sin alinear (ruta ATX). También
+// sirve como valor "Predeterminado" (sin override) del selector de estilo.
 const HEADING_VARIANT: Record<2 | 3 | 4, string> = {
   2: "heading-strong-xl",
   3: "heading-strong-l",
   4: "heading-strong-m",
 };
+
+// FEATURE (variantes de encabezado, curaduría ~6-8 opciones): `Heading`
+// comparte `TextProps` con `Text` (ver ai/components/Heading.json →
+// TextProps.variant: TextVariant), y `TextVariant` es un template literal
+// `${TextType}-${TextWeight}-${TextSize}` con TextType = "body"|"heading"|
+// "display"|"label"|"code" (ver ai/spec.json) — Heading.js (dist) solo
+// parte el string por guiones para armar las clases `font-*`, sin validar
+// que el tipo sea "heading": un `variant="body-strong-l"` en un `<Heading
+// as="h2">` es 100% válido y renderiza con las mismas clases `font-body
+// font-strong font-l` que ya usa cualquier `<Text variant="body-strong-l">`
+// del sitio (verificado leyendo Heading.js: getVariantClasses no distingue
+// origen). GOTCHA de props con llaves (ver arriba): `variant` es siempre
+// string plano, así que sobrevive el pipeline igual que `align` — por eso
+// el heading toma la MISMA ruta JSX (`<Heading variant=... />`) que ya usa
+// `align`, ampliada para disparar también cuando el usuario elige un estilo
+// no-default (ver `blockToMarkdown`, case "text").
+const HEADING_VARIANT_OPTIONS: { value: string; label: string }[] = [
+  { value: "default", label: "Predeterminado" },
+  { value: "display-strong-l", label: "Título grande" },
+  { value: "heading-strong-xl", label: "Título" },
+  { value: "heading-strong-l", label: "Subtítulo" },
+  { value: "heading-strong-m", label: "Encabezado" },
+  { value: "heading-default-m", label: "Encabezado ligero" },
+  { value: "body-strong-l", label: "Texto destacado" },
+  { value: "body-default-l", label: "Texto grande" },
+];
+
+const HEADING_VARIANT_VALUES = new Set(
+  HEADING_VARIANT_OPTIONS.filter((option) => option.value !== "default").map(
+    (option) => option.value,
+  ),
+);
 
 // El texto de un heading pasa a vivir como children de JSX (`<Heading>texto
 // </Heading>`) en vez de texto plano de Markdown ATX (`## texto`): a
@@ -313,7 +363,13 @@ function splitTextBlockHtml(html: string): TextSegment[] {
         rawAlign === "center" || rawAlign === "right" || rawAlign === "justify"
           ? rawAlign
           : undefined;
-      if (text) segments.push({ type: "heading", level, text, align });
+      // `data-variant`: atributo HTML plano (no `style`), mismo criterio que
+      // `align` arriba — puesto/quitado por `setHeadingVariant` en
+      // RichTextEditor. Solo se respeta si coincide con la curaduría
+      // (`HEADING_VARIANT_VALUES`), para no colar un valor arbitrario.
+      const rawVariant = (node as Element).getAttribute("data-variant");
+      const variant = rawVariant && HEADING_VARIANT_VALUES.has(rawVariant) ? rawVariant : undefined;
+      if (text) segments.push({ type: "heading", level, text, align, variant });
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       buffer += (node as Element).outerHTML;
     } else {
@@ -390,12 +446,17 @@ function blockToMarkdown(block: ContentBlock): string {
           return serializeTextSegment(segment.html, align, weight, italic);
         }
         // Ver GOTCHA extenso junto a `TextSegment`/`escapeJsxText`: un heading
-        // sin align sigue el camino ATX de siempre (con anchor de copiar
-        // link); uno CON align se emite como `Heading` real de Once UI para
-        // que la alineación sobreviva a la vista pública.
-        if (!segment.align) return `${"#".repeat(segment.level)} ${segment.text}`;
+        // sin align NI variante propia sigue el camino ATX de siempre (con
+        // anchor de copiar link); uno CON align y/o variante se emite como
+        // `Heading` real de Once UI para que ambos sobrevivan a la vista
+        // pública (ver comentario junto a `HEADING_VARIANT_OPTIONS`).
+        if (!segment.align && !segment.variant) {
+          return `${"#".repeat(segment.level)} ${segment.text}`;
+        }
         const tag = `h${segment.level}` as "h2" | "h3" | "h4";
-        return `<Heading as="${tag}" variant="${HEADING_VARIANT[segment.level]}" align="${segment.align}" marginTop="24" marginBottom="12">${escapeJsxText(segment.text)}</Heading>`;
+        const variant = segment.variant ?? HEADING_VARIANT[segment.level];
+        const alignAttr = segment.align ? ` align="${segment.align}"` : "";
+        return `<Heading as="${tag}" variant="${variant}"${alignAttr} marginTop="24" marginBottom="12">${escapeJsxText(segment.text)}</Heading>`;
       });
       return parts.filter((part) => part.trim() !== "").join("\n\n");
     }
@@ -469,6 +530,38 @@ function blockToMarkdown(block: ContentBlock): string {
       return block.label.trim()
         ? `<Row fillWidth horizontal="center">\n  <Tag variant="${block.variant}" size="${block.size}" label="${escapeAttr(block.label.trim())}" />\n</Row>`
         : "";
+    case "categoryTags": {
+      // DECISIÓN VERIFICADA (Chip vs Tag en el visor publicado): `Chip` (ver
+      // node_modules/@once-ui-system/core/ai/components/Chip.json y
+      // https://docs.once-ui.com/once-ui/form-controls/chip) es un control
+      // interactivo — su selección visual depende de `onClick`
+      // (MouseEventHandler, prop con llaves) y de `iconButtonProps`
+      // (`Partial<IconButtonProps> = {}`, objeto). ambos se eliminan por el
+      // mismo GOTCHA de arriba (blockJS quita cualquier atributo JSX escrito
+      // con llaves), y aunque no fuera así el visor publicado (RSC estático,
+      // sin cliente para manejar el evento) no tiene ningún handler real que
+      // `onClick` pudiera invocar — solo tiene sentido como picker DENTRO de
+      // este editor. `selected` (boolean, default `true`) sí sobreviviría
+      // como shorthand (mismo truco que `label` de ProgressBar), pero sin
+      // `onClick` cada Chip se vería SIEMPRE en su estado "seleccionado"
+      // (ver Chip.js: el ícono de check y el borde de selección dependen de
+      // ese boolean, no de si hay handler), lo que no comunica nada útil en
+      // una lectura pasiva. Se opta por la ruta robusta ya probada en este
+      // mismo archivo (mismo patrón que "tag"/"badge"/"scroller"): `Tag`
+      // estático (props string, ya registrado tal cual en el mapa de
+      // `components` de mdx.tsx) manteniendo la ESTÉTICA de chip/etiqueta en
+      // la vista pública, aunque pierda la interactividad de picker (que de
+      // cualquier forma no tendría ningún efecto en una pieza ya publicada).
+      const selected = block.selected.filter((s) => s.trim());
+      if (selected.length === 0) return "";
+      const tags = selected
+        .map((label) => `  <Tag variant="brand" size="m" label="${escapeAttr(label)}" />`)
+        .join("\n");
+      // `wrap` (sin `fillWidth`/`fill`) dispara el auto-centrado +
+      // `fitWidth` de `createRowElement` en mdx.tsx — mismo mecanismo que ya
+      // usa `logoCloud` (ver ese wrapper en mdx.tsx para el detalle).
+      return `<Row gap="8" wrap>\n${tags}\n</Row>`;
+    }
     case "badge": {
       if (!block.title.trim()) return "";
       const href = block.href.trim();
@@ -1004,7 +1097,12 @@ function RichTextEditor({
   });
   const [blockFormat, setBlockFormat] = useState<HeadingFormat>("p");
   const [paragraphAlign, setParagraphAlign] = useState<TextBlockAlign>(align);
+  // "default" = sin `data-variant` propio (usa el mapeo fijo por nivel de
+  // `HEADING_VARIANT`); solo tiene efecto visible cuando `blockFormat` es
+  // h2/h3/h4 (ver `setHeadingVariant`/UI de la toolbar).
+  const [paragraphVariant, setParagraphVariant] = useState<string>("default");
   const [formatMenuOpen, setFormatMenuOpen] = useState(false);
+  const [variantMenuOpen, setVariantMenuOpen] = useState(false);
 
   // Solo sincroniza el DOM cuando el cambio viene de afuera (ej. al cargar
   // un borrador): si lo hiciéramos en cada emit, el cursor saltaría al
@@ -1099,6 +1197,8 @@ function RichTextEditor({
     setParagraphAlign(
       attrAlign === "center" || attrAlign === "right" || attrAlign === "justify" ? attrAlign : "left",
     );
+    const attrVariant = blockEl?.getAttribute("data-variant");
+    setParagraphVariant(attrVariant && HEADING_VARIANT_VALUES.has(attrVariant) ? attrVariant : "default");
   };
 
   useEffect(() => {
@@ -1256,19 +1356,45 @@ function RichTextEditor({
         ? getBlockAncestor(selectionBefore.getRangeAt(0).commonAncestorContainer, el)
         : null;
     const prevAlign = prevBlock?.getAttribute("align");
+    // Mismo GOTCHA que `align` (ver comentario arriba): `data-variant` (el
+    // selector de estilo de heading) tampoco sobrevive la conversión de
+    // `execCommand("formatBlock", ...)` — se reaplica igual que `align`.
+    const prevVariant = prevBlock?.getAttribute("data-variant");
     document.execCommand("formatBlock", false, `<${format}>`);
-    if (prevAlign && el) {
+    if (el) {
       const selectionAfter = window.getSelection();
       const newBlock =
         selectionAfter && selectionAfter.rangeCount > 0
           ? getBlockAncestor(selectionAfter.getRangeAt(0).commonAncestorContainer, el)
           : null;
-      if (newBlock && !newBlock.getAttribute("align")) {
+      if (newBlock && prevAlign && !newBlock.getAttribute("align")) {
         newBlock.setAttribute("align", prevAlign);
         setParagraphAlign(prevAlign as TextBlockAlign);
       }
+      if (newBlock && prevVariant && !newBlock.getAttribute("data-variant")) {
+        newBlock.setAttribute("data-variant", prevVariant);
+        setParagraphVariant(prevVariant);
+      }
     }
     setBlockFormat(format);
+    emit();
+  };
+
+  // FEATURE (variantes de encabezado): mismo patrón que
+  // `alignCurrentParagraph`, pero sobre `data-variant` en vez de `align` (ver
+  // GOTCHA extenso junto a `HEADING_VARIANT_OPTIONS`). Solo tiene efecto real
+  // cuando el bloque del cursor es h2/h3/h4 — la UI ya deshabilita este
+  // control cuando `blockFormat === "p"`.
+  const setHeadingVariant = (value: string) => {
+    focusEditor();
+    const el = ref.current;
+    const selection = window.getSelection();
+    if (!el || !selection || selection.rangeCount === 0) return;
+    const blockEl = getBlockAncestor(selection.getRangeAt(0).commonAncestorContainer, el);
+    if (!blockEl) return;
+    if (value === "default") blockEl.removeAttribute("data-variant");
+    else blockEl.setAttribute("data-variant", value);
+    setParagraphVariant(value);
     emit();
   };
 
@@ -1345,6 +1471,44 @@ function RichTextEditor({
                   onClick={() => {
                     setHeadingFormat(option.value as HeadingFormat);
                     setFormatMenuOpen(false);
+                  }}
+                />
+              ))}
+            </Column>
+          }
+        />
+        {/* Estilo del encabezado (tarea Heading variants): solo tiene efecto
+            visible sobre h2/h3/h4 (ver `setHeadingVariant`), deshabilitado
+            para "Cuerpo" — un párrafo normal ya usa `serializeTextSegment`
+            (align/weight/italic del bloque completo), no este mecanismo por
+            párrafo. */}
+        <DropdownWrapper
+          isOpen={variantMenuOpen}
+          onOpenChange={setVariantMenuOpen}
+          placement="bottom-start"
+          trigger={
+            <IconButton
+              icon="sparkles"
+              tooltip={`Estilo de encabezado: ${
+                HEADING_VARIANT_OPTIONS.find((option) => option.value === paragraphVariant)
+                  ?.label ?? "Predeterminado"
+              }`}
+              variant={paragraphVariant !== "default" ? "primary" : "tertiary"}
+              size="s"
+              disabled={disabled || blockFormat === "p"}
+            />
+          }
+          dropdown={
+            <Column minWidth={12} padding="4" gap="2">
+              {HEADING_VARIANT_OPTIONS.map((option) => (
+                <Option
+                  key={option.value}
+                  label={option.label}
+                  value={option.value}
+                  selected={paragraphVariant === option.value}
+                  onClick={() => {
+                    setHeadingVariant(option.value);
+                    setVariantMenuOpen(false);
                   }}
                 />
               ))}
@@ -1774,6 +1938,54 @@ export function ContentBlockCard({
           {block.label.trim() !== "" && (
             <Row>
               <Tag variant={block.variant} size={block.size} label={block.label} />
+            </Row>
+          )}
+        </Column>
+      )}
+
+      {!collapsed && block.type === "categoryTags" && (
+        <Column gap="16">
+          <Text variant="body-default-xs" onBackground="neutral-weak">
+            Selecciona las categorías del proyecto. Se guardan como etiquetas estáticas en la
+            pieza publicada.
+          </Text>
+          {PROJECT_VERTICALS.map((vertical) => (
+            <Column key={vertical} gap="8">
+              <Text variant="label-strong-s" onBackground="neutral-weak">
+                {vertical}
+              </Text>
+              <Row gap="8" wrap>
+                {PROJECT_SUBCATEGORIES[vertical].map((subcategory) => {
+                  const isSelected = block.selected.includes(subcategory);
+                  return (
+                    <Chip
+                      key={subcategory}
+                      label={subcategory}
+                      selected={isSelected}
+                      // `Chip` (ver ai/components/Chip.json) no expone un prop
+                      // `disabled` propio: se emula quitando el handler.
+                      onClick={
+                        disabled
+                          ? undefined
+                          : () =>
+                              onChange({
+                                ...block,
+                                selected: isSelected
+                                  ? block.selected.filter((s) => s !== subcategory)
+                                  : [...block.selected, subcategory],
+                              })
+                      }
+                    />
+                  );
+                })}
+              </Row>
+            </Column>
+          ))}
+          {block.selected.length > 0 && (
+            <Row gap="8" wrap>
+              {block.selected.map((label) => (
+                <Tag key={label} variant="brand" size="m" label={label} />
+              ))}
             </Row>
           )}
         </Column>

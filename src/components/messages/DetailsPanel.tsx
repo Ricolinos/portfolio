@@ -18,9 +18,10 @@ import {
   Switch,
   Tag,
   Text,
+  Textarea,
   useToast,
 } from "@once-ui-system/core";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   assignProjectRole,
   type ChannelMemberData,
@@ -29,7 +30,9 @@ import {
   getChannelMembers,
   removeProjectRole,
   renameChannel,
+  setChannelAdmin,
   setChannelMembers,
+  updateChannelInfo,
 } from "@/app/actions/channels";
 import type {
   ChannelContextData,
@@ -37,6 +40,8 @@ import type {
   ConversationSummary,
 } from "@/app/actions/inbox";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { CollaboratorSearchModal } from "@/components/collab/CollaboratorSearchModal";
+import { ProjectLogoControl } from "@/components/collab/ProjectLogoControl";
 import type { ProjectMemberRole } from "@/generated/prisma/enums";
 import {
   parseMessageBody,
@@ -198,53 +203,37 @@ export function RolesSection({
 }
 
 /* ── Sección: Acceso a la sala (ChannelMember) ────────────────────────── */
-// Solo la ve quien puede configurarla (cliente dueño o partner fundador —
+// Solo la ve quien puede configurarla (cliente dueño o admin de la sala —
 // canManage viene ya resuelto por el caller a partir de isAdmin/
-// founderPartnerId). Una sala sin ChannelMember queda "abierta a todos".
+// viewerIsRoomAdmin). Una sala sin ChannelMember queda "abierta a todos".
+// members/restricted/loading vienen del fetch centralizado en DetailsPanel
+// (evita duplicar getChannelMembers con RoomInfoSection, que necesita los
+// mismos datos para el editor de miembros y el flag de admin propio).
 
 function AccessSection({
   channelId,
   partners,
   canManage,
+  members,
+  restricted,
+  loading,
+  onChanged,
 }: {
   channelId: string;
   partners: ChannelContextParticipant[];
   canManage: boolean;
+  members: ChannelMemberData[];
+  restricted: boolean;
+  loading: boolean;
+  onChanged: () => void;
 }) {
   const { addToast } = useToast();
-  const [members, setMembers] = useState<ChannelMemberData[]>([]);
-  const [restricted, setRestricted] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch solo debe correr al cambiar de sala o de permiso, no en cada render por addToast.
-  useEffect(() => {
-    if (!canManage) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const result = await getChannelMembers(channelId);
-      if (cancelled) return;
-      if (result.ok) {
-        setMembers(result.members);
-        setRestricted(result.restricted);
-      } else {
-        addToast({ variant: "danger", message: result.error });
-      }
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [channelId, canManage]);
 
   if (!canManage) {
     return (
       <Text variant="body-default-s" onBackground="neutral-weak">
-        Solo el cliente dueño del proyecto o el partner fundador pueden configurar el acceso a esta
+        Solo el cliente dueño del proyecto o un admin de la sala pueden configurar el acceso a esta
         sala.
       </Text>
     );
@@ -266,11 +255,7 @@ function AccessSection({
       addToast({ variant: "danger", message: result.error });
       return false;
     }
-    const refreshed = await getChannelMembers(channelId);
-    if (refreshed.ok) {
-      setMembers(refreshed.members);
-      setRestricted(refreshed.restricted);
-    }
+    onChanged();
     return true;
   };
 
@@ -337,6 +322,296 @@ function AccessSection({
           </Row>
         ))
       )}
+    </Column>
+  );
+}
+
+/* ── Sección: Información editable de la sala (imagen/descripción/miembros) ──
+   Visible a todos los miembros de la sala (imagen + descripción en modo
+   lectura); los admins de la sala (ChannelMember.isAdmin) o el cliente dueño
+   pueden editar ambas vía updateChannelInfo y agregar/quitar colaboradores
+   del proyecto vía setChannelMembers (mismo mecanismo que "Acceso a la
+   sala" — aquí se presenta como roster editable en vez de switches). Un
+   admin de sala (no el cliente) puede auto-quitarse la administración. ── */
+
+function RoomInfoSection({
+  channelId,
+  channel,
+  viewerId,
+  canManage,
+  isRoomAdmin,
+  projectPartners,
+  members,
+  restricted,
+  onChannelUpdated,
+  onSelfDemoted,
+}: {
+  channelId: string;
+  channel: ChannelContextData["channel"];
+  viewerId: string;
+  canManage: boolean;
+  isRoomAdmin: boolean;
+  projectPartners: ChannelContextParticipant[];
+  members: ChannelMemberData[];
+  restricted: boolean;
+  onChannelUpdated: () => void;
+  onSelfDemoted: () => void;
+}) {
+  const { addToast } = useToast();
+  const [description, setDescription] = useState(channel.description ?? "");
+  const [savingDescription, setSavingDescription] = useState(false);
+  const [confirmDemote, setConfirmDemote] = useState(false);
+  const [demoting, setDemoting] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [removeBusyId, setRemoveBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDescription(channel.description ?? "");
+  }, [channel.description]);
+
+  const handleSaveDescription = async () => {
+    setSavingDescription(true);
+    const result = await updateChannelInfo(channelId, { description: description.trim() || null });
+    setSavingDescription(false);
+    if (!result.ok) {
+      addToast({ variant: "danger", message: result.error });
+      return;
+    }
+    addToast({ variant: "success", message: "Descripción actualizada." });
+    onChannelUpdated();
+  };
+
+  const handleUploadImage = (dataUrl: string | null) =>
+    updateChannelInfo(channelId, { imageUrl: dataUrl });
+
+  const handleSelfDemote = async () => {
+    if (!confirmDemote) {
+      setConfirmDemote(true);
+      return;
+    }
+    setDemoting(true);
+    const result = await setChannelAdmin(channelId, viewerId, false);
+    setDemoting(false);
+    if (!result.ok) {
+      addToast({ variant: "danger", message: result.error });
+      return;
+    }
+    addToast({ variant: "success", message: "Ya no eres admin de esta sala." });
+    setConfirmDemote(false);
+    onSelfDemoted();
+  };
+
+  const memberIds = new Set(members.map((entry) => entry.userId));
+  const isInRoom = (id: string) => !restricted || memberIds.has(id);
+  const currentMembers = projectPartners.filter((person) => isInRoom(person.id));
+  const available = projectPartners.filter((person) => !isInRoom(person.id));
+
+  const applyMemberIds = async (nextUserIds: string[]) => {
+    const result = await setChannelMembers(channelId, nextUserIds);
+    if (!result.ok) {
+      addToast({ variant: "danger", message: result.error });
+      return;
+    }
+    onChannelUpdated();
+  };
+
+  const handleAddMember = async (userId: string) => {
+    setAddBusy(true);
+    const base = restricted ? Array.from(memberIds) : projectPartners.map((p) => p.id);
+    await applyMemberIds(Array.from(new Set([...base, userId])));
+    setAddBusy(false);
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    setRemoveBusyId(userId);
+    const base = restricted ? Array.from(memberIds) : projectPartners.map((p) => p.id);
+    await applyMemberIds(base.filter((id) => id !== userId));
+    setRemoveBusyId(null);
+  };
+
+  const searchPeople = available.map((person) => ({
+    id: person.id,
+    name: person.name,
+    username: person.username,
+    headline: null,
+  }));
+
+  return (
+    <Column gap="20" fillWidth>
+      <Column gap="8" fillWidth>
+        <Text variant="label-strong-s" onBackground="neutral-strong">
+          Imagen de la sala
+        </Text>
+        <ProjectLogoControl
+          logoUrl={channel.imageUrl}
+          title={channel.name}
+          canEdit={canManage}
+          size="l"
+          onUpload={handleUploadImage}
+          onSaved={onChannelUpdated}
+        />
+      </Column>
+
+      <Column gap="8" fillWidth>
+        <Text variant="label-strong-s" onBackground="neutral-strong">
+          Descripción
+        </Text>
+        {canManage ? (
+          <Column gap="8" fillWidth>
+            <Textarea
+              id="room-description"
+              placeholder="¿De qué trata esta sala?"
+              lines={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+            <Row fillWidth horizontal="end">
+              <Button
+                variant="secondary"
+                size="s"
+                onClick={handleSaveDescription}
+                loading={savingDescription}
+                disabled={description.trim() === (channel.description ?? "").trim()}
+              >
+                Guardar descripción
+              </Button>
+            </Row>
+          </Column>
+        ) : (
+          <Text variant="body-default-s" onBackground="neutral-weak">
+            {channel.description || "Esta sala no tiene descripción."}
+          </Text>
+        )}
+      </Column>
+
+      <Column gap="8" fillWidth>
+        <Text variant="label-strong-s" onBackground="neutral-strong">
+          Miembros de la sala
+        </Text>
+        {currentMembers.length === 0 ? (
+          <Text variant="body-default-s" onBackground="neutral-weak">
+            Nadie más en la sala todavía.
+          </Text>
+        ) : (
+          currentMembers.map((person) => (
+            <Row key={person.id} fillWidth gap="8" vertical="center" horizontal="between">
+              <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
+                <Avatar
+                  size="xs"
+                  {...(person.imageUrl
+                    ? { src: person.imageUrl }
+                    : { value: personInitial(person) })}
+                />
+                <Text variant="body-default-s" onBackground="neutral-strong" truncate>
+                  {personLabel(person)}
+                </Text>
+              </Row>
+              {canManage && (
+                <IconButton
+                  icon="close"
+                  size="s"
+                  variant="tertiary"
+                  tooltip="Quitar de la sala"
+                  loading={removeBusyId === person.id}
+                  disabled={removeBusyId !== null}
+                  onClick={() => handleRemoveMember(person.id)}
+                />
+              )}
+            </Row>
+          ))
+        )}
+        {canManage && (
+          <CollaboratorSearchModal
+            people={searchPeople}
+            onSelect={handleAddMember}
+            trigger={
+              <Button variant="secondary" size="s" prefixIcon="plus" disabled={addBusy}>
+                Añadir colaborador
+              </Button>
+            }
+            emptyHint="Todos los colaboradores del proyecto ya están en esta sala."
+          />
+        )}
+      </Column>
+
+      {isRoomAdmin && (
+        <Column gap="8" fillWidth paddingTop="8" borderTop="neutral-alpha-weak">
+          <Button
+            variant={confirmDemote ? "danger" : "secondary"}
+            size="s"
+            onClick={handleSelfDemote}
+            loading={demoting}
+          >
+            {confirmDemote ? "Confirmar: dejar de ser admin" : "Dejar de ser admin de esta sala"}
+          </Button>
+        </Column>
+      )}
+    </Column>
+  );
+}
+
+/* ── Sección exclusiva del cliente: administradores de la sala ──────────
+   Lista de colaboradores del proyecto con switch de admin (setChannelAdmin).
+   Otorgar admin solo lo permite el cliente (regla del server action); este
+   switch vive únicamente en la rama isAdmin de PrivacySection. ─────────── */
+
+function RoomAdminsList({
+  channelId,
+  partners,
+  members,
+  onChanged,
+}: {
+  channelId: string;
+  partners: ChannelContextParticipant[];
+  members: ChannelMemberData[];
+  onChanged: () => void;
+}) {
+  const { addToast } = useToast();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const adminIds = new Set(members.filter((entry) => entry.isAdmin).map((entry) => entry.userId));
+
+  const handleToggle = async (userId: string, next: boolean) => {
+    if (busyId) return;
+    setBusyId(userId);
+    const result = await setChannelAdmin(channelId, userId, next);
+    setBusyId(null);
+    if (!result.ok) {
+      addToast({ variant: "danger", message: result.error });
+      return;
+    }
+    onChanged();
+  };
+
+  if (partners.length === 0) {
+    return (
+      <Text variant="body-default-s" onBackground="neutral-weak">
+        Todavía no hay partners en este proyecto.
+      </Text>
+    );
+  }
+
+  return (
+    <Column gap="8" fillWidth>
+      {partners.map((person) => (
+        <Row key={person.id} fillWidth gap="8" vertical="center" horizontal="between">
+          <Row gap="8" vertical="center" style={{ minWidth: 0 }}>
+            <Avatar
+              size="xs"
+              {...(person.imageUrl ? { src: person.imageUrl } : { value: personInitial(person) })}
+            />
+            <Text variant="body-default-s" onBackground="neutral-strong" truncate>
+              {personLabel(person)}
+            </Text>
+          </Row>
+          <Switch
+            isChecked={adminIds.has(person.id)}
+            onToggle={() => handleToggle(person.id, !adminIds.has(person.id))}
+            loading={busyId === person.id}
+            disabled={busyId !== null}
+            ariaLabel={`Admin de la sala para ${personLabel(person)}`}
+          />
+        </Row>
+      ))}
     </Column>
   );
 }
@@ -435,11 +710,17 @@ function MediaSection({ messages }: { messages: StreamMessage[] }) {
 function PrivacySection({
   conversation,
   context,
+  projectPartners,
+  members,
+  onAdminsChanged,
   onChannelsChanged,
   onChannelDeleted,
 }: {
   conversation: ConversationSummary;
   context: ChannelContextData | null;
+  projectPartners: ChannelContextParticipant[];
+  members: ChannelMemberData[];
+  onAdminsChanged: () => void;
   onChannelsChanged: (preferChannelId?: string) => void;
   onChannelDeleted: () => void;
 }) {
@@ -518,6 +799,24 @@ function PrivacySection({
 
   return (
     <Column gap="12" fillWidth>
+      <Column gap="8" fillWidth>
+        <Text variant="label-strong-s" onBackground="neutral-strong">
+          Administradores de la sala
+        </Text>
+        <Text variant="body-default-s" onBackground="neutral-weak">
+          Los admins pueden editar la imagen, descripción y miembros de la sala, pero no pueden
+          eliminarla.
+        </Text>
+        <RoomAdminsList
+          channelId={context.channel.id}
+          partners={projectPartners}
+          members={members}
+          onChanged={onAdminsChanged}
+        />
+      </Column>
+
+      <Line background="neutral-alpha-weak" />
+
       <Button variant="secondary" size="s" prefixIcon="edit" onClick={() => setRenameOpen(true)}>
         Renombrar canal
       </Button>
@@ -624,6 +923,51 @@ export function DetailsPanel({
   onChannelDeleted: () => void;
 }) {
   const isGroup = conversation.kind === "group";
+  const channelId = isGroup ? (conversation.channelId ?? null) : null;
+
+  // Fetch centralizado de ChannelMember: alimenta tanto "Acceso a la sala"
+  // (switches de restricción) como la nueva "Información de la sala"
+  // (roster editable + flag de admin propio) sin duplicar getChannelMembers
+  // entre ambas secciones (los Accordion de Once UI montan su contenido
+  // siempre, aunque estén colapsados — ver gotcha más abajo).
+  const [members, setMembers] = useState<ChannelMemberData[]>([]);
+  const [restricted, setRestricted] = useState(false);
+  const [membersLoading, setMembersLoading] = useState(true);
+
+  const refetchMembers = useCallback(async () => {
+    if (!channelId) return;
+    const result = await getChannelMembers(channelId);
+    if (result.ok) {
+      setMembers(result.members);
+      setRestricted(result.restricted);
+    }
+  }, [channelId]);
+
+  useEffect(() => {
+    if (!channelId) {
+      setMembers([]);
+      setRestricted(false);
+      setMembersLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMembersLoading(true);
+    (async () => {
+      await refetchMembers();
+      if (!cancelled) setMembersLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, refetchMembers]);
+
+  const viewerIsRoomAdmin = members.find((entry) => entry.userId === viewerId)?.isAdmin ?? false;
+  const canManageRoom = Boolean(channelContext?.isAdmin) || viewerIsRoomAdmin;
+  const projectPartners = channelContext
+    ? channelContext.participants.filter((person) =>
+        channelContext.partnerParticipants.includes(person.id),
+      )
+    : [];
 
   const profileName = isGroup ? conversation.title : conversation.title;
   const profileMeta = isGroup
@@ -676,19 +1020,42 @@ export function DetailsPanel({
   );
 
   const items = [
-    { title: "Información del chat", content: infoContent },
+    {
+      title: isGroup ? "Información de la sala" : "Información del chat",
+      content: (
+        <Column gap="20" fillWidth>
+          {infoContent}
+          {isGroup && (
+            <>
+              <Line background="neutral-alpha-weak" />
+              {!channelContext || !channelId || membersLoading ? (
+                <Text variant="label-default-s" onBackground="neutral-weak">
+                  Cargando...
+                </Text>
+              ) : (
+                <RoomInfoSection
+                  channelId={channelId}
+                  channel={channelContext.channel}
+                  viewerId={viewerId}
+                  canManage={canManageRoom}
+                  isRoomAdmin={viewerIsRoomAdmin}
+                  projectPartners={projectPartners}
+                  members={members}
+                  restricted={restricted}
+                  onChannelUpdated={() => {
+                    onContextRefresh();
+                    refetchMembers();
+                  }}
+                  onSelfDemoted={refetchMembers}
+                />
+              )}
+            </>
+          )}
+        </Column>
+      ),
+    },
     ...(isGroup
       ? [
-          {
-            title: "Roles del proyecto",
-            content: !channelContext ? (
-              <Text variant="label-default-s" onBackground="neutral-weak">
-                {loadingContext ? "Cargando..." : "Sin datos."}
-              </Text>
-            ) : (
-              <RolesSection context={channelContext} onChanged={onContextRefresh} />
-            ),
-          },
           {
             title: "Acceso a la sala",
             content:
@@ -699,10 +1066,12 @@ export function DetailsPanel({
               ) : (
                 <AccessSection
                   channelId={conversation.channelId}
-                  partners={channelContext.participants.filter((person) =>
-                    channelContext.partnerParticipants.includes(person.id),
-                  )}
-                  canManage={channelContext.isAdmin || viewerId === channelContext.founderPartnerId}
+                  partners={projectPartners}
+                  canManage={canManageRoom}
+                  members={members}
+                  restricted={restricted}
+                  loading={membersLoading}
+                  onChanged={refetchMembers}
                 />
               ),
           },
@@ -729,6 +1098,9 @@ export function DetailsPanel({
         <PrivacySection
           conversation={conversation}
           context={channelContext}
+          projectPartners={projectPartners}
+          members={members}
+          onAdminsChanged={refetchMembers}
           onChannelsChanged={onChannelsChanged}
           onChannelDeleted={onChannelDeleted}
         />

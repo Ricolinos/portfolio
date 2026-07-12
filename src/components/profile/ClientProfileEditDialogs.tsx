@@ -16,7 +16,6 @@ import {
   PasswordInput,
   Row,
   Select,
-  Slider,
   Text,
   ToggleButton,
 } from "@once-ui-system/core";
@@ -28,6 +27,7 @@ import {
   type ProfileInfoInput,
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { ImageCropper } from "@/components/shared/ImageCropper";
 import { AppearancePanel } from "./AppearancePanel";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
@@ -35,188 +35,10 @@ const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const OUTPUT_PX = 400;
 // Lado del viewport de encuadre en pantalla.
 const CROP_VIEW = 240;
+const MAX_AVATAR_DATA_URL_CHARS = 2_000_000;
 const MAX_MOTTO_CHARS = 40;
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    // Error real en lugar del Event crudo: sin esto un rechazo no capturado
-    // aparece en consola como "[object Event]"
-    img.onerror = () => reject(new Error("No se pudo cargar la imagen"));
-    img.src = src;
-  });
-}
-
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 3;
-
 const modalBackdrop = <BrandModalBackdrop />;
-
-// ─── Encuadre arrastrable ─────────────────────────────────────────────────────
-// La imagen se muestra a escala "cover" (× zoom) dentro de un viewport
-// cuadrado; el usuario la arrastra para centrar/reencuadrar y el export
-// dibuja la zona visible en un canvas de 400×400.
-function AvatarCropper({
-  file,
-  exportRef,
-}: {
-  file: File;
-  exportRef: React.MutableRefObject<(() => Promise<File | null>) | null>;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(MIN_ZOOM);
-  const dragRef = useRef<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
-
-  useEffect(() => {
-    const objectUrl = URL.createObjectURL(file);
-    let cancelled = false;
-    setUrl(objectUrl);
-    setOffset({ x: 0, y: 0 });
-    setZoom(MIN_ZOOM);
-    setDims(null);
-    loadImage(objectUrl)
-      .then((img) => {
-        if (!cancelled) setDims({ w: img.naturalWidth, h: img.naturalHeight });
-      })
-      // El cleanup revoca la URL con la carga en vuelo (StrictMode monta el
-      // efecto dos veces en dev): ese onerror es esperado, no un fallo real.
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [file]);
-
-  const scale = dims ? (CROP_VIEW / Math.min(dims.w, dims.h)) * zoom : 1;
-  const maxX = dims ? Math.max(0, (dims.w * scale - CROP_VIEW) / 2) : 0;
-  const maxY = dims ? Math.max(0, (dims.h * scale - CROP_VIEW) / 2) : 0;
-  const clamp = (value: number, limit: number) => Math.min(limit, Math.max(-limit, value));
-
-  // Al bajar el zoom los límites se encogen: re-encajar el offset para que
-  // nunca queden bordes vacíos dentro del viewport.
-  const handleZoom = (nextZoom: number) => {
-    setZoom(nextZoom);
-    if (!dims) return;
-    const nextScale = (CROP_VIEW / Math.min(dims.w, dims.h)) * nextZoom;
-    const nextMaxX = Math.max(0, (dims.w * nextScale - CROP_VIEW) / 2);
-    const nextMaxY = Math.max(0, (dims.h * nextScale - CROP_VIEW) / 2);
-    setOffset((current) => ({
-      x: clamp(current.x, nextMaxX),
-      y: clamp(current.y, nextMaxY),
-    }));
-  };
-
-  useEffect(() => {
-    exportRef.current = async () => {
-      if (!url || !dims) return null;
-      const img = await loadImage(url);
-      // Zona visible del viewport en coordenadas de la imagen original
-      const srcSize = CROP_VIEW / scale;
-      const srcX = (dims.w - srcSize) / 2 - offset.x / scale;
-      const srcY = (dims.h - srcSize) / 2 - offset.y / scale;
-      const canvas = document.createElement("canvas");
-      canvas.width = OUTPUT_PX;
-      canvas.height = OUTPUT_PX;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(img, srcX, srcY, srcSize, srcSize, 0, 0, OUTPUT_PX, OUTPUT_PX);
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", 0.9),
-      );
-      return blob ? new File([blob], "avatar.jpg", { type: "image/jpeg" }) : null;
-    };
-    return () => {
-      exportRef.current = null;
-    };
-  }, [url, dims, offset, scale, exportRef]);
-
-  return (
-    <Column gap="8" horizontal="center" fillWidth>
-      <div
-        role="application"
-        aria-label="Arrastra la imagen para reencuadrarla"
-        style={{
-          width: CROP_VIEW,
-          height: CROP_VIEW,
-          position: "relative",
-          overflow: "hidden",
-          borderRadius: "var(--radius-l)",
-          touchAction: "none",
-          cursor: dragRef.current ? "grabbing" : "grab",
-        }}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          dragRef.current = { startX: e.clientX, startY: e.clientY, ox: offset.x, oy: offset.y };
-        }}
-        onPointerMove={(e) => {
-          const drag = dragRef.current;
-          if (!drag) return;
-          setOffset({
-            x: clamp(drag.ox + (e.clientX - drag.startX), maxX),
-            y: clamp(drag.oy + (e.clientY - drag.startY), maxY),
-          });
-        }}
-        onPointerUp={() => {
-          dragRef.current = null;
-        }}
-        onPointerCancel={() => {
-          dragRef.current = null;
-        }}
-      >
-        {url && dims && (
-          // eslint-disable-next-line @next/next/no-img-element -- objectURL local, sin optimización posible
-          <img
-            src={url}
-            alt=""
-            draggable={false}
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: dims.w * scale,
-              height: dims.h * scale,
-              maxWidth: "none",
-              transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))`,
-              userSelect: "none",
-              pointerEvents: "none",
-            }}
-          />
-        )}
-        {/* Guía circular: cómo se verá dentro del Avatar */}
-        <div
-          aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: "50%",
-            boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.45)",
-            pointerEvents: "none",
-          }}
-        />
-      </div>
-      <Row gap="12" vertical="center" style={{ width: CROP_VIEW }}>
-        <Text variant="label-default-s" onBackground="neutral-weak">
-          Zoom
-        </Text>
-        <Slider
-          aria-label="Zoom de la imagen"
-          min={MIN_ZOOM}
-          max={MAX_ZOOM}
-          step={0.05}
-          value={zoom}
-          onChange={handleZoom}
-          disabled={!dims}
-        />
-      </Row>
-      <Text variant="label-default-s" onBackground="neutral-weak">
-        Arrastra la imagen para centrarla o reencuadrarla
-      </Text>
-    </Column>
-  );
-}
 
 // ─── Cambiar imagen de perfil ─────────────────────────────────────────────────
 export function AvatarUploadDialog({
@@ -233,7 +55,7 @@ export function AvatarUploadDialog({
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const exportCrop = useRef<(() => Promise<File | null>) | null>(null);
+  const exportCrop = useRef<(() => Promise<string | null>) | null>(null);
 
   // MediaUpload comprime al vuelo, pero si su compresión falla entrega el
   // archivo ORIGINAL sin avisar — el peso se valida sobre lo que llega.
@@ -253,8 +75,10 @@ export function AvatarUploadDialog({
     setSaving(true);
     setError(null);
     try {
-      const cropped = await exportCrop.current?.();
-      if (!cropped) throw new Error("crop");
+      const dataUrl = await exportCrop.current?.();
+      if (!dataUrl) throw new Error("crop");
+      const blob = await (await fetch(dataUrl)).blob();
+      const cropped = new File([blob], "avatar.jpg", { type: "image/jpeg" });
       await user.setProfileImage({ file: cropped });
       await syncProfileImage();
       setFile(null);
@@ -277,7 +101,16 @@ export function AvatarUploadDialog({
 
         {file ? (
           <Column gap="12" fillWidth horizontal="center">
-            <AvatarCropper file={file} exportRef={exportCrop} />
+            <ImageCropper
+              file={file}
+              exportRef={exportCrop}
+              viewWidth={CROP_VIEW}
+              viewHeight={CROP_VIEW}
+              outputWidth={OUTPUT_PX}
+              outputHeight={OUTPUT_PX}
+              maxDataUrlChars={MAX_AVATAR_DATA_URL_CHARS}
+              maskShape="circle"
+            />
             <Button
               variant="tertiary"
               size="s"

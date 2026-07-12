@@ -1,153 +1,201 @@
 "use client";
 
-import { Avatar, Column, IconButton, Row, Text } from "@once-ui-system/core";
+import {
+  Avatar,
+  type AvatarProps,
+  Button,
+  Column,
+  Feedback,
+  Modal,
+  Row,
+} from "@once-ui-system/core";
+import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRef, useState } from "react";
-import { updateProjectLogo } from "@/app/actions/collab";
+import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import { AvatarEditButton } from "@/components/shared/AvatarEditButton";
+import { ImageCropper } from "@/components/shared/ImageCropper";
 
-/* ══ Logotipo del proyecto (Fase 6b) ═══════════════════════════════════
+type UploadResult = { ok: true } | { ok: false; error: string };
+
+/* ══ Logotipo del proyecto (Fase 6b, rediseño gestor de proyectos) ═══════
    Extraído de CollabProjectView para reutilizarse también en el overlay de
-   ajustes de proyecto de /mensajes (ConversationList). Sin bucket de
-   Storage: se comprime a JPEG en el cliente y viaja como data URL, mismo
-   patrón que la imagen destacada del perfil de partner. Recorte central
-   cuadrado, un solo paso. `onSaved` la dispara el caller tras un cambio
-   exitoso (router.refresh() en la página de proyecto, refetch del inbox
-   en el messenger). ═══════════════════════════════════════════════════ */
+   ajustes de proyecto de /mensajes (ConversationList) y en la imagen de
+   sala del panel de detalles (DetailsPanel). Sin bucket de Storage: se
+   comprime a JPEG en el cliente y viaja como data URL, mismo patrón que la
+   imagen de perfil (AvatarUploadDialog) — mismo mecanismo de hover +
+   reencuadre/zoom, vía los componentes compartidos AvatarEditButton /
+   ImageCropper. `onUpload` recibe la data URL (o null al quitar) y decide
+   qué server action llamar (updateProjectLogo / updateChannelInfo);
+   `onSaved` la dispara el caller tras un cambio exitoso. ═══════════════ */
 
 const LOGO_SIDE = 256;
-const LOGO_JPEG_QUALITIES = [0.82, 0.7, 0.55, 0.4];
+const CROP_VIEW = 200;
 // Debe caber bajo MAX_LOGO_DATA_URL_CHARS de updateProjectLogo (collab.ts).
 const MAX_LOGO_DATA_URL_CHARS = 700_000;
 
-function compressLogoCanvas(canvas: HTMLCanvasElement): string | null {
-  for (const quality of LOGO_JPEG_QUALITIES) {
-    const dataUrl = canvas.toDataURL("image/jpeg", quality);
-    if (dataUrl.length <= MAX_LOGO_DATA_URL_CHARS) return dataUrl;
-  }
-  return null;
-}
+const modalBackdrop = <BrandModalBackdrop />;
 
-export function ProjectLogoControl({
-  projectId,
+function ProjectLogoEditDialog({
+  isOpen,
+  onClose,
   logoUrl,
-  title,
-  canEdit,
+  onUpload,
   onSaved,
-  size = "xl",
 }: {
-  projectId: string;
+  isOpen: boolean;
+  onClose: () => void;
   logoUrl: string | null;
-  title: string;
-  canEdit: boolean;
+  onUpload: (dataUrl: string | null) => Promise<UploadResult>;
   onSaved: () => void;
-  size?: "xs" | "s" | "m" | "l" | "xl";
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [saving, setSaving] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const initial = (title[0] ?? "P").toUpperCase();
+  const [saving, setSaving] = useState(false);
+  const exportCrop = useRef<(() => Promise<string | null>) | null>(null);
 
-  const handleFile = (file: File) => {
+  const handleClose = () => {
+    if (saving) return;
+    setFile(null);
     setError(null);
-    setSaving(true);
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = async () => {
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const sx = (img.naturalWidth - side) / 2;
-      const sy = (img.naturalHeight - side) / 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = LOGO_SIDE;
-      canvas.height = LOGO_SIDE;
-      const ctx = canvas.getContext("2d");
-      URL.revokeObjectURL(objectUrl);
-      if (!ctx) {
-        setError("No se pudo procesar la imagen.");
-        setSaving(false);
-        return;
-      }
-      ctx.drawImage(img, sx, sy, side, side, 0, 0, LOGO_SIDE, LOGO_SIDE);
-      const dataUrl = compressLogoCanvas(canvas);
-      if (!dataUrl) {
-        setError("La imagen es demasiado pesada incluso comprimida.");
-        setSaving(false);
-        return;
-      }
-      const result = await updateProjectLogo(projectId, dataUrl);
-      setSaving(false);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      onSaved();
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      setError("No se pudo cargar la imagen.");
-      setSaving(false);
-    };
-    img.src = objectUrl;
+    onClose();
   };
 
-  const handleRemove = async () => {
+  const persist = async (dataUrl: string | null) => {
     setSaving(true);
     setError(null);
-    const result = await updateProjectLogo(projectId, null);
+    const result = await onUpload(dataUrl);
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
+    setFile(null);
     onSaved();
+    onClose();
+  };
+
+  const handleSave = async () => {
+    if (!file) return;
+    try {
+      const dataUrl = await exportCrop.current?.();
+      if (!dataUrl) throw new Error("crop");
+      await persist(dataUrl);
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message !== "crop"
+          ? err.message
+          : "No se pudo procesar la imagen.",
+      );
+    }
   };
 
   return (
-    <Column gap="4">
-      <Row gap="8" vertical="center">
-        <Avatar size={size} {...(logoUrl ? { src: logoUrl } : { value: initial })} />
-        {canEdit && (
-          <Column gap="4">
-            <IconButton
-              icon="camera"
-              size="s"
-              variant="tertiary"
-              tooltip="Cambiar logotipo"
-              tooltipPosition="top"
-              loading={saving}
-              disabled={saving}
-              onClick={() => inputRef.current?.click()}
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Logotipo del proyecto"
+      backdrop={modalBackdrop}
+    >
+      <Column gap="16" fillWidth paddingTop="12">
+        <Feedback
+          variant="info"
+          description="Sube únicamente imágenes libres de derechos de autor. Máximo 4MB; el logotipo final se recorta en cuadro."
+        />
+
+        {file ? (
+          <Column gap="12" fillWidth horizontal="center">
+            <ImageCropper
+              file={file}
+              exportRef={exportCrop}
+              viewWidth={CROP_VIEW}
+              viewHeight={CROP_VIEW}
+              outputWidth={LOGO_SIDE}
+              outputHeight={LOGO_SIDE}
+              maxDataUrlChars={MAX_LOGO_DATA_URL_CHARS}
+              maskShape="circle"
+              ariaLabel="Arrastra la imagen para reencuadrar el logotipo"
             />
-            {logoUrl && (
-              <IconButton
-                icon="trash"
-                size="s"
-                variant="tertiary"
-                tooltip="Quitar logotipo"
-                tooltipPosition="top"
-                loading={saving}
-                disabled={saving}
-                onClick={handleRemove}
-              />
-            )}
-            <input
-              ref={inputRef}
-              type="file"
+            <Button variant="tertiary" size="s" onClick={() => setFile(null)} disabled={saving}>
+              Elegir otra imagen
+            </Button>
+          </Column>
+        ) : (
+          <Row fillWidth horizontal="center">
+            <MediaUpload
+              aspectRatio="1 / 1"
+              maxWidth={16}
               accept="image/*"
-              style={{ display: "none" }}
-              disabled={saving}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (file) handleFile(file);
+              compress
+              resizeMaxWidth={1024}
+              resizeMaxHeight={1024}
+              initialPreviewImage={logoUrl}
+              emptyState="Arrastra una imagen o haz click para buscar"
+              onFileUpload={async (selected) => {
+                setError(null);
+                setFile(selected);
               }}
             />
-          </Column>
+          </Row>
         )}
-      </Row>
-      {error && (
-        <Text variant="label-default-s" onBackground="danger-weak">
-          {error}
-        </Text>
-      )}
-    </Column>
+
+        {error && <Feedback variant="danger" description={error} />}
+
+        <Row fillWidth gap="8" horizontal="end">
+          {logoUrl && (
+            <Button variant="tertiary" size="m" onClick={() => persist(null)} disabled={saving}>
+              Eliminar logotipo
+            </Button>
+          )}
+          <Button variant="secondary" size="m" onClick={handleClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button variant="primary" size="m" onClick={handleSave} loading={saving} disabled={!file}>
+            Guardar logotipo
+          </Button>
+        </Row>
+      </Column>
+    </Modal>
+  );
+}
+
+export function ProjectLogoControl({
+  logoUrl,
+  title,
+  canEdit,
+  onUpload,
+  onSaved,
+  size = "xl",
+}: {
+  logoUrl: string | null;
+  title: string;
+  canEdit: boolean;
+  onUpload: (dataUrl: string | null) => Promise<UploadResult>;
+  onSaved: () => void;
+  size?: "xs" | "s" | "m" | "l" | "xl";
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const initial = (title[0] ?? "P").toUpperCase();
+  const avatarProps: AvatarProps = logoUrl ? { src: logoUrl } : { value: initial };
+
+  if (!canEdit) {
+    return <Avatar {...avatarProps} size={size} />;
+  }
+
+  return (
+    <>
+      <AvatarEditButton
+        avatarProps={avatarProps}
+        size={size}
+        ariaLabel="Cambiar logotipo del proyecto"
+        onClick={() => setDialogOpen(true)}
+      />
+      <ProjectLogoEditDialog
+        isOpen={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        logoUrl={logoUrl}
+        onUpload={onUpload}
+        onSaved={onSaved}
+      />
+    </>
   );
 }

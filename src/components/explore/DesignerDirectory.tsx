@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import {
   Avatar,
   Background,
-  Badge,
   BlobFx,
   Button,
   Column,
@@ -24,6 +23,7 @@ import {
   Text,
   TiltFx,
 } from "@once-ui-system/core";
+import { RoleTag } from "@/components/RoleTag";
 import { ALL_SPECIALTIES, useExploreSearch } from "./SearchContext";
 import styles from "./DesignerDirectory.module.scss";
 
@@ -206,28 +206,9 @@ function DesignerBack({
         </Column>
         {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
           <Row gap="8" wrap horizontal="center" vertical="center">
-            {designer.primaryRole && (
-              <Badge
-                background="brand-alpha-weak"
-                onBackground="brand-strong"
-                border="brand-alpha-medium"
-                textVariant="label-strong-s"
-                effect
-              >
-                {designer.primaryRole}
-              </Badge>
-            )}
+            {designer.primaryRole && <RoleTag role={designer.primaryRole} variant="primary" />}
             {designer.secondaryRoles.map((role) => (
-              <Badge
-                key={role}
-                background="neutral-alpha-weak"
-                onBackground="neutral-medium"
-                border="neutral-alpha-medium"
-                textVariant="label-default-s"
-                effect={false}
-              >
-                {role}
-              </Badge>
+              <RoleTag key={role} role={role} variant="secondary" />
             ))}
           </Row>
         )}

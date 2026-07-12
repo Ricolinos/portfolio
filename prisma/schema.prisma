@@ -89,6 +89,8 @@ model User {
   notifications       Notification[]          @relation("notifications")
   // Control de acceso por sala (canales restringidos, ver ChannelMember)
   channelMemberships  ChannelMember[]         @relation("channelMemberships")
+  // Responsable asignado a tareas de activos (checklist de ProjectAsset)
+  assetTaskAssignments AssetTaskAssignee[]    @relation("assetTaskAssignments")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -261,6 +263,10 @@ model CollabProject {
   // Imagen corporativa/logotipo del proyecto (data URL comprimida o URL
   // pública, mismo patrón que User.coverImageUrl)
   logoUrl         String?
+  // Categorización del proyecto (panel de administración), validada contra
+  // src/lib/projectTypes.ts (árbol extraído del Cotizador)
+  projectType     String?
+  projectSubtype  String?
   connectionId    String
   connection      Connection              @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   tasks           ProjectTask[]
@@ -357,12 +363,19 @@ model ProjectLink {
   // subidos por cualquier partner/colaborador. Inferido server-side, nunca
   // recibido como input del cliente (ver addProjectLink).
   type      String        @default("final") // brand | final
+  // Etiqueta libre de archivo (FILE_SUBTYPES en src/lib/projectTypes.ts):
+  // documento | grafico | recurso | video | otro
+  subtype   String?
   addedById String
   projectId String
   project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Adjunto ligado a una tarea de activo puntual (checklist de ProjectAsset)
+  assetTaskId String?
+  assetTask   ProjectAssetTask? @relation(fields: [assetTaskId], references: [id], onDelete: SetNull)
   createdAt DateTime      @default(now())
 
   @@index([projectId])
+  @@index([assetTaskId])
 }
 
 // Catálogo reutilizable de plantillas de activos (no pertenece a ningún
@@ -420,14 +433,36 @@ model ProjectAsset {
 model ProjectAssetTask {
   id        String       @id @default(cuid())
   title     String
+  // Booleano legado, conservado por compatibilidad; ahora derivado de status
+  // (approved ⇒ true), ver updateAssetTaskDetails/resolveAssetTaskApproval.
   done      Boolean      @default(false)
+  // pending | in_review | approved — mismo vocabulario que ProjectTask.status
+  status    String       @default("pending")
+  dueDate         DateTime?
+  deliverableUrl  String?
   order     Int          @default(0)
   assetId   String
   asset     ProjectAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assignees   AssetTaskAssignee[]
+  attachments ProjectLink[]
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   @@index([assetId])
+}
+
+// Responsable(s) asignado(s) a una tarea de activo (checklist de ProjectAsset)
+model AssetTaskAssignee {
+  id         String           @id @default(cuid())
+  assetTaskId String
+  assetTask   ProjectAssetTask @relation(fields: [assetTaskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User             @relation("assetTaskAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+
+  @@unique([assetTaskId, userId])
+  @@index([assetTaskId])
+  @@index([userId])
 }
 
 // Colaborador ADICIONAL de un CollabProject (además del partner "fundador"
@@ -523,8 +558,15 @@ model DirectMessage {
 
 // Salas de chat del gestor colaborativo, 1:N con CollabProject
 model ProjectChannel {
-  id        String        @id @default(cuid())
-  name      String
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  // Data URL comprimida, mismo patrón que User.coverImageUrl
+  imageUrl    String?
+  // Fuente de verdad de si la sala es restringida (reemplaza la semántica
+  // implícita "tiene filas ChannelMember"): ChannelMember también guarda
+  // admins de salas abiertas, así que su sola presencia ya no basta.
+  restricted  Boolean       @default(false)
   projectId String
   project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -538,18 +580,20 @@ model ProjectChannel {
   @@index([projectId])
 }
 
-// Control de acceso por sala de proyecto. Semántica: un canal SIN filas de
-// ChannelMember es abierto a todos los miembros del proyecto (retrocompatible
-// con las salas existentes, creadas antes de este modelo); un canal CON al
-// menos una fila queda restringido a esos usuarios más el cliente dueño del
-// proyecto (connection.clientId), que siempre puede entrar sin importar si
-// tiene una fila propia. Ver requireChannelAccess en actions/channels.ts.
+// Control de acceso y administración por sala de proyecto. Semántica: la
+// sala es restringida cuando ProjectChannel.restricted es true (acceso =
+// miembro del proyecto Y (no restricted O tiene fila aquí O es el cliente
+// dueño, que siempre entra)); una fila también puede existir en una sala
+// abierta solo para portar el flag isAdmin. Ver requireChannelAccess en
+// actions/channels.ts.
 model ChannelMember {
   id        String         @id @default(cuid())
   channelId String
   channel   ProjectChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   userId    String
   user      User           @relation("channelMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  // Admin de la sala: puede editar nombre/descripción/imagen (no eliminar).
+  isAdmin   Boolean        @default(false)
   createdAt DateTime       @default(now())
 
   @@unique([channelId, userId])

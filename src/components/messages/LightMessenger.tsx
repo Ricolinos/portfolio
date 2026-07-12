@@ -315,11 +315,12 @@ export function LightMessenger({
             onClick={onExpand}
           />
           <IconButton
-            icon="close"
+            icon="minimize"
             size="s"
             variant="tertiary"
-            tooltip="Cerrar"
+            tooltip="Minimizar"
             tooltipPosition="bottom"
+            aria-label="Minimizar"
             onClick={onClose}
           />
         </Row>
