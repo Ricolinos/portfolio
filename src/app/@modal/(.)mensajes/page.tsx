@@ -3,7 +3,7 @@
 import { useUser } from "@clerk/nextjs";
 import { Column, Heading, IconButton, Row, Spinner } from "@once-ui-system/core";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { MessengerView } from "@/components/messages/MessengerView";
 
 // Ruta interceptada (.)mensajes: navegación client-side a /mensajes abre esto
@@ -14,7 +14,17 @@ import { MessengerView } from "@/components/messages/MessengerView";
 // la página completa, pero aquí se leen client-side (useSearchParams) porque
 // searchParams de una ruta interceptada llega como Promise en un server
 // component y este wrapper necesita ser cliente para el overlay/cierre.
-export default function MensajesModal() {
+// useSearchParams exige un límite de Suspense al prerenderizar (el build de
+// producción falla sin él), por eso el export default solo envuelve.
+export default function MensajesModalPage() {
+  return (
+    <Suspense fallback={null}>
+      <MensajesModal />
+    </Suspense>
+  );
+}
+
+function MensajesModal() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isLoaded, isSignedIn, user } = useUser();
