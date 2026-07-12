@@ -1,11 +1,12 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { Flex, IconButton, Row } from "@once-ui-system/core";
-import { usePathname, useRouter } from "next/navigation";
+import { Column, Flex, Heading, IconButton, Row } from "@once-ui-system/core";
+import { usePathname } from "next/navigation";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LightMessenger } from "@/components/messages/LightMessenger";
+import { MessengerView } from "@/components/messages/MessengerView";
 
 // Ancho/alto real de IconButton size="l" (--static-space-40 = 2.5rem = 40px),
 // usado para clampear la burbuja dentro del viewport.
@@ -18,33 +19,43 @@ const HEADER_BOTTOM_FALLBACK = 64;
 const DRAG_THRESHOLD = 6;
 const STORAGE_KEY = "hub-chat-bubble-pos";
 
+// Tamaño del panel "Mensajes Light" (estado intermedio) en desktop; en móvil
+// (<MOBILE_BREAKPOINT) el ancho se recalcula casi a pantalla completa con
+// márgenes en vez de un rect fijo de 360x480.
+const PANEL_WIDTH = 360;
+const PANEL_HEIGHT = 480;
 const MOBILE_BREAKPOINT = 480;
-// El panel abierto ocupa casi toda la pantalla: margen uniforme por lado
+// El panel full ocupa casi toda la pantalla: margen uniforme por lado
 // (izquierda/derecha/abajo). En móvil el margen se reduce para no desperdiciar
 // ancho en pantallas angostas.
 const PANEL_MARGIN = 30;
 const PANEL_MARGIN_MOBILE = 16;
 // Separación entre el borde inferior del header (sticky en desktop, fixed en
-// móvil) y el borde superior del panel, para que la barra de menú siga
+// móvil) y el borde superior del panel full, para que la barra de menú siga
 // visible y clickeable con el panel abierto.
 const HEADER_GAP = 16;
-// Radio de la burbuja cerrada (círculo completo) vs. el panel abierto
-// (equivalente al token Once UI radius="l" ~ 1rem, en px porque se anima
-// junto con width/height vía inline style).
+// Radio de la burbuja cerrada (círculo completo) vs. el panel abierto (light
+// o full, ambos comparten radio — equivalente al token Once UI radius="l"
+// ~ 1rem, en px porque se anima junto con width/height vía inline style).
 const BUBBLE_RADIUS = 9999;
 const PANEL_RADIUS = 16;
-// Fade-in del contenido tras el morph de apertura (evita texto aplastado
-// durante la transición de tamaño); en cierre el contenido se desvanece
-// primero y luego colapsa la forma.
+// Fade-in del contenido tras el morph de apertura o el swap light<->full
+// (evita texto aplastado durante la transición de tamaño); en cierre/swap el
+// contenido se desvanece primero y luego colapsa la forma o se reemplaza.
 const CONTENT_FADE_IN_MS = 260;
 const CONTENT_FADE_OUT_MS = 140;
 // Duración del fundido del backdrop (blur + tinte), sincronizada con el morph
-// de tamaño (SIZE_EASE dura 0.4s). Al cerrar, el backdrop primero llega a
-// opacidad 0 y solo después se desmonta (evita el "parpadeo" de un blur que
-// desaparece de golpe).
+// de tamaño (SIZE_EASE dura 0.4s). Al salir del estado full, el backdrop
+// primero llega a opacidad 0 y solo después se desmonta (evita el
+// "parpadeo" de un blur que desaparece de golpe). El backdrop SOLO existe en
+// el estado full (light es una ventana chica que no bloquea la página).
 const BACKDROP_FADE_MS = 400;
 
 type Side = "left" | "right";
+// "closed": burbuja. "light": panel chico anclado al costado (LightMessenger).
+// "full": panel casi a pantalla completa con la herramienta completa
+// (MessengerView) y backdrop con blur detrás.
+type Mode = "closed" | "light" | "full";
 
 interface PanelRect {
   left: number;
@@ -98,16 +109,12 @@ function restingLeft(side: Side): number {
   return side === "left" ? EDGE_MARGIN : window.innerWidth - BUBBLE_SIZE - EDGE_MARGIN;
 }
 
-// Rectángulo del panel abierto (morph burbuja->panel): casi pantalla
-// completa, con margen uniforme por lado (PANEL_MARGIN, reducido en móvil) y
-// el borde superior debajo del header (getHeaderBottom() + HEADER_GAP), para
-// que la barra de menú siga visible y clickeable con el panel abierto. Ya no
-// se ancla al costado de reposo de la burbuja: al ser casi pantalla completa,
-// el punto de partida del morph (posición/tamaño de la burbuja) es suficiente
-// referencia visual sin necesidad de anclaje lateral. El botón "expandir"
-// navega directo a /mensajes (ver handleExpand) reutilizando este mismo rect
-// como destino visual final, así que no hace falta una segunda función.
-function computePanelRect(): PanelRect {
+// Rectángulo del panel full (morph light<->full o burbuja->full directo si
+// se implementara): casi pantalla completa, con margen uniforme por lado
+// (PANEL_MARGIN, reducido en móvil) y el borde superior debajo del header
+// (getHeaderBottom() + HEADER_GAP), para que la barra de menú siga visible y
+// clickeable con el panel abierto.
+function computeFullRect(): PanelRect {
   const isMobile = window.innerWidth < MOBILE_BREAKPOINT;
   const margin = isMobile ? PANEL_MARGIN_MOBILE : PANEL_MARGIN;
   const headerBottom = getHeaderBottom();
@@ -118,24 +125,115 @@ function computePanelRect(): PanelRect {
   return { left, top, width, height };
 }
 
+// Rectángulo del panel light, anclado al costado de reposo de la burbuja
+// (crece hacia el lado contrario para no salirse del viewport) y hacia
+// arriba desde la burbuja (bottom del panel ~= bottom de la burbuja). Ambos
+// ejes se clampean contra el viewport real: si no hay espacio arriba, el
+// panel queda ajustado al borde superior (debajo del header) en vez de
+// desbordarse; en móvil el ancho es casi el del viewport completo.
+function computeLightRect(pos: StoredPos): PanelRect {
+  const isMobile = window.innerWidth < MOBILE_BREAKPOINT;
+  const width = isMobile ? window.innerWidth - EDGE_MARGIN * 2 : PANEL_WIDTH;
+  const headerBottom = getHeaderBottom();
+  const maxHeight = window.innerHeight - headerBottom - EDGE_MARGIN * 2;
+  const height = Math.min(PANEL_HEIGHT, Math.max(maxHeight, BUBBLE_SIZE));
+
+  const bubbleLeft = restingLeft(pos.side);
+  const rawLeft = pos.side === "left" ? bubbleLeft : bubbleLeft + BUBBLE_SIZE - width;
+  const left = Math.min(Math.max(rawLeft, EDGE_MARGIN), window.innerWidth - width - EDGE_MARGIN);
+
+  const minTop = headerBottom + EDGE_MARGIN;
+  const maxTop = window.innerHeight - height - EDGE_MARGIN;
+  const rawTop = pos.y + BUBBLE_SIZE - height;
+  const top = Math.min(Math.max(rawTop, minTop), Math.max(minTop, maxTop));
+
+  return { left, top, width, height };
+}
+
+// Chrome del estado full: MessengerView no trae barra propia de ventana, así
+// que se envuelve en una barra superior delgada (mismo estilo del header del
+// panel light: Row con padding 12 + borderBottom neutral-alpha-weak) con dos
+// acciones — "Vista compacta" (vuelve a light, icono minimize = flechas hacia
+// adentro) y "Minimizar" (colapsa a la burbuja, icono minus = el glyph de
+// minimizar clásico de ventanas, para no repetir el icono de la acción
+// anterior). El Row que envuelve MessengerView usa flex:1 + minHeight:0 (no
+// fillHeight) para que los 3 paneles internos (riel/lista/conversación) no
+// desborden dentro del Row raíz de altura fija en px del morph.
+function FullMessengerChrome({
+  viewerId,
+  onCompact,
+  onMinimize,
+}: {
+  viewerId: string;
+  onCompact: () => void;
+  onMinimize: () => void;
+}) {
+  return (
+    <Column fillWidth fillHeight style={{ minHeight: 0 }}>
+      <Row
+        fillWidth
+        gap="8"
+        vertical="center"
+        horizontal="between"
+        padding="12"
+        borderBottom="neutral-alpha-weak"
+      >
+        <Heading variant="heading-strong-s">Mensajes</Heading>
+        <Row gap="4">
+          <IconButton
+            icon="minimize"
+            size="s"
+            variant="tertiary"
+            tooltip="Vista compacta"
+            tooltipPosition="bottom"
+            aria-label="Vista compacta"
+            onClick={onCompact}
+          />
+          <IconButton
+            icon="minus"
+            size="s"
+            variant="tertiary"
+            tooltip="Minimizar"
+            tooltipPosition="bottom"
+            aria-label="Minimizar"
+            onClick={onMinimize}
+          />
+        </Row>
+      </Row>
+      <Row fillWidth style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+        <MessengerView viewerId={viewerId} />
+      </Row>
+    </Column>
+  );
+}
+
 /**
  * Burbuja flotante de mensajes, global al sitio pero solo para sesiones
  * autenticadas (Clerk) — visitantes anónimos nunca la montan. Se puede
  * arrastrar con Pointer Events; al soltar, se imanta con una transición
  * elástica al costado izquierdo o derecho más cercano y recuerda su
- * posición. Un click/tap (sin arrastre) hace un morph in-place hacia un
- * panel de "Mensajes Light" (LightMessenger) casi a pantalla completa,
- * con un backdrop con blur detrás (debajo del header, que sigue
- * clickeable); el botón "expandir" del panel navega a /mensajes.
+ * posición. Tres estados con morph entre ellos (mismo mecanismo de
+ * transición CSS de left/top/width/height/border-radius del Row raíz):
+ * - closed: círculo de 40px.
+ * - light: click/tap en la burbuja abre un panel chico (360x480) anclado al
+ *   costado de reposo, con "Mensajes Light" (LightMessenger); sin backdrop.
+ * - full: el botón "maximizar" del panel light hace morph a un panel casi a
+ *   pantalla completa con la herramienta completa (MessengerView, 3
+ *   paneles) y un backdrop con blur detrás (debajo del header, que sigue
+ *   clickeable); desde ahí se puede "compactar" de vuelta a light o
+ *   "minimizar" a la burbuja.
  */
 export const FloatingChatBubble = () => {
   const { isLoaded, isSignedIn, user } = useUser();
-  const router = useRouter();
   const pathname = usePathname();
   const [pos, setPos] = useState<StoredPos | null>(null);
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragState = useRef<{ offsetX: number; offsetY: number; moved: boolean } | null>(null);
-  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("closed");
+  // Qué contenido está montado ahora mismo (independiente de `mode` durante
+  // el swap light<->full, que primero desvanece el contenido viejo y solo
+  // después de CONTENT_FADE_OUT_MS lo reemplaza).
+  const [contentMode, setContentMode] = useState<"light" | "full">("light");
   const [panelRect, setPanelRect] = useState<PanelRect | null>(null);
   const [contentVisible, setContentVisible] = useState(false);
   // Tras un arrastre real, el navegador dispara igualmente el click sintético
@@ -143,13 +241,18 @@ export const FloatingChatBubble = () => {
   const suppressClick = useRef(false);
   // Nodo del Row raíz (burbuja/panel).
   const shapeRef = useRef<HTMLDivElement>(null);
-  // Backdrop (blur + tinte) detrás del panel: `backdropMounted` controla si se
-  // renderiza, `backdropFadeIn` su opacidad. Se desacoplan para que el cierre
-  // no desmonte el nodo de golpe: primero baja a opacidad 0 (en sync con el
-  // resto del morph) y solo después de BACKDROP_FADE_MS se desmonta.
+  // Backdrop (blur + tinte) detrás del panel, SOLO en el estado full:
+  // `backdropMounted` controla si se renderiza, `backdropFadeIn` su opacidad.
+  // Se desacoplan para que salir de full no desmonte el nodo de golpe:
+  // primero baja a opacidad 0 (en sync con el resto del morph) y solo
+  // después de BACKDROP_FADE_MS se desmonta.
   const [backdropMounted, setBackdropMounted] = useState(false);
   const [backdropFadeIn, setBackdropFadeIn] = useState(false);
   const backdropTimeout = useRef<number | null>(null);
+  // Timeouts del swap de contenido (fade-out -> swap -> fade-in) usados al
+  // alternar entre light y full sin cerrar el panel.
+  const swapTimeout = useRef<number | null>(null);
+  const fadeInTimeout = useRef<number | null>(null);
 
   // Restaura la posición guardada (re-clampeada contra el viewport actual) o
   // cae a la posición por defecto si no hay nada guardado / localStorage falla.
@@ -182,11 +285,12 @@ export const FloatingChatBubble = () => {
     }
   }, []);
 
-  // Mientras el panel está abierto la burbuja no se arrastra: el pointerdown
-  // se ignora por completo (se restaura al cerrar, `pos` sigue intacto).
+  // Mientras el panel está abierto (light o full) la burbuja no se arrastra:
+  // el pointerdown se ignora por completo (se restaura al cerrar, `pos` sigue
+  // intacto).
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!pos || open) return;
+      if (!pos || mode !== "closed") return;
       event.currentTarget.setPointerCapture(event.pointerId);
       const rect = event.currentTarget.getBoundingClientRect();
       dragState.current = {
@@ -196,7 +300,7 @@ export const FloatingChatBubble = () => {
       };
       setDragPos({ x: rect.left, y: rect.top });
     },
-    [pos, open],
+    [pos, mode],
   );
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
@@ -237,66 +341,118 @@ export const FloatingChatBubble = () => {
     [dragPos, persist],
   );
 
-  // Abre el morph in-place (círculo -> panel casi a pantalla completa) y el
-  // backdrop detrás: ambos fundidos quedan sincronizados por el mismo estado
-  // `open`/render, sin necesidad de anclar el panel al costado de reposo.
-  const handleBubbleActivate = useCallback(() => {
+  // Abre el morph in-place (círculo -> panel light), anclado al costado de
+  // reposo actual de la burbuja. Sin backdrop: el panel light es chico y no
+  // bloquea el resto de la página.
+  const handleActivateLight = useCallback(() => {
+    if (!pos) return;
+    if (fadeInTimeout.current !== null) {
+      window.clearTimeout(fadeInTimeout.current);
+      fadeInTimeout.current = null;
+    }
+    setContentMode("light");
+    setPanelRect(computeLightRect(pos));
+    setMode("light");
+    setContentVisible(false);
+    fadeInTimeout.current = window.setTimeout(() => {
+      setContentVisible(true);
+      fadeInTimeout.current = null;
+    }, CONTENT_FADE_IN_MS);
+  }, [pos]);
+
+  // Orquesta el swap de contenido al alternar entre light y full sin cerrar
+  // el panel: el contenido viejo se desvanece (CONTENT_FADE_OUT_MS), recién
+  // entonces se reemplaza el componente montado (`contentMode`) y, una vez
+  // que el morph de tamaño ya avanzó, se desvanece de vuelta a visible
+  // (CONTENT_FADE_IN_MS). `nextRect` se aplica de inmediato para que el morph
+  // de left/top/width/height empiece en paralelo al fade-out del contenido.
+  const morphTo = useCallback((nextMode: "light" | "full", nextRect: PanelRect) => {
+    if (swapTimeout.current !== null) window.clearTimeout(swapTimeout.current);
+    if (fadeInTimeout.current !== null) window.clearTimeout(fadeInTimeout.current);
+    setContentVisible(false);
+    setMode(nextMode);
+    setPanelRect(nextRect);
+    swapTimeout.current = window.setTimeout(() => {
+      setContentMode(nextMode);
+      swapTimeout.current = null;
+      fadeInTimeout.current = window.setTimeout(() => {
+        setContentVisible(true);
+        fadeInTimeout.current = null;
+      }, CONTENT_FADE_IN_MS);
+    }, CONTENT_FADE_OUT_MS);
+  }, []);
+
+  // Maximizar (botón del panel light): morph light -> full, con el backdrop
+  // apareciendo en sincronía con el resto del morph.
+  const handleExpandToFull = useCallback(() => {
     if (backdropTimeout.current !== null) {
       window.clearTimeout(backdropTimeout.current);
       backdropTimeout.current = null;
     }
-    setPanelRect(computePanelRect());
-    setOpen(true);
     setBackdropMounted(true);
     // El nodo se monta a opacidad 0 (ver render); en el siguiente frame se
     // sube a 1 para que la transición CSS de opacity sí tenga de dónde partir.
     requestAnimationFrame(() => setBackdropFadeIn(true));
-  }, []);
+    morphTo("full", computeFullRect());
+  }, [morphTo]);
 
-  // Cierra el morph (X del panel o click en el backdrop = "minimizar"): el
-  // contenido y el backdrop se desvanecen primero (CONTENT_FADE_OUT_MS /
-  // BACKDROP_FADE_MS) y solo después la forma colapsa de vuelta a burbuja,
-  // para no ver el panel encogerse con texto todavía dentro ni el blur
-  // desaparecer de golpe.
-  const handleClose = useCallback(() => {
+  // Compactar (botón del chrome full): morph full -> light, con el backdrop
+  // desvaneciéndose y desmontándose igual que al minimizar.
+  const handleCompactToLight = useCallback(() => {
+    if (!pos) return;
+    setBackdropFadeIn(false);
+    if (backdropTimeout.current !== null) window.clearTimeout(backdropTimeout.current);
+    backdropTimeout.current = window.setTimeout(() => {
+      setBackdropMounted(false);
+      backdropTimeout.current = null;
+    }, BACKDROP_FADE_MS);
+    morphTo("light", computeLightRect(pos));
+  }, [pos, morphTo]);
+
+  // Minimizar (desde light o full, botón del panel o click en el backdrop):
+  // el contenido y el backdrop (si estaba montado) se desvanecen primero
+  // (CONTENT_FADE_OUT_MS / BACKDROP_FADE_MS) y solo después la forma colapsa
+  // de vuelta a burbuja, para no ver el panel encogerse con texto todavía
+  // dentro ni el blur desaparecer de golpe. Desmontar el backdrop es inocuo
+  // si no estaba montado (viniendo de light).
+  const handleMinimize = useCallback(() => {
+    if (swapTimeout.current !== null) {
+      window.clearTimeout(swapTimeout.current);
+      swapTimeout.current = null;
+    }
+    if (fadeInTimeout.current !== null) {
+      window.clearTimeout(fadeInTimeout.current);
+      fadeInTimeout.current = null;
+    }
     setContentVisible(false);
     setBackdropFadeIn(false);
-    window.setTimeout(() => setOpen(false), CONTENT_FADE_OUT_MS);
+    window.setTimeout(() => setMode("closed"), CONTENT_FADE_OUT_MS);
+    if (backdropTimeout.current !== null) window.clearTimeout(backdropTimeout.current);
     backdropTimeout.current = window.setTimeout(() => {
       setBackdropMounted(false);
       backdropTimeout.current = null;
     }, BACKDROP_FADE_MS);
   }, []);
 
-  // Expandir a /mensajes: el panel ya está casi a pantalla completa, así que
-  // no hace falta re-animar nada — se navega directo (Next.js desmonta este
-  // componente al cambiar de ruta, el estado del morph no sobrevive ni falta).
-  const handleExpand = useCallback(() => {
-    router.push("/mensajes");
-  }, [router]);
-
-  // Fade-in del contenido del panel una vez que el morph de apertura ya
-  // avanzó lo suficiente (evita texto/lista aplastados a mitad de la
-  // transición de tamaño).
+  // Recalcula el rect del panel (light o full, según el modo) si el
+  // viewport cambia mientras está abierto.
   useEffect(() => {
-    if (!open) return;
-    const id = window.setTimeout(() => setContentVisible(true), CONTENT_FADE_IN_MS);
-    return () => window.clearTimeout(id);
-  }, [open]);
-
-  // Recalcula el rect de pantalla completa si el viewport cambia mientras está abierto.
-  useEffect(() => {
-    if (!open) return;
-    const onResize = () => setPanelRect(computePanelRect());
+    if (mode === "closed") return;
+    const onResize = () => {
+      if (mode === "light" && pos) setPanelRect(computeLightRect(pos));
+      else if (mode === "full") setPanelRect(computeFullRect());
+    };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [open]);
+  }, [mode, pos]);
 
-  // Limpia el timeout de desmontaje del backdrop si el componente se
-  // desmonta con el panel todavía cerrándose.
+  // Limpia los timeouts pendientes si el componente se desmonta con el panel
+  // todavía animando (cierre, swap o desmontaje del backdrop).
   useEffect(() => {
     return () => {
       if (backdropTimeout.current !== null) window.clearTimeout(backdropTimeout.current);
+      if (swapTimeout.current !== null) window.clearTimeout(swapTimeout.current);
+      if (fadeInTimeout.current !== null) window.clearTimeout(fadeInTimeout.current);
     };
   }, []);
 
@@ -307,7 +463,7 @@ export const FloatingChatBubble = () => {
   if (!isLoaded || !isSignedIn || !pos || onMensajes) return null;
 
   const dragging = dragPos !== null;
-  const rect = open && panelRect ? panelRect : null;
+  const rect = mode !== "closed" && panelRect ? panelRect : null;
   const restingStyle: CSSProperties = dragging
     ? { left: dragPos.x, top: dragPos.y }
     : { left: restingLeft(pos.side), top: pos.y };
@@ -339,7 +495,7 @@ export const FloatingChatBubble = () => {
           bottom="0"
           zIndex={7}
           aria-hidden
-          onClick={handleClose}
+          onClick={handleMinimize}
           style={{
             opacity: backdropFadeIn ? 1 : 0,
             transition: `opacity ${BACKDROP_FADE_MS}ms ease`,
@@ -353,15 +509,15 @@ export const FloatingChatBubble = () => {
         ref={shapeRef}
         position="fixed"
         zIndex={8}
-        shadow={open ? "xl" : "l"}
-        background={open ? "surface" : undefined}
-        border={open ? "neutral-alpha-weak" : undefined}
+        shadow={mode !== "closed" ? "xl" : "l"}
+        background={mode !== "closed" ? "surface" : undefined}
+        border={mode !== "closed" ? "neutral-alpha-weak" : undefined}
         style={{
           ...shapeStyle,
           borderRadius: rect ? PANEL_RADIUS : BUBBLE_RADIUS,
-          overflow: open ? "hidden" : undefined,
-          touchAction: open ? "auto" : "none",
-          cursor: open ? "default" : dragging ? "grabbing" : "grab",
+          overflow: mode !== "closed" ? "hidden" : undefined,
+          touchAction: mode !== "closed" ? "auto" : "none",
+          cursor: mode !== "closed" ? "default" : dragging ? "grabbing" : "grab",
           transition: dragging
             ? "none"
             : [
@@ -385,18 +541,31 @@ export const FloatingChatBubble = () => {
             suppressClick.current = false;
             return;
           }
-          if (!open) handleBubbleActivate();
+          if (mode === "closed") handleActivateLight();
         }}
       >
-        {open ? (
+        {mode !== "closed" ? (
           <Row
             fill
             style={{
               opacity: contentVisible ? 1 : 0,
               transition: `opacity ${contentVisible ? CONTENT_FADE_IN_MS : CONTENT_FADE_OUT_MS}ms ease`,
+              minHeight: 0,
             }}
           >
-            <LightMessenger viewerId={user?.id ?? ""} onExpand={handleExpand} onClose={handleClose} />
+            {contentMode === "light" ? (
+              <LightMessenger
+                viewerId={user?.id ?? ""}
+                onExpand={handleExpandToFull}
+                onClose={handleMinimize}
+              />
+            ) : (
+              <FullMessengerChrome
+                viewerId={user?.id ?? ""}
+                onCompact={handleCompactToLight}
+                onMinimize={handleMinimize}
+              />
+            )}
           </Row>
         ) : (
           <IconButton
