@@ -3,6 +3,7 @@
 import {
   Button,
   Card,
+  Chip,
   Column,
   DateInput,
   Dialog,
@@ -14,6 +15,7 @@ import {
   Input,
   Line,
   Media,
+  Option,
   RevealFx,
   Row,
   ScrollLock,
@@ -24,15 +26,25 @@ import {
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
-import { type DragEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactDOM from "react-dom";
 import {
   createPortfolioPiece,
   getPortfolioPieceForEdit,
+  getSubcategorySuggestions,
   updatePortfolioPiece,
 } from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { readFileAsDataUrl } from "@/lib/files";
+import { PIECE_CATEGORIES } from "@/lib/pieceCategories";
 import { AttachFilesModal, type AttachmentKind, type ProjectAttachment } from "./AttachFilesModal";
 import {
   BLOCK_TYPES,
@@ -64,7 +76,12 @@ const DIALOG_MAX_WIDTH = 108; // rem (1728px)
 const SPLIT_DEFAULT = 0.75;
 const SPLIT_MIN = 0.7;
 const SPLIT_MAX = 0.8;
-const MAX_TAGS = 5;
+// Mismos topes que valida el server (ver MAX_SUBCATEGORIES/MAX_SOFTWARE en
+// actions/portfolioPieces.ts): se replican aquí solo para el feedback
+// inmediato del contador ("3/10"), la validación real vive del lado server.
+const MAX_SUBCATEGORIES = 10;
+const MAX_SOFTWARE = 15;
+const SUBCATEGORY_SUGGESTION_LIMIT = 8;
 
 // FEATURE FUTURA (oculta a pedido, sin borrar código): el panel/botón
 // "Adjuntar archivo" del panel de herramientas se gatea con esta constante
@@ -380,6 +397,235 @@ function BlockTypePicker({ disabled, onSelect }: BlockTypePickerProps) {
   );
 }
 
+interface CategoryDropdownFieldProps {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  error?: boolean;
+}
+
+// Selección OBLIGATORIA de una de las 9 categorías de src/lib/pieceCategories.ts
+// (ver PIECE_CATEGORIES): reemplaza el input libre de texto que tenía antes.
+// `DropdownWrapper` + `Option` es el mismo patrón que ya usa CategoryDropdown
+// de ExploreSearchBar.tsx, adaptado a un trigger con look de campo de
+// formulario (no un link de navegación) porque aquí selecciona un VALOR de
+// estado, no navega a una ruta.
+function CategoryDropdownField({ value, onChange, disabled, error }: CategoryDropdownFieldProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Column fillWidth gap="4">
+      <DropdownWrapper
+        fillWidth
+        isOpen={open}
+        onOpenChange={(next) => {
+          if (disabled) return;
+          setOpen(next);
+        }}
+        trigger={
+          <Row
+            fillWidth
+            horizontal="between"
+            vertical="center"
+            radius="l"
+            border={error ? "danger-medium" : "neutral-medium"}
+            background="neutral-alpha-weak"
+            paddingX="16"
+            paddingY="12"
+            gap="8"
+            cursor={disabled ? undefined : "interactive"}
+            opacity={disabled ? 50 : 100}
+          >
+            <Column gap="2">
+              <Text variant="label-default-s" onBackground="neutral-weak">
+                Categoría
+              </Text>
+              <Text
+                variant="body-default-m"
+                onBackground={value ? "neutral-strong" : "neutral-weak"}
+              >
+                {value || "Selecciona una categoría"}
+              </Text>
+            </Column>
+            <Icon name="chevronDown" size="s" onBackground="neutral-weak" />
+          </Row>
+        }
+        dropdown={
+          <Column minWidth={12} padding="4" gap="2">
+            {PIECE_CATEGORIES.map((option) => (
+              <Option
+                key={option}
+                label={option}
+                value={option}
+                selected={value === option}
+                onClick={() => {
+                  onChange(option);
+                  setOpen(false);
+                }}
+              />
+            ))}
+          </Column>
+        }
+      />
+      {error && (
+        <Row paddingX="16">
+          <Text variant="body-default-s" onBackground="danger-weak">
+            Selecciona una categoría para publicar
+          </Text>
+        </Row>
+      )}
+    </Column>
+  );
+}
+
+interface SubcategoryInputProps {
+  value: string[];
+  onChange: (value: string[]) => void;
+  disabled?: boolean;
+  error?: boolean;
+}
+
+// Subcategorías libres con autocompletado (getSubcategorySuggestions, server
+// action): mismo patrón de "comma/Enter crea tag" que TagInput (ver
+// dist/components/TagInput.js), compuesto a mano porque TagInput no soporta
+// sugerencias — igual que CollaboratorSearch en ContentBlocks.tsx (debounce +
+// popover normal-flow bajo el input, sin position:absolute, mismo criterio
+// probado ahí).
+function SubcategoryInput({ value, onChange, disabled, error }: SubcategoryInputProps) {
+  const [inputValue, setInputValue] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const atMax = value.length >= MAX_SUBCATEGORIES;
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    const handle = setTimeout(() => {
+      getSubcategorySuggestions(inputValue.trim(), SUBCATEGORY_SUGGESTION_LIMIT)
+        .then((results) =>
+          setSuggestions(
+            results.filter(
+              (result) => !value.some((tag) => tag.toLowerCase() === result.toLowerCase()),
+            ),
+          ),
+        )
+        .catch(() => setSuggestions([]))
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [inputValue, open, value]);
+
+  const addTag = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed || atMax) {
+      setInputValue("");
+      return;
+    }
+    if (value.some((tag) => tag.toLowerCase() === trimmed.toLowerCase())) {
+      setInputValue("");
+      return;
+    }
+    onChange([...value, trimmed]);
+    setInputValue("");
+    setSuggestions([]);
+  };
+
+  const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(inputValue);
+    }
+  };
+
+  const removeTag = (index: number) => {
+    onChange(value.filter((_, i) => i !== index));
+  };
+
+  return (
+    <Column fillWidth gap="4">
+      <Input
+        id="project-subcategories"
+        label="Subcategorías"
+        placeholder="Escribe y presiona coma (,) para agregar"
+        description={
+          value.length === 0
+            ? `0/${MAX_SUBCATEGORIES} subcategorías — mínimo 1 para publicar`
+            : `${value.length}/${MAX_SUBCATEGORIES} subcategorías`
+        }
+        error={error}
+        // GOTCHA verificado en dist/components/Input.js: el borde rojo de
+        // `error` solo se activa cuando `props.value !== ""` (pensado para
+        // errores de validación EN VIVO mientras se escribe, no para "campo
+        // obligatorio vacío"), y el texto de `description` nunca cambia de
+        // color. `errorMessage` sí pinta su propia línea en rojo
+        // (danger-weak) SIN esa condición de valor no-vacío — es el único
+        // canal que sobrevive para avisar "0 subcategorías" en rojo.
+        errorMessage={error ? "Agrega al menos una subcategoría antes de publicar." : undefined}
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        disabled={disabled || atMax}
+      >
+        {value.length > 0 && (
+          <Row
+            gap="4"
+            vertical="center"
+            wrap
+            paddingY="16"
+            style={{ margin: "calc(-1 * var(--static-space-8)) var(--static-space-8)" }}
+          >
+            {value.map((tag, index) => (
+              <Chip
+                key={tag}
+                label={tag}
+                onRemove={disabled ? undefined : () => removeTag(index)}
+                iconButtonProps={{ tooltip: `Quitar ${tag}` }}
+              />
+            ))}
+          </Row>
+        )}
+      </Input>
+      {open && !disabled && (loading || suggestions.length > 0) && (
+        <Column
+          fillWidth
+          gap="2"
+          radius="m"
+          border="neutral-alpha-weak"
+          padding="4"
+          background="page"
+          shadow="l"
+          style={{ maxHeight: "12rem", overflowY: "auto" }}
+        >
+          {loading && (
+            <Row fillWidth horizontal="center" padding="8">
+              <Spinner size="s" ariaLabel="Buscando subcategorías" />
+            </Row>
+          )}
+          {!loading &&
+            suggestions.map((suggestion) => (
+              <Row
+                key={suggestion}
+                fillWidth
+                padding="8"
+                radius="s"
+                cursor="interactive"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => addTag(suggestion)}
+              >
+                <Text variant="label-default-s" onBackground="neutral-strong">
+                  {suggestion}
+                </Text>
+              </Row>
+            ))}
+        </Column>
+      )}
+    </Column>
+  );
+}
+
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -394,6 +640,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [titleFocused, setTitleFocused] = useState(false);
   const [titleTouched, setTitleTouched] = useState(false);
   const [category, setCategory] = useState("");
+  const [subcategories, setSubcategories] = useState<string[]>([]);
+  const [software, setSoftware] = useState<string[]>([]);
   const [coverUrl, setCoverUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
   // Colapso puramente de UI (mismo criterio que ContentBlockCard): la
@@ -402,36 +650,60 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [coverCollapsed, setCoverCollapsed] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
+  // LEGACY: ya no se edita desde este panel (ver "Software implementado"),
+  // pero se conserva el valor precargado y se reenvía tal cual al guardar —
+  // omitirlo del payload haría que el server lo pisara con `[]` en cada
+  // guardado (ver `tags: (input.tags ?? []).slice(...)` en
+  // actions/portfolioPieces.ts) y borraría las etiquetas legacy de piezas
+  // viejas sin que el usuario lo pidiera.
   const [tags, setTags] = useState<string[]>([]);
+  // Ya no se edita desde este panel (ver bloque "Colaboradores" del Canvas):
+  // solo llega precargado en modo edición y se combina en `handleSave` con
+  // los usernames del bloque avatarGroup (mergedCollaborators).
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined);
   const [attachments, setAttachments] = useState<ProjectAttachment[]>([]);
-  // Solo se activa cuando el usuario adjunta algo EN esta sesión del editor;
-  // los adjuntos ya guardados que llegan al precargar una edición no cuentan,
-  // o el diálogo de "se pierde tu avance" dispararía al abrir cualquier pieza
-  // que ya tuviera archivos.
-  const [attachmentsTouched, setAttachmentsTouched] = useState(false);
   const [isAttachOpen, setAttachOpen] = useState(false);
   const [isConfirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingPiece, setLoadingPiece] = useState(false);
   const [saving, setSaving] = useState<"publish" | "draft" | null>(null);
   const disabled = saving !== null || loadingPiece;
+  // Se enciende con CUALQUIER cambio de portada/bloques/título/campos (ver
+  // efecto de tracking más abajo) y se apaga tras un guardado exitoso o al
+  // (re)cargar la pieza — gatea el Dialog de confirmación al intentar cerrar.
+  const [isDirty, setIsDirty] = useState(false);
+  // Arma el "skip" de UNA sola corrida del efecto de tracking: se enciende
+  // justo antes de precargar/resetear (los setState de esa carga SÍ disparan
+  // el efecto, pero no deben contar como "cambio sin guardar" del usuario).
+  const skipDirtyRef = useRef(true);
+  // Si la pieza YA era pública al abrir el editor, "Guardar en borrador"
+  // desde el Dialog de confirmación la despublica — se avisa en el copy del
+  // botón (ver Dialog más abajo) usando este flag.
+  const [originalIsPublic, setOriginalIsPublic] = useState(false);
+  // Se enciende al intentar PUBLICAR con categoría/subcategorías faltantes,
+  // para mostrar el hint de error inline en esos campos; se apaga en cada
+  // reset/precarga. No bloquea guardar como borrador (ver `handleSave`).
+  const [showTaxonomyErrors, setShowTaxonomyErrors] = useState(false);
 
   const reset = () => {
     setTitle("");
     setTitleFocused(false);
     setTitleTouched(false);
     setCategory("");
+    setSubcategories([]);
+    setSoftware([]);
     setCoverUrl("");
     setBlocks([]);
     setTags([]);
     setCollaborators([]);
     setReleaseDate(undefined);
     setAttachments([]);
-    setAttachmentsTouched(false);
     setError(null);
     setConfirmCloseOpen(false);
+    setOriginalIsPublic(false);
+    setShowTaxonomyErrors(false);
+    setIsDirty(false);
   };
 
   // Al abrir en modo edición, trae la pieza completa y precarga el Canvas;
@@ -439,6 +711,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   // con datos de una edición anterior — es una única instancia persistente).
   useEffect(() => {
     if (!isOpen) return;
+    skipDirtyRef.current = true;
+    setIsDirty(false);
     if (!pieceId) {
       reset();
       return;
@@ -448,11 +722,14 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setError(null);
     setTitleFocused(false);
     setTitleTouched(false);
+    setShowTaxonomyErrors(false);
     getPortfolioPieceForEdit(pieceId)
       .then((piece) => {
         if (cancelled) return;
         setTitle(piece.title);
         setCategory(piece.category === "Documento" ? "" : piece.category);
+        setSubcategories(piece.subcategories);
+        setSoftware(piece.software);
         setCoverUrl(piece.coverUrl);
         setBlocks(piece.contentBlocks);
         setTags(piece.tags);
@@ -466,7 +743,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
             kind: inferAttachmentKind(url),
           })),
         );
-        setAttachmentsTouched(false);
+        setOriginalIsPublic(piece.isPublic);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -480,6 +757,21 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, pieceId]);
+
+  // Dirty-tracking: cualquier cambio en estos campos DESPUÉS de que la carga
+  // (reset o precarga de edición) terminó de aplicar los suyos marca
+  // `isDirty`. `skipDirtyRef` absorbe exactamente la corrida que disparan los
+  // `setState` de esa carga (batcheados en el mismo commit, o llegados juntos
+  // tras el `await` de `getPortfolioPieceForEdit`) para que "abrir para
+  // editar" no se confunda con "el usuario ya cambió algo".
+  // biome-ignore lint/correctness/useExhaustiveDependencies: la lista de deps son justo los campos cuyo cambio debe marcar `isDirty` — el efecto no lee sus valores (solo el ref/setState), así que Biome los ve "de más", pero quitarlos rompería el tracking.
+  useEffect(() => {
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    setIsDirty(true);
+  }, [title, category, subcategories, software, coverUrl, blocks, releaseDate, attachments]);
 
   const handleCoverUpload = async (file: File) => {
     setCoverUploading(true);
@@ -687,12 +979,29 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       setError("El título y al menos una sección de contenido son obligatorios.");
       return;
     }
+    // Categoría/subcategorías solo son obligatorias para PUBLICAR (mismo
+    // criterio que el server para subcategories, ver validatePieceTaxonomy en
+    // actions/portfolioPieces.ts — la categoría la exige solo este cliente,
+    // el server no la vuelve obligatoria). Guardar como borrador nunca
+    // bloquea por esto.
+    if (publish) {
+      setShowTaxonomyErrors(true);
+      if (!category) {
+        setError("Selecciona una categoría antes de publicar.");
+        return;
+      }
+      if (subcategories.length === 0) {
+        setError("Agrega al menos una subcategoría antes de publicar.");
+        return;
+      }
+    }
     setError(null);
     setSaving(publish ? "publish" : "draft");
     try {
       // Los usernames de los bloques "Colaboradores" (avatarGroup) se suman
-      // al campo `collaborators` del guardado, sin duplicar lo ya escrito a
-      // mano en el TagInput del panel derecho (la action no valida/dedup).
+      // al campo `collaborators` del guardado, sin duplicar lo ya precargado
+      // (la action no valida/dedup) — el campo manual del panel se quitó, el
+      // bloque del Canvas es la única fuente de colaboradores nueva.
       const blockCollaboratorUsernames = blocks
         .filter(
           (b): b is Extract<ContentBlock, { type: "avatarGroup" }> => b.type === "avatarGroup",
@@ -707,9 +1016,13 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         content: markdown,
         contentBlocks: blocks,
         category: category || undefined,
+        subcategories,
+        software,
         coverUrl: coverUrl || undefined,
         isPublic: publish,
         gallery: attachments.map((attachment) => attachment.url),
+        // LEGACY: passthrough sin editar (ver comentario junto al estado
+        // `tags`) — nunca lo toca el usuario desde este panel.
         tags,
         collaborators: mergedCollaborators,
         releaseDate,
@@ -729,12 +1042,13 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     }
   };
 
-  // Con archivos adjuntados EN ESTA SESIÓN, cerrar por accidente (click
-  // afuera, Escape o la X) pierde ese avance: se advierte antes de salir en
-  // vez de cerrar directo. No aplica a los adjuntos que ya traía la pieza.
+  // Intercepta TODOS los caminos de cierre (click afuera, Escape, botón X —
+  // los tres llaman a `onClose` de `WideDialog`, ver su implementación
+  // arriba): con cambios sin guardar (`isDirty`), no cierra directo — abre el
+  // Dialog de confirmación con las 3 salidas (cancelar / borrador / descartar).
   const handleAttemptClose = () => {
     if (disabled) return;
-    if (attachmentsTouched) {
+    if (isDirty) {
       setConfirmCloseOpen(true);
       return;
     }
@@ -848,13 +1162,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       description="Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
                     />
 
-                    <Input
-                      id="project-category"
-                      placeholder="Categoría (Branding, Motion, Web…)"
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      disabled={disabled}
-                    />
+                    <Row fillWidth gap="12" s={{ direction: "column" }}>
+                      <Column flex={1} style={{ minWidth: 0 }}>
+                        <CategoryDropdownField
+                          value={category}
+                          onChange={setCategory}
+                          disabled={disabled}
+                          error={showTaxonomyErrors && !category}
+                        />
+                      </Column>
+                      <Column flex={2} style={{ minWidth: 0 }}>
+                        <SubcategoryInput
+                          value={subcategories}
+                          onChange={setSubcategories}
+                          disabled={disabled}
+                          error={showTaxonomyErrors && subcategories.length === 0}
+                        />
+                      </Column>
+                    </Row>
 
                     <Column fillWidth gap="12" radius="m" border="neutral-alpha-weak" padding="16">
                       <Row fillWidth horizontal="between" vertical="center">
@@ -877,7 +1202,15 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                             src={coverUrl}
                             alt="Portada"
                             aspectRatio="16 / 9"
-                            width={64}
+                            // SizeProps: un `width` NUMÉRICO se interpreta como
+                            // REM (ver ai/gotchas.json, mismo criterio que
+                            // RevealFx.translateY) — `width={64}` renderizaba
+                            // 64rem (~1024px), un thumbnail gigante que tapaba
+                            // el lienzo y hacía parecer que el colapso de la
+                            // portada no funcionaba (el toggle de estado sí
+                            // corría bien). `"64"` como SpacingToken (string)
+                            // es el equivalente real a 64px.
+                            width="64"
                             radius="s"
                           />
                         )}
@@ -1110,20 +1443,12 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       Editar proyecto
                     </Text>
                     <TagInput
-                      id="project-tags"
-                      label="Etiquetas"
+                      id="project-software"
+                      label="Software implementado"
                       placeholder="Escribe y presiona coma (,) para agregar"
-                      description={`${tags.length}/${MAX_TAGS} etiquetas`}
-                      value={tags}
-                      onChange={(next) => setTags(next.slice(0, MAX_TAGS))}
-                      disabled={disabled}
-                    />
-                    <TagInput
-                      id="project-collaborators"
-                      label="Colaboradores"
-                      placeholder="Nombre de usuario y coma (,) para agregar"
-                      value={collaborators}
-                      onChange={setCollaborators}
+                      description={`${software.length}/${MAX_SOFTWARE} programas`}
+                      value={software}
+                      onChange={(next) => setSoftware(next.slice(0, MAX_SOFTWARE))}
                       disabled={disabled}
                     />
                     <Row fillWidth gap="8" vertical="end">
@@ -1181,33 +1506,57 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         isOpen={isAttachOpen}
         onClose={() => setAttachOpen(false)}
         initialAttachments={attachments}
-        onConfirm={(next) => {
-          setAttachments(next);
-          setAttachmentsTouched(true);
-        }}
+        onConfirm={setAttachments}
       />
 
+      {/* Intercepta los 3 caminos de cierre de WideDialog (click afuera, X,
+          Escape — todos pasan por `handleAttemptClose`) cuando hay cambios
+          sin guardar (`isDirty`). Tres salidas, de menos a más destructiva. */}
       <Dialog
         isOpen={isConfirmCloseOpen}
         onClose={() => setConfirmCloseOpen(false)}
-        title="¿Cerrar el editor de proyectos?"
-        description="Ya adjuntaste archivos a este proyecto. Si cierras sin guardar, ese avance se pierde."
+        title="¿Salir sin guardar los cambios?"
+        description="Tienes cambios sin guardar en este proyecto. Elige qué hacer antes de salir."
         footer={
-          <Row fillWidth gap="8" horizontal="end">
-            <Button variant="secondary" size="m" onClick={() => setConfirmCloseOpen(false)}>
-              Seguir editando
+          <Row fillWidth gap="8" horizontal="end" wrap>
+            <Button
+              variant="tertiary"
+              size="m"
+              onClick={() => setConfirmCloseOpen(false)}
+              disabled={saving !== null}
+            >
+              Cancelar
             </Button>
             <Button
-              variant="primary"
+              variant="secondary"
               size="m"
               onClick={() => handleSave(false)}
               loading={saving === "draft"}
+              disabled={saving === "publish"}
             >
-              Guardar en borradores
+              Guardar en borrador
+            </Button>
+            <Button
+              variant="danger"
+              size="m"
+              onClick={() => {
+                reset();
+                onClose();
+              }}
+              disabled={saving !== null}
+            >
+              Salir de todos modos
             </Button>
           </Row>
         }
-      />
+      >
+        {pieceId && originalIsPublic && (
+          <Feedback
+            variant="warning"
+            description="Este proyecto ya está publicado: guardarlo como borrador lo ocultará del portafolio hasta que lo publiques de nuevo."
+          />
+        )}
+      </Dialog>
     </>
   );
 }

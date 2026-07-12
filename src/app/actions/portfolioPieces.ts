@@ -2,8 +2,9 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
 import type { ContentBlock } from "@/components/profile/ContentBlocks";
+import { isValidPieceCategory } from "@/lib/pieceCategories";
+import { prisma } from "@/lib/prisma";
 
 export interface CreatePortfolioPieceInput {
   title: string;
@@ -19,8 +20,13 @@ export interface CreatePortfolioPieceInput {
   isPublic: boolean;
   // URLs (o data URLs) de los archivos adjuntados desde el editor
   gallery?: string[];
-  // Máx. 5, validado abajo
+  // Máx. 5, validado abajo. LEGACY: el editor nuevo usa `subcategories`.
   tags?: string[];
+  // Subcategorías libres de la pieza (máx. 10, validado abajo). Al menos 1
+  // es obligatoria para publicar (isPublic true); los borradores no la exigen.
+  subcategories?: string[];
+  // Software/herramientas usadas en la pieza (máx. 15, validado abajo)
+  software?: string[];
   // Usernames de colaboradores, sin validar contra la tabla User todavía
   collaborators?: string[];
   releaseDate?: Date;
@@ -35,6 +41,8 @@ export interface PortfolioPieceForEdit {
   coverUrl: string;
   contentBlocks: ContentBlock[];
   tags: string[];
+  subcategories: string[];
+  software: string[];
   collaborators: string[];
   releaseDate: string | null;
   isPublic: boolean;
@@ -44,7 +52,33 @@ export interface PortfolioPieceForEdit {
 }
 
 const MAX_TAGS = 5;
+const MAX_SUBCATEGORIES = 10;
+const MAX_SOFTWARE = 15;
+const MAX_TAXONOMY_LABEL_LENGTH = 30;
 const MAX_PARTNER_RESULTS = 24;
+const MAX_SUBCATEGORY_SUGGESTIONS = 8;
+// Piezas públicas escaneadas para armar sugerencias de autocompletado
+// (getSubcategorySuggestions); dev-simple, sin caché ni índice dedicado.
+const SUBCATEGORY_SUGGESTION_SCAN_LIMIT = 200;
+
+// Normaliza una lista de etiquetas libres (subcategories/software): recorta
+// espacios, descarta vacías/demasiado largas, deduplica sin distinguir
+// mayúsculas/minúsculas (conserva la primera variante de capitalización) y
+// aplica el máximo de elementos.
+function normalizeTaxonomyList(values: string[] | undefined, max: number): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values ?? []) {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.length > MAX_TAXONOMY_LABEL_LENGTH) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+    if (result.length >= max) break;
+  }
+  return result;
+}
 
 export interface PublicPartnerResult {
   id: string;
@@ -111,10 +145,34 @@ export async function searchPublicPartners(
     }));
 }
 
+// Valida category/subcategories entrantes y devuelve los valores ya
+// normalizados listos para persistir. Se usa en create y update:
+// - category: si viene, debe pertenecer a PIECE_CATEGORIES (piezas viejas
+//   con categoría fuera de la lista no se tocan si el cliente no manda una).
+// - subcategories: al menos 1 es obligatoria para publicar (isPublic true);
+//   los borradores (isPublic false) pueden guardarse sin ninguna.
+function validatePieceTaxonomy(input: CreatePortfolioPieceInput) {
+  const category = input.category?.trim();
+  if (category && !isValidPieceCategory(category)) {
+    throw new Error(`Categoría inválida: "${category}"`);
+  }
+
+  const subcategories = normalizeTaxonomyList(input.subcategories, MAX_SUBCATEGORIES);
+  if (input.isPublic && subcategories.length === 0) {
+    throw new Error("Agrega al menos una subcategoría antes de publicar");
+  }
+
+  const software = normalizeTaxonomyList(input.software, MAX_SOFTWARE);
+
+  return { category, subcategories, software };
+}
+
 // Crea una pieza de portafolio desde el editor de Markdown del Partner.
 // El contenido se guarda como texto plano; siempre queda ligada al usuario
 // autenticado vía Clerk, nunca a un userId recibido del cliente.
-export async function createPortfolioPiece(input: CreatePortfolioPieceInput): Promise<{ id: string }> {
+export async function createPortfolioPiece(
+  input: CreatePortfolioPieceInput,
+): Promise<{ id: string }> {
   const { userId } = await auth();
   if (!userId) throw new Error("No autenticado");
 
@@ -123,18 +181,22 @@ export async function createPortfolioPiece(input: CreatePortfolioPieceInput): Pr
   if (!title) throw new Error("El título es obligatorio");
   if (!content) throw new Error("El contenido es obligatorio");
 
+  const { category, subcategories, software } = validatePieceTaxonomy(input);
+
   const piece = await prisma.portfolioPiece.create({
     data: {
       title,
       markdownContent: content,
       contentBlocks: input.contentBlocks ? (input.contentBlocks as object) : undefined,
-      category: input.category?.trim() || undefined,
+      category: category || undefined,
       coverUrl: input.coverUrl || null,
       downloadUrl: input.downloadUrl?.trim() || null,
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,
       gallery: input.gallery && input.gallery.length > 0 ? input.gallery : undefined,
       tags: (input.tags ?? []).slice(0, MAX_TAGS),
+      subcategories,
+      software,
       collaborators: input.collaborators ?? [],
       releaseDate: input.releaseDate ?? null,
       userId,
@@ -165,6 +227,8 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
       coverUrl: true,
       contentBlocks: true,
       tags: true,
+      subcategories: true,
+      software: true,
       collaborators: true,
       releaseDate: true,
       isPublic: true,
@@ -181,8 +245,12 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
     title: piece.title,
     category: piece.category,
     coverUrl: piece.coverUrl ?? "",
-    contentBlocks: Array.isArray(piece.contentBlocks) ? (piece.contentBlocks as unknown as ContentBlock[]) : [],
+    contentBlocks: Array.isArray(piece.contentBlocks)
+      ? (piece.contentBlocks as unknown as ContentBlock[])
+      : [],
     tags: piece.tags,
+    subcategories: piece.subcategories,
+    software: piece.software,
     collaborators: piece.collaborators,
     releaseDate: piece.releaseDate ? piece.releaseDate.toISOString() : null,
     isPublic: piece.isPublic,
@@ -212,19 +280,23 @@ export async function updatePortfolioPiece(
   });
   if (!existing || existing.userId !== userId) throw new Error("No autorizado");
 
+  const { category, subcategories, software } = validatePieceTaxonomy(input);
+
   await prisma.portfolioPiece.update({
     where: { id: pieceId },
     data: {
       title,
       markdownContent: content,
       contentBlocks: input.contentBlocks ? (input.contentBlocks as object) : undefined,
-      category: input.category?.trim() || undefined,
+      category: category || undefined,
       coverUrl: input.coverUrl || null,
       downloadUrl: input.downloadUrl?.trim() || null,
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,
       gallery: input.gallery && input.gallery.length > 0 ? input.gallery : undefined,
       tags: (input.tags ?? []).slice(0, MAX_TAGS),
+      subcategories,
+      software,
       collaborators: input.collaborators ?? [],
       releaseDate: input.releaseDate ?? null,
     },
@@ -275,4 +347,38 @@ export async function setPieceVisibility(pieceId: string, isPublic: boolean): Pr
   if (piece.user.username) revalidatePath(`/${piece.user.username}`);
   revalidatePath("/explorar");
   revalidatePath("/");
+}
+
+// Sugerencias de autocompletado para el campo "subcategorías" del editor:
+// subcategorías ya usadas en piezas PÚBLICAS de cualquier usuario que
+// empiecen o contengan `query`. Prisma no soporta distinct sobre columnas
+// array, así que se trae un lote razonable de piezas públicas y se
+// aplana/dedup/filtra en memoria — dev-simple, sin caché.
+export async function getSubcategorySuggestions(
+  query: string,
+  limit = MAX_SUBCATEGORY_SUGGESTIONS,
+): Promise<string[]> {
+  const q = query.trim().toLowerCase();
+  const take = Math.min(Math.max(limit, 1), MAX_SUBCATEGORY_SUGGESTIONS);
+
+  const pieces = await prisma.portfolioPiece.findMany({
+    where: { isPublic: true, subcategories: { isEmpty: false } },
+    select: { subcategories: true },
+    orderBy: { createdAt: "desc" },
+    take: SUBCATEGORY_SUGGESTION_SCAN_LIMIT,
+  });
+
+  const seen = new Set<string>();
+  const suggestions: string[] = [];
+  for (const piece of pieces) {
+    for (const subcategory of piece.subcategories) {
+      const key = subcategory.toLowerCase();
+      if (seen.has(key)) continue;
+      if (q && !key.includes(q)) continue;
+      seen.add(key);
+      suggestions.push(subcategory);
+      if (suggestions.length >= take) return suggestions;
+    }
+  }
+  return suggestions;
 }

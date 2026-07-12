@@ -35,7 +35,9 @@ export default async function Home() {
     image: piece.coverUrl ?? "",
     likes: piece.likes,
     views: piece.views,
-    href: piece.user.username ? caseStudyHref(piece.user.username, piece.title) : undefined,
+    href: piece.user.username
+      ? caseStudyHref(piece.user.username, piece.title, Boolean(piece.markdownContent))
+      : undefined,
   }));
 
   return (
