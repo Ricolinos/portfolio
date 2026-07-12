@@ -4,12 +4,14 @@ import {
   Avatar,
   AvatarGroup,
   Badge,
+  Button,
   Chip,
   ColorInput,
   Column,
   DropdownWrapper,
   EmojiPickerDropdown,
   Feedback,
+  HoverCard,
   Icon,
   IconButton,
   Input,
@@ -29,12 +31,19 @@ import {
   Tag,
   Text,
   Textarea,
+  Tooltip,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
-import { type DragEvent, useEffect, useId, useRef, useState } from "react";
+import { type DragEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
 import { readFileAsDataUrl } from "@/lib/files";
-import { DEFAULT_TEXT_PT, FONT_LIBRARY, ptToPx, resolveFontStack } from "@/lib/fontLibrary";
+import {
+  DEFAULT_TEXT_PT,
+  FONT_LIBRARY,
+  ptToPx,
+  resolveFontStack,
+  TEXT_SIZE_PRESETS,
+} from "@/lib/fontLibrary";
 import { PROJECT_SUBCATEGORIES, PROJECT_VERTICALS } from "@/lib/projectCategories";
 
 // El Canvas no edita un .md crudo: el usuario arma bloques estructurados y
@@ -1337,6 +1346,65 @@ function syncHeadingPreviewStyles(root: HTMLElement): void {
   });
 }
 
+// REDISEÑO (auditoría "toolbar rota a dos filas"): Fuente/Tamaño/Color usaban
+// controles NATIVOS de Once UI incrustados directo en la barra (`IconButton`
+// con children "Aa", `NumberInput`, `ColorInput`) — los dos últimos extienden
+// `Input`, que nunca baja de `--static-space-40` de alto (GOTCHA conocido del
+// harness), forzando la barra a DOS filas con controles desproporcionados
+// frente a los `IconButton size="s"` (24px) del resto. Fix: los 3 controles
+// pasan a ser un TRIGGER compacto (mismo alto que `IconButton size="s"`, ver
+// `IconButton.module.scss` — `.s { height: var(--static-space-24) }`) que
+// abre un `DropdownWrapper`; el control nativo completo (con su alto real de
+// Input) vive DENTRO del dropdown, donde el alto no compite con la barra.
+// Un solo componente reutilizable homologa la estética entre los 3 triggers
+// (Fuente ya usaba este patrón de trigger+dropdown; Tamaño/Color se suman
+// aquí) — mismos tokens (`background="neutral-alpha-weak"`, `radius="s"`,
+// `cursor="interactive"`), en vez de reimplementar el mismo `Row` 3 veces.
+function ToolbarDropdownTrigger({
+  active,
+  disabled,
+  tooltip,
+  children,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  tooltip?: ReactNode;
+  children: ReactNode;
+}) {
+  const trigger = (
+    <Row
+      gap="4"
+      vertical="center"
+      paddingX="8"
+      height="24"
+      radius="s"
+      background={active ? "neutral-alpha-medium" : "neutral-alpha-weak"}
+      cursor={disabled ? "not-allowed" : "interactive"}
+      opacity={disabled ? 50 : undefined}
+    >
+      {children}
+      <Icon name="chevronDown" size="xs" onBackground="neutral-weak" />
+    </Row>
+  );
+  if (!tooltip) return trigger;
+  // Mismos primitivos que usa `IconButton` por dentro para su prop `tooltip`
+  // (ver dist/components/IconButton.js): se reproducen a mano porque este
+  // trigger ya no ES un `IconButton` (necesita ancho libre para el número/
+  // nombre de fuente, no el cuadrado fijo de `IconButton`).
+  return (
+    <HoverCard
+      trigger={trigger}
+      placement="top"
+      fade={0}
+      scale={0.9}
+      duration={200}
+      offsetDistance="4"
+    >
+      <Tooltip label={tooltip} />
+    </HoverCard>
+  );
+}
+
 function RichTextEditor({
   html,
   align,
@@ -1408,10 +1476,14 @@ function RichTextEditor({
   const [blockFormat, setBlockFormat] = useState<HeadingFormat>("p");
   const [paragraphAlign, setParagraphAlign] = useState<TextBlockAlign>(align);
   // FEATURE (controles universales — Fuente/Tamaño/Color): estado de
-  // apertura del dropdown de Fuente (mismo patrón `DropdownWrapper` que ya
-  // usaba el resto de la toolbar). Tamaño/Color no necesitan uno propio:
-  // `NumberInput`/`ColorInput` son controles directos, sin popover.
+  // apertura de los 3 dropdowns (mismo patrón `DropdownWrapper`, ver
+  // `ToolbarDropdownTrigger`) — Tamaño y Color se sumaron en el rediseño de
+  // la barra a una sola fila (antes `NumberInput`/`ColorInput` vivían
+  // directo en la barra, sin popover propio; ver comentario junto a
+  // `ToolbarDropdownTrigger`).
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
+  const [sizeMenuOpen, setSizeMenuOpen] = useState(false);
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
 
   // Solo sincroniza el DOM cuando el cambio viene de afuera (ej. al cargar
   // un borrador): si lo hiciéramos en cada emit, el cursor saltaría al
@@ -1733,25 +1805,31 @@ function RichTextEditor({
             por su propia ruta JSX/ATX sin `font`/`pt`/`color`). */}
         <DropdownWrapper
           isOpen={fontMenuOpen}
-          onOpenChange={setFontMenuOpen}
+          onOpenChange={(open) => setFontMenuOpen(open && !(disabled || cursorInHeading))}
           placement="bottom-start"
           trigger={
-            <IconButton
+            <ToolbarDropdownTrigger
               tooltip={inlineFormatTooltip(`Fuente: ${font ? font : "Predeterminada"}`)}
-              variant={font ? "primary" : "tertiary"}
-              size="s"
+              active={!!font}
               disabled={disabled || cursorInHeading}
             >
               {/* Preview inmediato: el trigger muestra "Aa" en la fuente
-                  activa — mismo criterio que ya usaba el trigger "Aa" de
-                  Familia, ahora con `style.fontFamily` real en vez de una
-                  clase token (no hay token Once UI para un nombre de fuente
-                  libre, ver GOTCHA `color.tokens` — esto es contenido
-                  editable del USUARIO, no decoración de layout). */}
+                  activa (con `style.fontFamily` real — no hay token Once UI
+                  para un nombre de fuente libre, ver GOTCHA `color.tokens`,
+                  esto es contenido editable del USUARIO, no decoración de
+                  layout), más el nombre corto de la fuente CUANDO cabe (≤6
+                  caracteres: "Arial"/"Lato"/"Roboto"/"Oswald") — nombres
+                  largos ("Playfair Display") solo muestran "Aa" para no
+                  romper la fila única (ver auditoría de la barra). */}
               <Text variant="label-strong-s" style={{ fontFamily: resolveFontStack(font) }}>
                 Aa
               </Text>
-            </IconButton>
+              {font && font.length <= 6 && (
+                <Text variant="label-default-s" onBackground="neutral-weak" truncate>
+                  {font}
+                </Text>
+              )}
+            </ToolbarDropdownTrigger>
           }
           dropdown={
             <Column
@@ -1784,45 +1862,140 @@ function RichTextEditor({
             </Column>
           }
         />
-        {/* Tamaño por puntaje: `NumberInput` real de Once UI (ver
-            ai/components/NumberInput.json / docs.once-ui.com/once-ui/
-            form-controls/input) — incrementa/decrementa con los chevrons
-            propios del componente además de tecleo libre. Ancho acotado con
-            un `Row maxWidth` (token nativo, no CSS a mano) porque `Input`
-            —de quien extiende `NumberInput`— siempre es `fillWidth` por
-            dentro (ver dist/components/Input.js: Column raíz `fillWidth:
-            true`), y esta barra es compacta. */}
-        <Row maxWidth={8}>
-          <NumberInput
-            id={sizeInputId}
-            value={pt ?? DEFAULT_TEXT_PT}
-            onChange={(value) => onPtChange(value)}
-            min={8}
-            max={96}
-            step={1}
-            height="s"
-            disabled={disabled || cursorInHeading}
-          />
-        </Row>
-        {/* Color libre: `ColorInput` real de Once UI (ver ai/components/
-            ColorInput.json / docs.once-ui.com/once-ui/form-controls/
-            colorInput) — hex libre con su propio botón de reset (icono
-            "close" nativo del componente) que dispara
-            `onChange({ target: { value: "" } })`; se traduce aquí a
-            `hexColor = undefined` = "sin color, hereda el token de tema de
-            siempre". AVISO (documentado también en mdx.tsx y en el reporte
+        {/* Tamaño por puntaje: trigger compacto con el valor actual + caret
+            (mismo patrón que Fuente, ver `ToolbarDropdownTrigger`) — el
+            `NumberInput` real de Once UI (ai/components/NumberInput.json)
+            vive DENTRO del dropdown, junto con los presets curados de
+            `TEXT_SIZE_PRESETS` (ver src/lib/fontLibrary.ts) como `Option`
+            de acceso rápido.
+            GOTCHA VERIFICADO (Playwright, valor custom "a veces" no se
+            aplicaba): `DropdownWrapper` con `handleArrowNavigation` (default
+            `true`) envuelve el contenido en `ArrowNavigation`
+            (dist/hooks/useArrowNavigation.js), que escucha `keydown` en TODO
+            el dropdown-portal —no solo en los `Option`— y su caso `'Enter'`
+            dispara `onSelect(focusedIndex)` incondicionalmente cuando
+            `focusedIndex >= 0` (autoFocus deja `focusedIndex=0` apenas abre,
+            resaltando el primer preset). Con presets Y un `NumberInput`
+            sueltos en el mismo dropdown, presionar Enter DENTRO del
+            `NumberInput` para confirmar un valor custom quedaba interceptado
+            por ese listener y seleccionaba el primer preset ("10 pt") en vez
+            de aplicar lo tecleado — reproducido en pantalla: valor tecleado
+            "36", Enter, el trigger terminaba mostrando "10". Se desactiva
+            `handleArrowNavigation` en ESTE dropdown (mixto Option+Input) —
+            los clicks en `Option` siguen funcionando igual (su `onClick`
+            propio no depende de `ArrowNavigation`), y Enter/flechas dentro
+            del `NumberInput` quedan libres para su comportamiento nativo. Los
+            otros 2 dropdowns (Fuente, solo `Option`; Color, sin ningún
+            `Option`) no tocan esta prop: no mezclan input libre con lista
+            navegable. */}
+        <DropdownWrapper
+          isOpen={sizeMenuOpen}
+          onOpenChange={(open) => setSizeMenuOpen(open && !(disabled || cursorInHeading))}
+          placement="bottom-start"
+          handleArrowNavigation={false}
+          trigger={
+            <ToolbarDropdownTrigger
+              tooltip={inlineFormatTooltip(`Tamaño: ${pt ?? DEFAULT_TEXT_PT}pt`)}
+              active={pt !== undefined}
+              disabled={disabled || cursorInHeading}
+            >
+              <Text variant="label-strong-s" onBackground="neutral-strong">
+                {pt ?? DEFAULT_TEXT_PT}
+              </Text>
+            </ToolbarDropdownTrigger>
+          }
+          dropdown={
+            <Column
+              minWidth={10}
+              padding="4"
+              gap="2"
+              style={{ maxHeight: "16rem", overflowY: "auto" }}
+            >
+              {TEXT_SIZE_PRESETS.map((preset) => (
+                <Option
+                  key={preset}
+                  label={`${preset} pt`}
+                  value={String(preset)}
+                  selected={pt === preset}
+                  onClick={() => {
+                    onPtChange(preset);
+                    setSizeMenuOpen(false);
+                  }}
+                />
+              ))}
+              <Line background="neutral-alpha-weak" />
+              <Row paddingX="4" paddingY="4" gap="8" vertical="center">
+                <Text variant="label-default-s" onBackground="neutral-weak">
+                  Personalizado
+                </Text>
+                <NumberInput
+                  id={sizeInputId}
+                  value={pt ?? DEFAULT_TEXT_PT}
+                  onChange={(value) => onPtChange(value)}
+                  min={8}
+                  max={96}
+                  step={1}
+                />
+              </Row>
+            </Column>
+          }
+        />
+        {/* Color libre: trigger es un swatch circular (~20px) con el color
+            actual — icono "eyeDropper" cuando no hay override (ver
+            docs.once-ui.com/once-ui/utilities/icon, IconName incluye
+            "eyeDropper"). El `ColorInput` real de Once UI (ai/components/
+            ColorInput.json), con su propio botón de reset nativo, y un
+            botón "Color del tema" (equivalente semántico) viven DENTRO del
+            dropdown. AVISO (documentado también en mdx.tsx y en el reporte
             de la tarea): un hex fijo NO se adapta a modo claro/oscuro —
             decisión consciente del usuario al elegir un color libre en vez
             de dejarlo en "Predeterminado". */}
-        <Row maxWidth={13}>
-          <ColorInput
-            id={colorInputId}
-            value={hexColor ?? ""}
-            onChange={(e) => onHexColorChange(e.target.value || undefined)}
-            height="s"
-            disabled={disabled || cursorInHeading}
-          />
-        </Row>
+        <DropdownWrapper
+          isOpen={colorMenuOpen}
+          onOpenChange={(open) => setColorMenuOpen(open && !(disabled || cursorInHeading))}
+          placement="bottom-start"
+          trigger={
+            <ToolbarDropdownTrigger
+              tooltip={inlineFormatTooltip(`Color: ${hexColor ?? "Predeterminado"}`)}
+              active={!!hexColor}
+              disabled={disabled || cursorInHeading}
+            >
+              {hexColor ? (
+                <Row
+                  width="20"
+                  height="20"
+                  radius="full"
+                  border="neutral-alpha-medium"
+                  style={{ backgroundColor: hexColor }}
+                />
+              ) : (
+                <Row width="20" height="20" radius="full" border="neutral-alpha-medium" center>
+                  <Icon name="eyeDropper" size="xs" onBackground="neutral-weak" />
+                </Row>
+              )}
+            </ToolbarDropdownTrigger>
+          }
+          dropdown={
+            <Column minWidth={12} padding="8" gap="8">
+              <ColorInput
+                id={colorInputId}
+                value={hexColor ?? ""}
+                onChange={(e) => onHexColorChange(e.target.value || undefined)}
+              />
+              <Button
+                variant="tertiary"
+                size="s"
+                label="Color del tema"
+                prefixIcon="refresh"
+                fillWidth
+                onClick={() => {
+                  onHexColorChange(undefined);
+                  setColorMenuOpen(false);
+                }}
+              />
+            </Column>
+          }
+        />
         <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="bold"
