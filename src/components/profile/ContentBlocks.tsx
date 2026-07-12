@@ -4,7 +4,6 @@ import {
   Avatar,
   AvatarGroup,
   Badge,
-  Carousel,
   Chip,
   Column,
   DropdownWrapper,
@@ -71,6 +70,23 @@ export type StatusColor =
 
 export type TextBlockAlign = "left" | "center" | "right" | "justify";
 export type TextBlockWeight = "default" | "strong" | "light";
+// FEATURE (tipografía avanzada, tarea 4): color/familia de bloque, mismo
+// criterio que `weight`/`italic` — ambos son props STRING reales de `Text`
+// (ver ai/components/Text.json: `onBackground: Colors`, `family: TextType`),
+// así que sobreviven el GOTCHA de props con llaves (ver comentario extenso
+// junto a `escapeAttr`) igual que `variant`/`align`, ya probados. "default"
+// = sin override (usa el mismo cálculo de color que ya deriva `weight`, y
+// family="body" de siempre).
+export type TextBlockColor =
+  | "default"
+  | "neutral-strong"
+  | "neutral-medium"
+  | "neutral-weak"
+  | "brand-strong"
+  | "accent-strong"
+  | "danger-strong"
+  | "success-strong";
+export type TextBlockFamily = "default" | "heading" | "label" | "code";
 
 export type ContentBlock =
   | {
@@ -80,6 +96,8 @@ export type ContentBlock =
       align?: TextBlockAlign;
       weight?: TextBlockWeight;
       italic?: boolean;
+      color?: TextBlockColor;
+      family?: TextBlockFamily;
     }
   | { id: string; type: "image"; url: string; alt: string }
   | { id: string; type: "carousel"; images: { id: string; url: string; alt: string }[] }
@@ -122,31 +140,61 @@ export type ContentBlock =
 
 export type ContentBlockType = ContentBlock["type"];
 
+// Panel "Añadir sección" (tarea 2, auditoría de herramientas): se retiraron
+// Insignia/Categorías/Links/Etiqueta/Estado/Barra de progreso de esta lista
+// —su propósito quedó cubierto por la cabecera nueva del visor
+// (categoría+subcategorías+software, ver page.tsx) o por el enlace desde
+// texto (bloque "link")—, pero sus `type` SIGUEN en `ContentBlock`/
+// `createBlock`/el render de `ContentBlockCard` de más abajo intactos: una
+// pieza vieja que ya trae uno de esos bloques debe seguir editándose y
+// renderizando en el visor exactamente igual. Solo se quitan de esta lista
+// (fuente única de los 3 selectores de tipo: panel derecho, "+" del lienzo y
+// el picker de arrastre — ver CreateProjectModal.tsx), así que tampoco
+// aparecen como opción para arrastrar/instanciar un bloque nuevo.
 export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string }[] = [
   { type: "image", label: "Imagen", icon: "images" },
   { type: "text", label: "Texto", icon: "document" },
   { type: "carousel", label: "Carousel de fotos", icon: "carousel" },
   { type: "embed", label: "Código", icon: "codeBracket" },
-  { type: "link", label: "Links", icon: "openLink" },
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
-  { type: "tag", label: "Etiqueta", icon: "shapes" },
-  { type: "categoryTags", label: "Categorías", icon: "briefcase" },
-  { type: "badge", label: "Insignia", icon: "sparkles" },
-  { type: "status", label: "Estado", icon: "infoCircle" },
-  { type: "progress", label: "Barra de progreso", icon: "refreshCw" },
   { type: "avatarGroup", label: "Colaboradores", icon: "userGroup" },
   { type: "logoCloud", label: "Nube de logos", icon: "grid" },
   { type: "scroller", label: "Tira deslizable", icon: "arrowRight" },
   { type: "masonry", label: "Cuadrícula de fotos", icon: "gallery" },
 ];
 
+// Mapa COMPLETO de label/icon por tipo (a diferencia de `BLOCK_TYPES`, que
+// solo lista lo instanciable desde el panel): la cabecera de
+// `ContentBlockCard` (icono + nombre del tipo de bloque) debe seguir
+// mostrando algo coherente para los 6 tipos retirados del panel cuando una
+// pieza vieja ya los trae — derivar esto de `BLOCK_TYPES` los dejaría con
+// `undefined`.
+const ALL_BLOCK_META: Record<ContentBlockType, { label: string; icon: string }> = {
+  image: { label: "Imagen", icon: "images" },
+  text: { label: "Texto", icon: "document" },
+  carousel: { label: "Carousel de fotos", icon: "carousel" },
+  embed: { label: "Código", icon: "codeBracket" },
+  link: { label: "Links", icon: "openLink" },
+  video: { label: "Video", icon: "film" },
+  divider: { label: "Divisor", icon: "divider" },
+  tag: { label: "Etiqueta", icon: "shapes" },
+  categoryTags: { label: "Categorías", icon: "briefcase" },
+  badge: { label: "Insignia", icon: "sparkles" },
+  status: { label: "Estado", icon: "infoCircle" },
+  progress: { label: "Barra de progreso", icon: "refreshCw" },
+  avatarGroup: { label: "Colaboradores", icon: "userGroup" },
+  logoCloud: { label: "Nube de logos", icon: "grid" },
+  scroller: { label: "Tira deslizable", icon: "arrowRight" },
+  masonry: { label: "Cuadrícula de fotos", icon: "gallery" },
+};
+
 const BLOCK_LABEL: Record<ContentBlockType, string> = Object.fromEntries(
-  BLOCK_TYPES.map((b) => [b.type, b.label]),
+  Object.entries(ALL_BLOCK_META).map(([type, meta]) => [type, meta.label]),
 ) as Record<ContentBlockType, string>;
 
 const BLOCK_ICON: Record<ContentBlockType, string> = Object.fromEntries(
-  BLOCK_TYPES.map((b) => [b.type, b.icon]),
+  Object.entries(ALL_BLOCK_META).map(([type, meta]) => [type, meta.icon]),
 ) as Record<ContentBlockType, string>;
 
 function newId(): string {
@@ -319,6 +367,41 @@ const HEADING_VARIANT_VALUES = new Set(
   ),
 );
 
+// FEATURE (color de texto, tarea 4): curaduría corta de `onBackground`
+// reales de Once UI (ver ai/spec.json — Colors = `${ColorScheme}-${Color
+// Weight}`). Verificado en pantalla contra una pieza publicada de prueba
+// que las 7 opciones sobreviven el pipeline completo (mismo prop string que
+// ya usa `onBackground="neutral-medium"` en el camino default): editor →
+// Markdown guardado → visor público, sin ningún atributo perdido por el
+// GOTCHA de props con llaves (`onBackground` siempre viaja como string
+// entre comillas, nunca `{...}`).
+const TEXT_COLOR_OPTIONS: { value: TextBlockColor; label: string; swatch: string }[] = [
+  { value: "default", label: "Predeterminado", swatch: "neutral-medium" },
+  { value: "neutral-strong", label: "Neutro fuerte", swatch: "neutral-strong" },
+  { value: "neutral-medium", label: "Neutro medio", swatch: "neutral-medium" },
+  { value: "neutral-weak", label: "Neutro suave", swatch: "neutral-weak" },
+  { value: "brand-strong", label: "Marca", swatch: "brand-strong" },
+  { value: "accent-strong", label: "Acento", swatch: "accent-strong" },
+  { value: "danger-strong", label: "Peligro", swatch: "danger-strong" },
+  { value: "success-strong", label: "Éxito", swatch: "success-strong" },
+];
+
+// FEATURE (familia tipográfica, tarea 4): `family` (TextType real: body/
+// heading/label/code, ver ai/components/Text.json) es el mismo tipo de prop
+// string que `variant`/`onBackground` — sobrevive el pipeline igual.
+// "Cuerpo" queda fuera de la lista (es el default "sin override", ya
+// cubierto por el valor "default"); DESCARTADO "display" a propósito: un
+// párrafo de cuerpo con family="display" se ve desproporcionado (esa
+// familia está pensada para tamaños grandes de hero/heading, no body/m) —
+// verificado en pantalla, el line-height/tracking de "display" no calza con
+// texto corrido.
+const TEXT_FAMILY_OPTIONS: { value: TextBlockFamily; label: string }[] = [
+  { value: "default", label: "Cuerpo" },
+  { value: "heading", label: "Encabezado" },
+  { value: "label", label: "Etiqueta" },
+  { value: "code", label: "Código" },
+];
+
 // El texto de un heading pasa a vivir como children de JSX (`<Heading>texto
 // </Heading>`) en vez de texto plano de Markdown ATX (`## texto`): a
 // diferencia del ATX (donde `{`/`<` no tienen significado especial), dentro
@@ -388,13 +471,21 @@ function serializeTextSegment(
   align: TextBlockAlign,
   weight: TextBlockWeight,
   italic: boolean,
+  color: TextBlockColor,
+  family: TextBlockFamily,
 ): string {
   const trimmed = html.trim();
   if (!trimmed) return "";
   // Camino "sin cambios" (todo default): serializa IDÉNTICO a como
   // siempre — no ensucia el Markdown de las piezas que no tocan la
   // barra de estilo del bloque.
-  if (align === "left" && weight === "default" && !italic) {
+  if (
+    align === "left" &&
+    weight === "default" &&
+    !italic &&
+    color === "default" &&
+    family === "default"
+  ) {
     return `<Text variant="body-default-m" onBackground="neutral-medium">\n${trimmed}\n</Text>`;
   }
   // Con cualquier override, `variant` deja de usarse: Text.js (Once UI)
@@ -403,13 +494,23 @@ function serializeTextSegment(
   // : [sizeClass, weightClass]`), así que `weight="strong"` junto a
   // `variant="body-default-m"` no aplicaría nada. Se reconstruye la
   // misma tipografía body/m con `family`+`size` sueltos para poder
-  // sumar `weight`/`align` reales.
+  // sumar `weight`/`align`/`color`/`family` reales.
   // "light" no existe como TextWeight real de Once UI (solo
   // "default"|"strong", ver ai/components/Text.json del harness): se
   // aproxima con `onBackground="neutral-weak"` (color atenuado, prop
-  // real) en vez de un peso tipográfico inexistente.
-  const onBackground = weight === "light" ? "neutral-weak" : "neutral-medium";
-  const attrs = [`family="body"`, `size="m"`, `onBackground="${onBackground}"`];
+  // real) en vez de un peso tipográfico inexistente. El selector de color
+  // (tarea 4) es prioritario sobre esa aproximación: si el usuario elige un
+  // color explícito, gana sobre el fallback de `weight="light"`.
+  const resolvedOnBackground =
+    color !== "default" ? color : weight === "light" ? "neutral-weak" : "neutral-medium";
+  // `family` (TextType real: body/heading/label/code, ver ai/components/
+  // Text.json) — "default" mantiene "body" de siempre.
+  const resolvedFamily = family !== "default" ? family : "body";
+  const attrs = [
+    `family="${resolvedFamily}"`,
+    `size="m"`,
+    `onBackground="${resolvedOnBackground}"`,
+  ];
   if (align !== "left") attrs.push(`align="${align}"`);
   if (weight === "strong") attrs.push(`weight="strong"`);
   // GOTCHA (verificado en pantalla contra la pieza real de prueba):
@@ -440,10 +541,12 @@ function blockToMarkdown(block: ContentBlock): string {
       const align = block.align ?? "left";
       const weight = block.weight ?? "default";
       const italic = block.italic ?? false;
+      const color = block.color ?? "default";
+      const family = block.family ?? "default";
       const segments = splitTextBlockHtml(html);
       const parts = segments.map((segment) => {
         if (segment.type !== "heading") {
-          return serializeTextSegment(segment.html, align, weight, italic);
+          return serializeTextSegment(segment.html, align, weight, italic, color, family);
         }
         // Ver GOTCHA extenso junto a `TextSegment`/`escapeJsxText`: un heading
         // sin align NI variante propia sigue el camino ATX de siempre (con
@@ -908,10 +1011,14 @@ interface RichTextEditorProps {
   align: TextBlockAlign;
   weight: TextBlockWeight;
   italic: boolean;
+  color: TextBlockColor;
+  family: TextBlockFamily;
   onChange: (html: string) => void;
   onAlignChange: (align: TextBlockAlign) => void;
   onWeightChange: (weight: TextBlockWeight) => void;
   onItalicChange: (italic: boolean) => void;
+  onColorChange: (color: TextBlockColor) => void;
+  onFamilyChange: (family: TextBlockFamily) => void;
   disabled?: boolean;
 }
 
@@ -1051,10 +1158,14 @@ function RichTextEditor({
   align,
   weight,
   italic,
+  color,
+  family,
   onChange,
   onAlignChange,
   onWeightChange,
   onItalicChange,
+  onColorChange,
+  onFamilyChange,
   disabled,
 }: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -1103,6 +1214,12 @@ function RichTextEditor({
   const [paragraphVariant, setParagraphVariant] = useState<string>("default");
   const [formatMenuOpen, setFormatMenuOpen] = useState(false);
   const [variantMenuOpen, setVariantMenuOpen] = useState(false);
+  // Color/familia (tarea 4): a diferencia de align/variant (por párrafo, ver
+  // `paragraphAlign`/`paragraphVariant`), aplican al BLOQUE completo — mismo
+  // nivel que `weight`/`italic` (ver `onColorChange`/`onFamilyChange`,
+  // controlados por el padre igual que esos dos).
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
+  const [familyMenuOpen, setFamilyMenuOpen] = useState(false);
 
   // Solo sincroniza el DOM cuando el cambio viene de afuera (ej. al cargar
   // un borrador): si lo hiciéramos en cada emit, el cursor saltaría al
@@ -1525,6 +1642,81 @@ function RichTextEditor({
           disabled={disabled}
         />
         <Line vert background="neutral-alpha-weak" height="20" />
+        {/* Color de texto (tarea 4): aplica a TODO el bloque, mismo nivel
+            que `weight`/`italic` (ver `onColorChange`). El swatch del
+            trigger se tiñe con `color` (prop real de `IconButton`, ver
+            ai/components/IconButton.json) para previsualizar la selección
+            actual sin abrir el dropdown. */}
+        <DropdownWrapper
+          isOpen={colorMenuOpen}
+          onOpenChange={setColorMenuOpen}
+          placement="bottom-start"
+          trigger={
+            <IconButton
+              icon="paintBrush"
+              tooltip={`Color de texto: ${
+                TEXT_COLOR_OPTIONS.find((option) => option.value === color)?.label ??
+                "Predeterminado"
+              }`}
+              variant={color !== "default" ? "primary" : "tertiary"}
+              color={color !== "default" ? color : undefined}
+              size="s"
+              disabled={disabled}
+            />
+          }
+          dropdown={
+            <Column minWidth={11} padding="4" gap="2">
+              {TEXT_COLOR_OPTIONS.map((option) => (
+                <Option
+                  key={option.value}
+                  label={option.label}
+                  value={option.value}
+                  selected={color === option.value}
+                  onClick={() => {
+                    onColorChange(option.value);
+                    setColorMenuOpen(false);
+                  }}
+                />
+              ))}
+            </Column>
+          }
+        />
+        {/* Familia tipográfica (tarea 4): `family` real de Once UI (body/
+            heading/label/code), mismo nivel de bloque que color/weight. */}
+        <DropdownWrapper
+          isOpen={familyMenuOpen}
+          onOpenChange={setFamilyMenuOpen}
+          placement="bottom-start"
+          trigger={
+            <IconButton
+              tooltip={`Familia tipográfica: ${
+                TEXT_FAMILY_OPTIONS.find((option) => option.value === family)?.label ?? "Cuerpo"
+              }`}
+              variant={family !== "default" ? "primary" : "tertiary"}
+              size="s"
+              disabled={disabled}
+            >
+              <Text variant="label-strong-s">Aa</Text>
+            </IconButton>
+          }
+          dropdown={
+            <Column minWidth={10} padding="4" gap="2">
+              {TEXT_FAMILY_OPTIONS.map((option) => (
+                <Option
+                  key={option.value}
+                  label={option.label}
+                  value={option.value}
+                  selected={family === option.value}
+                  onClick={() => {
+                    onFamilyChange(option.value);
+                    setFamilyMenuOpen(false);
+                  }}
+                />
+              ))}
+            </Column>
+          }
+        />
+        <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
           icon="bold"
           tooltip="Negrita"
@@ -1639,6 +1831,13 @@ export function ContentBlockCard({
   // blocksToMarkdown/blockToMarkdown.
   const [collapsed, setCollapsed] = useState(false);
 
+  // El bloque "divisor" (tarea 7, auditoría de herramientas) es el único
+  // sin nada que colapsar (una sola línea, sin campos de edición): se le
+  // quita el chevron de colapso y se le da un fondo de contraste
+  // (`neutral-alpha-weak`, recurso nativo del sistema) para diferenciarlo
+  // del resto de las tarjetas de bloque (`background="page"`).
+  const isDivider = block.type === "divider";
+
   return (
     <Column
       fillWidth
@@ -1646,19 +1845,21 @@ export function ContentBlockCard({
       padding="16"
       radius="m"
       border="neutral-alpha-weak"
-      background="page"
+      background={isDivider ? "neutral-alpha-weak" : "page"}
       opacity={isDragging ? 50 : 100}
     >
       <Row fillWidth horizontal="between" vertical="center">
         <Row gap="4" vertical="center">
-          <IconButton
-            icon={collapsed ? "chevronRight" : "chevronDown"}
-            variant="tertiary"
-            size="s"
-            tooltip={collapsed ? "Expandir sección" : "Colapsar sección"}
-            onClick={() => setCollapsed((current) => !current)}
-            disabled={disabled}
-          />
+          {!isDivider && (
+            <IconButton
+              icon={collapsed ? "chevronRight" : "chevronDown"}
+              variant="tertiary"
+              size="s"
+              tooltip={collapsed ? "Expandir sección" : "Colapsar sección"}
+              onClick={() => setCollapsed((current) => !current)}
+              disabled={disabled}
+            />
+          )}
           <IconButton
             icon="dragHandle"
             variant="tertiary"
@@ -1709,15 +1910,28 @@ export function ContentBlockCard({
           align={block.align ?? "left"}
           weight={block.weight ?? "default"}
           italic={block.italic ?? false}
+          color={block.color ?? "default"}
+          family={block.family ?? "default"}
           onChange={(next) => onChange({ ...block, html: next })}
           onAlignChange={(align) => onChange({ ...block, align })}
           onWeightChange={(weight) => onChange({ ...block, weight })}
           onItalicChange={(italic) => onChange({ ...block, italic })}
+          onColorChange={(color) => onChange({ ...block, color })}
+          onFamilyChange={(family) => onChange({ ...block, family })}
           disabled={disabled}
         />
       )}
 
       {!collapsed && block.type === "image" && (
+        // El input de "Texto alternativo" se retiró del editor (tarea 3,
+        // auditoría de herramientas): no se visualiza en el render final
+        // (createImage en mdx.tsx pasa `alt` al <Media>, pero Once UI no lo
+        // muestra en pantalla — solo lo usa el navegador/lectores de
+        // pantalla). `block.alt` sigue existiendo en el tipo/estado y
+        // blockToMarkdown lo sigue serializando tal cual (ver case "image"),
+        // así que una pieza vieja con alt ya escrito no lo pierde; los
+        // bloques nuevos simplemente serializan con "" (default de
+        // `createBlock`).
         <Column gap="8">
           <MediaUpload
             aspectRatio="16 / 9"
@@ -1731,85 +1945,75 @@ export function ContentBlockCard({
               onChange({ ...block, url: await readFileAsDataUrl(file) })
             }
           />
-          <Input
-            id={`block-${block.id}-alt`}
-            label="Texto alternativo"
-            value={block.alt}
-            onChange={(e) => onChange({ ...block, alt: e.target.value })}
-            disabled={disabled}
-          />
         </Column>
       )}
 
       {!collapsed && block.type === "carousel" && (
-        <Column gap="12">
-          <Carousel
-            indicator="thumbnail"
-            aspectRatio="4 / 3"
-            items={[
-              ...block.images
-                .filter((image) => image.url)
-                .map((image) => ({ slide: image.url, alt: image.alt })),
-              {
-                alt: "Agregar imagen",
-                slide: (
-                  <MediaUpload
-                    aspectRatio="4 / 3"
-                    accept="image/*"
-                    compress
-                    resizeMaxWidth={1600}
-                    resizeMaxHeight={1600}
-                    emptyState="Agregar imagen"
-                    onFileUpload={async (file) => {
-                      const url = await readFileAsDataUrl(file);
-                      onChange({
-                        ...block,
-                        images: [...block.images, { id: newId(), url, alt: "" }],
-                      });
-                    }}
-                  />
-                ),
-              },
-            ]}
-          />
-          {block.images.filter((image) => image.url).length > 0 && (
-            <Column gap="8">
-              {block.images.map((image, index) =>
-                image.url ? (
-                  <Row key={image.id} gap="8" vertical="center">
-                    <Input
-                      id={`block-${block.id}-${image.id}-alt`}
-                      placeholder={`Alt de la imagen ${index + 1}`}
-                      value={image.alt}
-                      onChange={(e) =>
-                        onChange({
-                          ...block,
-                          images: block.images.map((i) =>
-                            i.id === image.id ? { ...i, alt: e.target.value } : i,
-                          ),
-                        })
-                      }
-                      disabled={disabled}
-                    />
-                    <IconButton
-                      icon="trash"
-                      variant="tertiary"
-                      size="s"
-                      tooltip="Quitar imagen"
-                      disabled={disabled}
-                      onClick={() =>
-                        onChange({
-                          ...block,
-                          images: block.images.filter((i) => i.id !== image.id),
-                        })
-                      }
-                    />
-                  </Row>
-                ) : null,
-              )}
+        // Rediseño compacto (tarea 5, auditoría de herramientas): el
+        // `Carousel` de preview a tamaño completo (con un slide-tile
+        // gigante de `MediaUpload` al final, no interactivo hasta hacer
+        // click dentro del carrusel) se sustituye por el MISMO patrón ya
+        // funcional de logoCloud/masonry — fila de tiles pequeños (72px,
+        // `width`/`height` numéricos = rem reales, ver `parseDimension` en
+        // el harness: 4.5 → "4.5rem" = 72px) con `MediaUpload` real
+        // (mecanismo de subida ya probado) + botón de basura por imagen, y
+        // un tile "+" al final. El render del visor (Scroller de `Media`,
+        // ver blockToMarkdown case "carousel") no cambia.
+        <Row gap="8" wrap>
+          {block.images.map((image) => (
+            <Column key={image.id} gap="4" width={4.5}>
+              <MediaUpload
+                aspectRatio="1"
+                accept="image/*"
+                compress
+                resizeMaxWidth={1600}
+                resizeMaxHeight={1600}
+                initialPreviewImage={image.url || null}
+                emptyState=""
+                radius="m"
+                onFileUpload={async (file) => {
+                  const url = await readFileAsDataUrl(file);
+                  onChange({
+                    ...block,
+                    images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
+                  });
+                }}
+              />
+              <IconButton
+                icon="trash"
+                variant="tertiary"
+                size="s"
+                tooltip="Quitar imagen"
+                disabled={disabled}
+                onClick={() =>
+                  onChange({ ...block, images: block.images.filter((i) => i.id !== image.id) })
+                }
+              />
             </Column>
-          )}
-        </Column>
+          ))}
+          {/* Ver GOTCHA junto al tile "Agregar" de avatarGroup/logoCloud/
+              masonry: `key` atado a la longitud del array fuerza un remount
+              limpio del MediaUpload en cada add/remove (evita el bug de
+              reconciliación de React por posición). */}
+          <Column key={`add-${block.images.length}`} width={4.5}>
+            <MediaUpload
+              aspectRatio="1"
+              accept="image/*"
+              compress
+              resizeMaxWidth={1600}
+              resizeMaxHeight={1600}
+              emptyState="Agregar"
+              radius="m"
+              onFileUpload={async (file) => {
+                const url = await readFileAsDataUrl(file);
+                onChange({
+                  ...block,
+                  images: [...block.images, { id: newId(), url, alt: "" }],
+                });
+              }}
+            />
+          </Column>
+        </Row>
       )}
 
       {!collapsed && block.type === "embed" && (
@@ -1897,12 +2101,8 @@ export function ContentBlockCard({
       )}
 
       {!collapsed && block.type === "divider" && (
-        <Row fillWidth vertical="center" gap="8">
-          <Line background="neutral-alpha-medium" style={{ flex: 1 }} />
-          <Text variant="body-default-xs" onBackground="neutral-weak">
-            Línea divisoria
-          </Text>
-          <Line background="neutral-alpha-medium" style={{ flex: 1 }} />
+        <Row fillWidth vertical="center">
+          <Line background="neutral-alpha-medium" fillWidth />
         </Row>
       )}
 
@@ -2293,9 +2493,16 @@ export function ContentBlockCard({
             onChange={(e) => onChange({ ...block, columns: Number(e.target.value) || 1 })}
             disabled={disabled}
           />
-          <Row gap="12" wrap>
+          {/* Solo miniaturas (tarea 6, auditoría de herramientas): mismo
+              patrón compacto del carrusel (ver bloque "carousel" arriba) —
+              tiles de 96px (`width`/`height` numéricos = rem reales, 6 →
+              "6rem" = 96px) en vez de las previews grandes de antes; sin
+              input de alt suelto por imagen, mismo criterio que el
+              carrusel. El render del visor (`MasonryGrid` real, ver
+              blockToMarkdown case "masonry") no cambia. */}
+          <Row gap="8" wrap>
             {block.images.map((image) => (
-              <Column key={image.id} gap="8" style={{ width: "8rem" }}>
+              <Column key={image.id} gap="4" width={6}>
                 <MediaUpload
                   aspectRatio="1"
                   accept="image/*"
@@ -2304,6 +2511,7 @@ export function ContentBlockCard({
                   resizeMaxHeight={1600}
                   initialPreviewImage={image.url || null}
                   emptyState="Foto"
+                  radius="m"
                   onFileUpload={async (file) => {
                     const url = await readFileAsDataUrl(file);
                     onChange({
@@ -2311,20 +2519,6 @@ export function ContentBlockCard({
                       images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
                     });
                   }}
-                />
-                <Input
-                  id={`block-${block.id}-${image.id}-alt`}
-                  placeholder="Alt"
-                  value={image.alt}
-                  onChange={(e) =>
-                    onChange({
-                      ...block,
-                      images: block.images.map((i) =>
-                        i.id === image.id ? { ...i, alt: e.target.value } : i,
-                      ),
-                    })
-                  }
-                  disabled={disabled}
                 />
                 <IconButton
                   icon="trash"
@@ -2345,7 +2539,7 @@ export function ContentBlockCard({
                 reconciliación de React, causa raíz confirmada del "logo
                 duplicado" reportado. `key` atado a la longitud del array
                 fuerza un remount limpio del MediaUpload en cada add/remove. */}
-            <Column key={`add-${block.images.length}`} gap="8" style={{ width: "8rem" }}>
+            <Column key={`add-${block.images.length}`} width={6}>
               <MediaUpload
                 aspectRatio="1"
                 accept="image/*"
@@ -2353,6 +2547,7 @@ export function ContentBlockCard({
                 resizeMaxWidth={1600}
                 resizeMaxHeight={1600}
                 emptyState="Agregar"
+                radius="m"
                 onFileUpload={async (file) => {
                   const url = await readFileAsDataUrl(file);
                   onChange({
