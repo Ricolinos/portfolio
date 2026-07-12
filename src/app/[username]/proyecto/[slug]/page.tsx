@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import {
   Avatar,
+  Badge,
   Column,
   Heading,
   Line,
@@ -17,9 +18,18 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import { CustomMDX, ScrollToHash } from "@/components";
 import { getCaseStudy, slugifyTitle } from "@/lib/caseStudies";
+import { categoryExploreHref, softwareTagVariant } from "@/lib/pieceCategories";
 import { prisma } from "@/lib/prisma";
 import { baseURL } from "@/resources";
 import { formatDate } from "@/utils/formatDate";
+
+// Cabecera del visor (tarea "rediseño del editor", parte 2): fecha →
+// categoría (Badge clickeable a /explorar) → subcategorías (Tags, tope 5 +
+// "+X más") → software (Tags de color, más discreto) → título → usuario.
+// Piezas viejas sin subcategories/software (arreglo vacío, ver
+// utils/utils.ts y loadCaseStudy) simplemente no muestran esas filas — sin
+// huecos, cada fila es condicional a tener contenido real.
+const MAX_VISIBLE_SUBCATEGORIES = 5;
 
 interface CaseStudyPageProps {
   params: Promise<{ username: string; slug: string }>;
@@ -45,6 +55,8 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
         select: {
           title: true,
           category: true,
+          subcategories: true,
+          software: true,
           coverUrl: true,
           gallery: true,
           markdownContent: true,
@@ -75,6 +87,8 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
         image: piece.coverUrl ?? "",
         images: piece.coverUrl ? [piece.coverUrl, ...gallery] : gallery,
         tag: piece.category,
+        subcategories: piece.subcategories,
+        software: piece.software,
         team: [],
       },
       content: piece.markdownContent,
@@ -130,6 +144,12 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
   }
   const { post, author } = result;
 
+  const category = post.metadata.tag?.trim();
+  const subcategories = (post.metadata.subcategories ?? []).filter((s) => s.trim());
+  const software = (post.metadata.software ?? []).filter((s) => s.trim());
+  const visibleSubcategories = subcategories.slice(0, MAX_VISIBLE_SUBCATEGORIES);
+  const hiddenSubcategoriesCount = subcategories.length - visibleSubcategories.length;
+
   return (
     <Column as="section" maxWidth="m" horizontal="center" gap="l">
       <Schema
@@ -153,9 +173,27 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
         <SmartLink href={`/${username}`}>
           <Text variant="label-strong-m">Proyectos</Text>
         </SmartLink>
-        <Text variant="body-default-xs" onBackground="neutral-weak" marginBottom="12">
+        <Text variant="body-default-xs" onBackground="neutral-weak">
           {post.metadata.publishedAt && formatDate(post.metadata.publishedAt)}
         </Text>
+        {category && <Badge title={category} href={categoryExploreHref(category)} />}
+        {visibleSubcategories.length > 0 && (
+          <Row gap="8" wrap horizontal="center">
+            {visibleSubcategories.map((subcategory) => (
+              <Tag key={subcategory} size="m" variant="neutral" label={subcategory} />
+            ))}
+            {hiddenSubcategoriesCount > 0 && (
+              <Tag size="m" variant="brand" label={`+${hiddenSubcategoriesCount} más`} />
+            )}
+          </Row>
+        )}
+        {software.length > 0 && (
+          <Row gap="8" wrap horizontal="center">
+            {software.map((name) => (
+              <Tag key={name} size="s" variant={softwareTagVariant(name)} label={name} />
+            ))}
+          </Row>
+        )}
         <Heading variant="display-strong-m">{post.metadata.title}</Heading>
       </Column>
       <Row marginBottom="32" horizontal="center">
@@ -166,7 +204,6 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
               {author.name ?? username}
             </Text>
           </SmartLink>
-          {post.metadata.tag && <Tag size="s" label={post.metadata.tag} variant="neutral" />}
         </Row>
       </Row>
       {post.metadata.images.length > 0 && (

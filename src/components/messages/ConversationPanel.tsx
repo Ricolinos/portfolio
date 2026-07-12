@@ -107,7 +107,7 @@ export function ConversationPanel({
               <Row hide s={{ hide: false }} xs={{ hide: false }}>
                 <IconButton
                   icon="chevronLeft"
-                  size="s"
+                  size="m"
                   variant="tertiary"
                   tooltip="Volver a la lista"
                   onClick={onBack}
@@ -144,10 +144,15 @@ export function ConversationPanel({
                 )}
               </Column>
             </Row>
+            {/* size="m" (antes "s", ~22.5px): en el header del chat, el ícono
+                de info es el único control activo aquí y es de uso frecuente
+                en móvil — 22.5px queda por debajo del target táctil mínimo
+                recomendado (~40px). phone/video quedan igual por consistencia
+                visual del grupo aunque estén disabled. */}
             <Row gap="4">
               <IconButton
                 icon="phone"
-                size="s"
+                size="m"
                 variant="tertiary"
                 tooltip="Próximamente"
                 tooltipPosition="bottom"
@@ -155,7 +160,7 @@ export function ConversationPanel({
               />
               <IconButton
                 icon="video"
-                size="s"
+                size="m"
                 variant="tertiary"
                 tooltip="Próximamente"
                 tooltipPosition="bottom"
@@ -163,7 +168,7 @@ export function ConversationPanel({
               />
               <IconButton
                 icon="infoCircle"
-                size="s"
+                size="m"
                 variant={infoOpen ? "primary" : "tertiary"}
                 tooltip="Información del chat"
                 tooltipPosition="bottom"

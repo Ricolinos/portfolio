@@ -119,8 +119,18 @@ model PortfolioPiece {
   contentBlocks    Json?
   downloadUrl      String?
   resourcePassword String?
-  // Panel "Editar proyecto": máx. 5, validado en la server action
+  // Panel "Editar proyecto": máx. 5, validado en la server action.
+  // LEGACY: se conserva por compatibilidad con piezas viejas; el editor
+  // nuevo usa `subcategories` (taxonomía libre, mín. 1 al publicar).
   tags             String[]  @default([])
+  // Subcategorías libres de la pieza (ej. "Logotipo", "Storyboard"), máx. 10,
+  // validadas en la server action. Al menos 1 es obligatoria para publicar
+  // (isPublic true); los borradores pueden quedar sin ninguna.
+  subcategories    String[]  @default([])
+  // Software/herramientas usadas en la pieza (ej. "Photoshop", "Blender"),
+  // máx. 15, validadas en la server action. Colorea etiquetas en la UI vía
+  // src/lib/pieceCategories.ts (softwareTagVariant).
+  software         String[]  @default([])
   // Usernames de colaboradores, sin relación formal ni validación todavía
   collaborators    String[]  @default([])
   // Fecha opcional de lanzamiento/publicación, distinta de createdAt

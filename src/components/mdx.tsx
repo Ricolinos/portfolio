@@ -2,6 +2,8 @@ import { MDXRemote, MDXRemoteProps } from "next-mdx-remote/rsc";
 import React, { ReactNode } from "react";
 import { slugify as transliterate } from "transliteration";
 
+import { ptToPx, resolveFontStack } from "@/lib/fontLibrary";
+
 import {
   Heading,
   HeadingLink,
@@ -426,6 +428,67 @@ function createHeading(as: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") {
   return CustomHeading;
 }
 
+// FEATURE (herramienta de texto amigable — controles universales "Fuente"/
+// "Tamaño"/"Color", ver toolbar de ContentBlocks.tsx): ARQUITECTURA — el
+// pipeline de next-mdx-remote/rsc elimina props JSX con llaves y atributos
+// `style=` de HTML embebido crudo (ver `stripInlineStyleAttrs` más abajo),
+// pero un prop STRING plano en un componente de nuestro propio mapa
+// `components` SÍ sobrevive intacto (mismo mecanismo que ya usan `variant`/
+// `onBackground`/`align` en `serializeTextSegment`, ver ContentBlocks.tsx).
+// `serializeTextSegment` emite `font="Roboto"`/`pt="18"`/`color="#0c6367"`
+// como props string reales del `<Text>` — este wrapper (registrado como
+// `Text` en el mapa de `components` más abajo, en vez del `Text` crudo de
+// Once UI) los intercepta y los traduce a `style` en el momento de
+// renderizar, con la MISMA fórmula (`resolveFontStack`/`ptToPx`, ver
+// src/lib/fontLibrary.ts) que ya usa el preview en vivo del contentEditable
+// en ContentBlocks.tsx — necesario para que editor y visor publicado
+// coincidan exactamente. RETROCOMPATIBILIDAD DURA: `variant`/`family`/
+// `size`/`onBackground`/`weight` (props legacy) se reenvían tal cual al
+// `Text` real sin tocarlos; una pieza publicada ANTES de esta tarea (sin
+// `font`/`pt`/`color`) no pasa por ninguna rama nueva de este wrapper y
+// renderiza IDÉNTICO. Cuando `font`/`pt`/`color` SÍ coexisten con props
+// legacy (ej. `onBackground="brand-medium"` + `color="#ff5500"` en el mismo
+// tag — no debería ocurrir desde este editor, pero por si acaso en Markdown
+// escrito a mano), las nuevas ganan: `style` inline SIEMPRE tiene mayor
+// especificidad que las clases CSS que generan `variant`/`onBackground` (ver
+// Text.js del harness: `...style` se mezcla al FINAL de `combinedStyle`).
+//
+// AVISO (documentado también en el reporte de la tarea): un `color` hex fijo
+// NO se adapta al modo claro/oscuro del tema — a diferencia de los tokens
+// semánticos (`onBackground="neutral-medium"`, que Once UI resuelve distinto
+// por tema), un hex es un valor absoluto. Es una decisión consciente del
+// usuario al elegir un color libre en vez de "Predeterminado" (sin color =
+// hereda el token de tema de siempre).
+interface TextMdxProps extends React.ComponentProps<typeof Text> {
+  font?: string;
+  pt?: string | number;
+  color?: string;
+}
+
+function resolveTextOverrideStyle(
+  font: string | undefined,
+  pt: string | number | undefined,
+  color: string | undefined,
+): React.CSSProperties | undefined {
+  const resolved: React.CSSProperties = {};
+  const fontStack = resolveFontStack(font);
+  if (fontStack) resolved.fontFamily = fontStack;
+  if (pt !== undefined) {
+    const numericPt = typeof pt === "number" ? pt : Number(pt);
+    if (Number.isFinite(numericPt) && numericPt > 0) {
+      resolved.fontSize = `${ptToPx(numericPt)}px`;
+    }
+  }
+  if (color) resolved.color = color;
+  return Object.keys(resolved).length > 0 ? resolved : undefined;
+}
+
+function createTextElement({ font, pt, color, style, ...rest }: TextMdxProps) {
+  const overrideStyle = resolveTextOverrideStyle(font, pt, color);
+  const mergedStyle = overrideStyle ? { ...style, ...overrideStyle } : style;
+  return <Text style={mergedStyle} {...rest} />;
+}
+
 function createParagraph({ children }: TextProps) {
   return (
     <Text
@@ -540,7 +603,13 @@ const components = {
   li: createListItem as any,
   hr: createHR as any,
   Heading,
-  Text,
+  // `Text` crudo (mismo import de arriba) se reemplaza por el wrapper que
+  // interpreta `font`/`pt`/`color` (ver `createTextElement`, controles
+  // universales de la toolbar del bloque "text" en ContentBlocks.tsx);
+  // `createParagraph`/`LegacyCompareImage` de este mismo archivo siguen
+  // usando el `Text` crudo importado (no pasan por el mapa de `components`
+  // de MDX, no reciben esos props nuevos).
+  Text: createTextElement as any,
   CodeBlock,
   InlineCode,
   Accordion,

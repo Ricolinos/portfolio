@@ -59,20 +59,20 @@ export function DashboardHero({
           colorEnd: "static-transparent",
         }}
       />
-      <Text variant="label-default-s" onBackground="brand-medium" zIndex={1}>
-        {copy.eyebrow}
-      </Text>
-      <Heading variant="display-strong-xs" zIndex={1}>
-        Hola, {greetingName}
-      </Heading>
-      <Text
-        variant="body-default-m"
-        onBackground="neutral-weak"
-        zIndex={1}
-        style={{ maxWidth: "40rem" }}
-      >
-        {copy.message}
-      </Text>
+      {/* Column wrapper (no Text/Heading) porque Once UI no depura la prop
+          zIndex antes de pasarla al DOM en esos componentes: generaba
+          "React does not recognize the zIndex prop" en consola. Row/Column sí
+          la resuelven a estilo, así que el zIndex vive aquí y el contenido lo
+          hereda por stacking context. */}
+      <Column gap="8" zIndex={1}>
+        <Text variant="label-default-s" onBackground="brand-medium">
+          {copy.eyebrow}
+        </Text>
+        <Heading variant="display-strong-xs">Hola, {greetingName}</Heading>
+        <Text variant="body-default-m" onBackground="neutral-weak" style={{ maxWidth: "40rem" }}>
+          {copy.message}
+        </Text>
+      </Column>
     </Column>
   );
 }
