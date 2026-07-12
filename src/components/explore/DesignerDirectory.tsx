@@ -7,7 +7,6 @@ import {
   Avatar,
   Background,
   BlobFx,
-  Button,
   Column,
   Fade,
   Flex,
@@ -17,6 +16,8 @@ import {
   HoloFx,
   IconButton,
   InfiniteScroll,
+  Mask,
+  MatrixFx,
   Media,
   RevealFx,
   Row,
@@ -109,25 +110,50 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
   );
 }
 
+// Duración de la onda de MatrixFx cronometrada sobre su propio ciclo
+// (trigger="manual", ver dist/components/MatrixFx.js): con speed=1,
+// revealProgress = elapsed^3 * speed * 3, capado a 2.0. Un dot alcanza su
+// opacidad máxima cuando revealProgress supera introOffset + 0.125 (el
+// "fadeIn" del código llega a 1). El dot más lejano del centro tiene
+// introOffset ≈ 0.95 (normalizedDistance=1 * 0.8 + randomOffset máx. 0.15),
+// así que el peor caso necesita revealProgress ≈ 1.075, es decir
+// elapsed = (1.075 / 3) ** (1/3) ≈ 0.71s. Navegamos a los 900ms para dar
+// margen (frame drops, bulge) y que la onda cubra visualmente toda la
+// tarjeta antes de salir de ella.
+const MATRIX_REVEAL_MS = 900;
+
 function DesignerBack({
   designer,
+  seed,
   onFlipBack,
 }: {
   designer: Designer;
+  seed: number;
   onFlipBack: () => void;
 }) {
   const router = useRouter();
+  const [revealing, setRevealing] = useState(false);
 
-  // El tap/click en el cuerpo del reverso navega al perfil; stopPropagation
+  useEffect(() => {
+    if (!revealing) return;
+    const timeout = setTimeout(() => {
+      router.push(designer.projectHref);
+    }, MATRIX_REVEAL_MS);
+    return () => clearTimeout(timeout);
+  }, [revealing, router, designer.projectHref]);
+
+  // El click en el avatar dispara la onda de MatrixFx (trigger="manual",
+  // active=revealing) y, cuando termina, navega al perfil. stopPropagation
   // evita que el mismo click burbujee hasta el onClick de FlipFx y vuelva a
-  // voltear la tarjeta justo cuando estamos navegando.
-  const goToProfile = (event: MouseEvent) => {
+  // voltear la tarjeta a mitad de la animación.
+  const handleAvatarClick = (event: MouseEvent) => {
     event.stopPropagation();
-    router.push(designer.projectHref);
+    if (revealing) return;
+    setRevealing(true);
   };
 
   // La flecha SOLO regresa al frente: nunca debe navegar ni dejar que el
-  // click llegue al onClick del contenedor (goToProfile) ni al de FlipFx.
+  // click llegue al onClick de FlipFx.
   const handleUnflip = (event: MouseEvent) => {
     event.stopPropagation();
     onFlipBack();
@@ -144,49 +170,47 @@ function DesignerBack({
       radius="l"
       border="neutral-alpha-weak"
       background="neutral-alpha-weak"
-      overflow="auto"
-      cursor="interactive"
-      onClick={goToProfile}
+      overflow="hidden"
     >
-      {/* Decoración de fondo, detrás de todo: patrón de puntos con un
-          spotlight circular estático (mask), solo tokens globales, sin
-          interceptar clicks. */}
+      {/* Capa base: patrón de puntos en toda la superficie + glow radial
+          suave detrás del centro. Solo tokens globales (mismo recipe que
+          HomeHero), respeta light/dark. */}
       <Background
         position="absolute"
         top="0"
         left="0"
         fill
         pointerEvents="none"
-        dots={{ display: true }}
-        mask={{ x: 50, y: 30, radius: 18 }}
+        zIndex={0}
+        dots={{ display: true, opacity: 30 }}
+        gradient={{
+          display: true,
+          opacity: 60,
+          x: 50,
+          y: 42,
+          width: 120,
+          height: 100,
+          colorStart: "brand-background-strong",
+          colorEnd: "static-transparent",
+        }}
       />
 
-      {/* Mismo Fade con patrón de puntos que el frente, decorativo, debajo
-          del contenido (zIndex 1 < 2) para que nunca lo tape. */}
-      <Fade
-        to="top"
-        base="page"
-        pattern={{ display: true, size: "8" }}
-        position="absolute"
-        bottom="0"
-        left="0"
-        fillWidth
-        pointerEvents="none"
-        zIndex={1}
-        style={{ height: "30%" }}
-      />
+      {/* Blob con movimiento propio, recortado por Mask con cursor=true: solo
+          se revela en un círculo alrededor del puntero. En touch (sin mouse)
+          Mask nunca activa el seguimiento y el blob queda oculto por la
+          máscara, degradando sin romper nada. */}
+      <Mask cursor radius={26} position="absolute" top="0" left="0" fill pointerEvents="none" zIndex={1}>
+        <BlobFx seed={seed} fill opacity={60} />
+      </Mask>
 
-      {/* Contenido directamente visible al voltear, sin efecto de revelado. */}
+      {/* Contenido: avatar grande → nombre → roles, centrado verticalmente
+          (el avatar queda algo arriba del centro real por el peso del resto
+          de la columna debajo). */}
       <Column fillWidth fillHeight padding="24" gap="12" center zIndex={2}>
-        <Avatar {...avatarProps} size="l" />
-        <Column gap="4" horizontal="center" align="center">
-          <Text variant="heading-strong-s" onBackground="neutral-strong" align="center">
-            {designer.name}
-          </Text>
-          <Text variant="label-default-s" onBackground="neutral-medium" align="center">
-            {designer.headline}
-          </Text>
-        </Column>
+        <Avatar {...avatarProps} size="xl" cursor="interactive" onClick={handleAvatarClick} />
+        <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
+          {designer.name}
+        </Heading>
         {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
           <Row gap="8" wrap horizontal="center" vertical="center">
             {designer.primaryRole && <RoleTag role={designer.primaryRole} variant="primary" />}
@@ -195,28 +219,32 @@ function DesignerBack({
             ))}
           </Row>
         )}
-        {designer.bio && (
-          <Text variant="body-default-s" onBackground="neutral-weak" align="center" wrap="balance">
-            {designer.bio}
-          </Text>
-        )}
-        <Button
-          href={designer.projectHref}
-          variant="secondary"
-          size="s"
-          suffixIcon="arrowUpRight"
-          onClick={(event: MouseEvent) => event.stopPropagation()}
-        >
-          Ver perfil
-        </Button>
       </Column>
 
+      {/* Onda expansiva de MatrixFx: overlay absoluto de toda la tarjeta,
+          activado por estado (trigger="manual") desde el click en el avatar.
+          pointerEvents="none" para no bloquear el click del avatar antes de
+          activarse. */}
+      <MatrixFx
+        trigger="manual"
+        active={revealing}
+        revealFrom="center"
+        bulge={{ type: "ripple", intensity: 8, duration: 1, repeat: false }}
+        position="absolute"
+        top="0"
+        left="0"
+        fill
+        pointerEvents="none"
+        zIndex={3}
+      />
+
       {/* Flecha para des-voltear sin navegar; siempre visible, esquina superior
-          derecha, por encima de todo lo demás. Va dentro de un Flex absoluto
-          propio: con `tooltip`, IconButton se envuelve en un wrapper relative
-          y un absolute en su `style` se anclaría a ese wrapper (que fluye al
-          fondo de la columna), no a la tarjeta. */}
-      <Flex position="absolute" top="12" right="12" zIndex={3}>
+          derecha, por encima de todo lo demás (incluida la onda MatrixFx) para
+          seguir siendo clickeable durante la animación. Va dentro de un Flex
+          absoluto propio: con `tooltip`, IconButton se envuelve en un wrapper
+          relative y un absolute en su `style` se anclaría a ese wrapper (que
+          fluye al fondo de la columna), no a la tarjeta. */}
+      <Flex position="absolute" top="12" right="12" zIndex={4}>
         <IconButton
           icon="refresh"
           variant="secondary"
@@ -246,7 +274,7 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
         flipped={flipped}
         onFlip={setFlipped}
         front={<DesignerFront designer={designer} seed={seed} />}
-        back={<DesignerBack designer={designer} onFlipBack={() => setFlipped(false)} />}
+        back={<DesignerBack designer={designer} seed={seed} onFlipBack={() => setFlipped(false)} />}
       />
     </TiltFx>
   );
