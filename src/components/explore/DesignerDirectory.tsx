@@ -43,6 +43,7 @@ export type PlatformDesigner = {
 };
 
 type Designer = {
+  id: string;
   name: string;
   specialty: string;
   role: string;
@@ -107,8 +108,14 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         // modes/máscara distintos, apiladas encima. Si HoloFx solo envolvía
         // la imagen, el shine/burn quedaba tapado por el duplicado/Fade/texto
         // que estaban fuera y por encima; como wrapper raíz, el brillo cubre
-        // toda la tarjeta.
-        <HoloFx fill radius="l">
+        // toda la tarjeta. OJO — en dist/components/HoloFx.module.scss las 3
+        // capas overlay arrancan en `opacity: 0` y solo se revelan en
+        // `.holoFx:hover` (más `m: { hide: true }` hardcodeado, sin prop para
+        // desactivarlo): es un efecto de HOVER por diseño del componente, no
+        // se ve en una captura estática ni en viewport "m" (tablet); subimos
+        // `shine`/`burn` por encima de su opacity default (30) para que el
+        // brillo se note más al pasar el mouse.
+        <HoloFx fill radius="l" shine={{ opacity: 50 }} burn={{ opacity: 45 }}>
           <Media
             src={imageSrc}
             alt={designer.name}
@@ -180,12 +187,14 @@ function DesignerBack({
 }) {
   const router = useRouter();
 
-  // El click en el avatar navega directo al perfil; stopPropagation evita
-  // que el mismo click burbujee hasta el onClick de FlipFx y vuelva a
-  // voltear la tarjeta justo cuando estamos navegando. El MatrixFx ya no
-  // espera a ningún ciclo: corre de fondo mientras la tarjeta está volteada
-  // (ver `matrixActive`), así que no hay animación que cronometrar aquí.
-  const handleAvatarClick = (event: MouseEvent) => {
+  // El click en CUALQUIER parte del cuerpo del reverso navega al perfil;
+  // stopPropagation evita que el mismo click burbujee hasta el onClick de
+  // FlipFx y vuelva a voltear la tarjeta justo cuando estamos navegando. La
+  // ÚNICA excepción es la flecha (handleUnflip abajo), que también hace
+  // stopPropagation antes de llegar aquí. El MatrixFx ya no espera a ningún
+  // ciclo: corre de fondo mientras la tarjeta está volteada (ver
+  // `matrixActive`), así que no hay animación que cronometrar en el click.
+  const goToProfile = (event: MouseEvent) => {
     event.stopPropagation();
     router.push(designer.projectHref);
   };
@@ -209,6 +218,8 @@ function DesignerBack({
       border="neutral-alpha-weak"
       background="neutral-alpha-weak"
       overflow="hidden"
+      cursor="interactive"
+      onClick={goToProfile}
     >
       {/* Capa base: solo el glow radial suave detrás del centro (sin patrón
           de puntos). Tokens globales, mismo esquema de color que HomeHero,
@@ -281,12 +292,12 @@ function DesignerBack({
             controle el alto); la Media interna ya usa fill+aspectRatio "1" y
             llena ese círculo. `size={8}` solo queda como pista para el
             `sizes` de next/image, no define el layout. El MatrixFx con
-            revealFrom="center" queda concéntrico con este mismo punto. */}
+            revealFrom="center" queda concéntrico con este mismo punto. Sin
+            onClick propio: un click aquí burbujea al onClick del Column
+            contenedor (goToProfile), que ya cubre toda la tarjeta. */}
         <Avatar
           {...avatarProps}
           size={8}
-          cursor="interactive"
-          onClick={handleAvatarClick}
           position="absolute"
           top="50%"
           left="50%"
@@ -295,11 +306,13 @@ function DesignerBack({
           style={{ width: "33%", height: "auto", minWidth: "0", minHeight: "0", aspectRatio: "1" }}
         />
 
-        {/* Nombre + roles debajo del avatar. La tarjeta es 3/4 (ancho:alto =
-            3:4, ver .flipCard en el .scss): un avatar de 33% de ANCHO mide,
-            en % de ALTO, 33% * 3/4 ≈ 24.75% (radio ≈ 12.4%). Arrancamos el
-            bloque a 50% + 12.5% (borde del avatar) + 16px de aire, para que
-            no se solape ni con nombres a 2 líneas ni con 2 filas de tags. */}
+        {/* Nombre + rol principal debajo del avatar. Solo el rol principal
+            (sin secundarios): con 2 líneas de nombre, una fila de tags
+            secundarios quedaba pegada al borde inferior de la tarjeta. La
+            tarjeta es 3/4 (ancho:alto = 3:4, ver .flipCard en el .scss): un
+            avatar de 33% de ANCHO mide, en % de ALTO, 33% * 3/4 ≈ 24.75%
+            (radio ≈ 12.4%). Arrancamos el bloque a 50% + 12.5% (borde del
+            avatar) + 16px de aire. */}
         <Column
           position="absolute"
           left="0"
@@ -313,21 +326,10 @@ function DesignerBack({
           <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
             {designer.name}
           </Heading>
-          {(designer.primaryRole || designer.secondaryRoles.length > 0) && (
-            <Column gap="8" horizontal="center" align="center">
-              {designer.primaryRole && (
-                <Row horizontal="center">
-                  <RoleTag role={designer.primaryRole} variant="primary" />
-                </Row>
-              )}
-              {designer.secondaryRoles.length > 0 && (
-                <Row gap="8" wrap horizontal="center" vertical="center">
-                  {designer.secondaryRoles.map((role) => (
-                    <RoleTag key={role} role={role} variant="secondary" />
-                  ))}
-                </Row>
-              )}
-            </Column>
+          {designer.primaryRole && (
+            <Row horizontal="center">
+              <RoleTag role={designer.primaryRole} variant="primary" />
+            </Row>
           )}
         </Column>
       </Column>
@@ -354,11 +356,22 @@ function DesignerBack({
 
 // TiltFx se autodesactiva en dispositivos táctiles (detecta "ontouchstart" y
 // no aplica el efecto), así que convive sin estorbar con el tap-to-flip.
-function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) {
-  // Estado levantado: FlipFx queda controlado para que la flecha del reverso
-  // pueda des-voltear la tarjeta.
-  const [flipped, setFlipped] = useState(false);
-
+// `flipped`/`onFlip` vienen de DesignerDirectory (estado levantado un nivel
+// más arriba, compartido entre todas las tarjetas del grid) para que solo
+// una tarjeta pueda mostrar el reverso a la vez: FlipFx queda controlado
+// tanto para que la flecha del reverso pueda des-voltear la tarjeta como
+// para que voltear OTRA tarjeta cierre automáticamente la que estaba abierta.
+function DesignerCard({
+  designer,
+  seed,
+  flipped,
+  onFlip,
+}: {
+  designer: Designer;
+  seed: number;
+  flipped: boolean;
+  onFlip: (flipped: boolean) => void;
+}) {
   return (
     <TiltFx fillWidth radius="l" intensity={3}>
       <FlipFx
@@ -366,14 +379,14 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
         radius="l"
         className={styles.flipCard}
         flipped={flipped}
-        onFlip={setFlipped}
+        onFlip={onFlip}
         front={<DesignerFront designer={designer} seed={seed} />}
         back={
           <DesignerBack
             designer={designer}
             seed={seed}
             matrixActive={flipped}
-            onFlipBack={() => setFlipped(false)}
+            onFlipBack={() => onFlip(false)}
           />
         }
       />
@@ -390,6 +403,7 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
 
   const designers = useMemo<Designer[]>(() => {
     return platformDesigners.map((user) => ({
+      id: user.id,
       name: user.name ?? user.username ?? "Colaborador",
       specialty: "Diseñador de Marca",
       role: user.headline ?? "Colaborador de la plataforma Designerds",
@@ -415,6 +429,11 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
   }, [designers, query, specialty]);
 
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
+
+  // Un solo id volteado a la vez en todo el grid: voltear una tarjeta nueva
+  // reemplaza el id anterior, así que la tarjeta previamente abierta recibe
+  // `flipped=false` y FlipFx la regresa sola al frente.
+  const [flippedId, setFlippedId] = useState<string | null>(null);
 
   useEffect(() => {
     setVisibleCount(BATCH_SIZE);
@@ -446,7 +465,13 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
           <InfiniteScroll
             items={visible}
             renderItem={(designer) => (
-              <DesignerCard key={designer.name} designer={designer} seed={designers.indexOf(designer)} />
+              <DesignerCard
+                key={designer.id}
+                designer={designer}
+                seed={designers.indexOf(designer)}
+                flipped={flippedId === designer.id}
+                onFlip={(next) => setFlippedId(next ? designer.id : null)}
+              />
             )}
             loadMore={loadMore}
             style={{ gridColumn: "1 / -1" }}
