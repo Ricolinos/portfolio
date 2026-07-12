@@ -17,6 +17,11 @@ type Metadata = {
   image?: string;
   images: string[];
   tag?: string;
+  // Taxonomía nueva de PortfolioPiece (subcategories/software, ver
+  // prisma/schema.prisma). Los .mdx legado en src/content/portfolio no la
+  // traen: siempre quedan en arreglo vacío para ese origen.
+  subcategories?: string[];
+  software?: string[];
   team: Team[];
   link?: string;
   draft?: boolean;
@@ -48,6 +53,8 @@ function readMDXFile(filePath: string) {
     image: data.image || "",
     images: data.images || [],
     tag: data.tag || "",
+    subcategories: data.subcategories || [],
+    software: data.software || [],
     team: data.team || [],
     link: data.link || "",
     draft: data.draft || false,

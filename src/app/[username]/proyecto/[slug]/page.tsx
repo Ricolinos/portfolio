@@ -45,6 +45,8 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
         select: {
           title: true,
           category: true,
+          subcategories: true,
+          software: true,
           coverUrl: true,
           gallery: true,
           markdownContent: true,
@@ -75,6 +77,8 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
         image: piece.coverUrl ?? "",
         images: piece.coverUrl ? [piece.coverUrl, ...gallery] : gallery,
         tag: piece.category,
+        subcategories: piece.subcategories,
+        software: piece.software,
         team: [],
       },
       content: piece.markdownContent,
