@@ -82,9 +82,9 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
       )}
 
-      {/* Franja de degradado (con patrón de puntos) que hace legible la cita
-          sobre la imagen, ancla abajo y se desvanece hacia arriba. Se mantiene
-          angosta (~30%) para no tapar demasiada imagen. */}
+      {/* Franja de degradado (con patrón de puntos) que hace legible el
+          nombre/rol sobre la imagen, ancla abajo y se desvanece hacia
+          arriba. Se sube a ~40% para dar aire al nombre en dos líneas. */}
       <Fade
         to="top"
         base="page"
@@ -94,33 +94,16 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         left="0"
         fillWidth
         zIndex={1}
-        style={{ height: "30%" }}
+        style={{ height: "40%" }}
       />
 
-      <Column position="absolute" bottom="0" left="0" fillWidth padding="16" zIndex={2}>
-        {designer.cardQuote ? (
-          <Text
-            as="blockquote"
-            variant="heading-default-s"
-            onBackground="neutral-strong"
-            wrap="balance"
-            style={{
-              fontStyle: "italic",
-              // Limita a 3 líneas para que la cita quede contenida dentro de
-              // la franja del Fade, incluso con el máximo de 180 caracteres.
-              display: "-webkit-box",
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
-          >
-            “{designer.cardQuote}”
-          </Text>
-        ) : (
-          <Text variant="label-default-s" onBackground="neutral-weak">
-            {designer.name || "Diseñador de la plataforma"}
-          </Text>
-        )}
+      <Column position="absolute" bottom="0" left="0" fillWidth padding="16" gap="4" zIndex={2}>
+        <Heading variant="display-strong-xs" onBackground="neutral-strong" wrap="balance">
+          {designer.name}
+        </Heading>
+        <Text variant="label-default-l" onBackground="neutral-medium">
+          {designer.headline}
+        </Text>
       </Column>
     </Column>
   );
@@ -255,7 +238,7 @@ function DesignerCard({ designer, seed }: { designer: Designer; seed: number }) 
   const [flipped, setFlipped] = useState(false);
 
   return (
-    <TiltFx fillWidth radius="l">
+    <TiltFx fillWidth radius="l" intensity={3}>
       <FlipFx
         fillWidth
         radius="l"
