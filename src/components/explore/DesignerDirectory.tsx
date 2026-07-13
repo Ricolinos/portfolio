@@ -64,6 +64,7 @@ type Designer = {
 // controle el alto de ambas caras (ver detalle en el .scss).
 function DesignerFront({ designer, seed }: { designer: Designer; seed: number }) {
   const imageSrc = designer.featuredImageUrl || designer.avatar || null;
+  const initial = (designer.name[0] ?? "D").toUpperCase();
 
   // Fade (tinte) + textos: se reutilizan tal cual dentro o fuera del HoloFx
   // según haya imagen, para no duplicar el JSX.
@@ -166,7 +167,40 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         </HoloFx>
       ) : (
         <>
+          {/* Estado vacío único para tarjetas sin featuredImageUrl ni avatar
+              real: mismo tinte radial + BlobFx del reverso (consistencia
+              front/back) más la inicial del nombre en grande, centrada en el
+              espacio libre por encima del bloque nombre/rol (que vive en
+              `overlay`, anclado abajo). Sin z-index explícito: cae detrás del
+              Fade/texto de `overlay` (zIndex 2/3) por orden de stacking. */}
+          <Background
+            position="absolute"
+            top="0"
+            left="0"
+            fill
+            pointerEvents="none"
+            gradient={{
+              display: true,
+              opacity: 60,
+              x: 50,
+              y: 38,
+              width: 120,
+              height: 100,
+              colorStart: "brand-background-strong",
+              colorEnd: "static-transparent",
+            }}
+          />
           <BlobFx seed={seed} position="absolute" top="0" left="0" fill fillHeight opacity={40} />
+          <Avatar
+            value={initial}
+            size="xl"
+            position="absolute"
+            top="38%"
+            left="50%"
+            translateX="-50%"
+            translateY="-50%"
+            style={{ width: "36%", height: "auto", minWidth: "0", minHeight: "0", aspectRatio: "1" }}
+          />
           {overlay}
         </>
       )}
