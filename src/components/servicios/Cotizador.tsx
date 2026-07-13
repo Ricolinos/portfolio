@@ -296,6 +296,7 @@ export function Cotizador() {
               />
               <SegmentedControl
                 selected={disciplina}
+                fillWidth={false}
                 buttons={(Object.keys(CATALOGOS) as Disciplina[]).map((d) => ({
                   value: d,
                   label: CATALOGOS[d].label,
@@ -341,6 +342,7 @@ export function Cotizador() {
               />
               <SegmentedControl
                 selected={cliente}
+                fillWidth={false}
                 buttons={CLIENTES.map(({ value, label }) => ({ value, label }))}
                 onToggle={(v) => setCliente(v as Cliente)}
               />

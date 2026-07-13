@@ -172,6 +172,12 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
   const avatarProps = project.avatarUrl
     ? { src: project.avatarUrl }
     : { value: (project.designer[0] ?? "P").toUpperCase() };
+  // La categoría puede venir como lista larga ("Branding, Motion Graphics, Graphic
+  // Design"). El título tiene prioridad: el Tag solo muestra la primera categoría +
+  // un contador, con el listado completo disponible como tooltip nativo.
+  const tagCategories = project.tag.split(",").map((c) => c.trim()).filter(Boolean);
+  const tagLabel =
+    tagCategories.length > 1 ? `${tagCategories[0]} +${tagCategories.length - 1}` : project.tag;
 
   const card = (
     <Card fillWidth direction="column" gap="12" padding="12" radius="l" border="neutral-alpha-weak">
@@ -187,10 +193,12 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
       </Column>
       <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
         <Row fillWidth horizontal="between" vertical="start" gap="8">
-          <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance">
-            {project.title}
-          </Text>
-          <Tag size="s" label={project.tag} variant="neutral" />
+          <Row minWidth={0} flex={1}>
+            <Text variant="heading-strong-s" onBackground="neutral-strong" wrap="balance" truncate>
+              {project.title}
+            </Text>
+          </Row>
+          <Tag size="s" label={tagLabel} title={project.tag} variant="neutral" />
         </Row>
         <Row fillWidth horizontal="between" vertical="center">
           <Row gap="8" vertical="center">
