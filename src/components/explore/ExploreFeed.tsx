@@ -42,18 +42,24 @@ function ShoutCard({ shout }: { shout: Shout }) {
   const avatarProps = shout.avatar
     ? { src: shout.avatar }
     : { value: (shout.author[0] ?? "P").toUpperCase() };
+  // La categoría puede venir como lista larga ("Branding, Motion Graphics, Graphic
+  // Design"). El nombre del autor tiene prioridad: el Tag solo muestra la primera
+  // categoría + un contador, con el listado completo disponible como tooltip nativo.
+  const categories = shout.category.split(",").map((c) => c.trim()).filter(Boolean);
+  const categoryLabel =
+    categories.length > 1 ? `${categories[0]} +${categories.length - 1}` : shout.category;
 
   return (
     <TiltFx fillWidth radius="l">
       <Card fillWidth direction="column" radius="l" border="neutral-alpha-weak" background="neutral-alpha-weak">
         <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="16" gap="12">
-          <Row gap="12" vertical="center" minWidth={0}>
+          <Row gap="12" vertical="center" minWidth={0} flex={1}>
             <Avatar {...avatarProps} size="m" />
             <Text variant="label-strong-m" onBackground="neutral-strong" truncate>
               {shout.author}
             </Text>
           </Row>
-          <Tag size="s" variant="brand" label={shout.category} style={{ flexShrink: 0 }} />
+          <Tag size="s" variant="brand" label={categoryLabel} title={shout.category} />
         </Row>
 
         <Column fillWidth paddingX="20" gap="16">
