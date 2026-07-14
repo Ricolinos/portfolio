@@ -162,17 +162,17 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
           fill
           radius="l"
           shine={{
-            opacity: 10,
-            blending: "soft-light",
+            opacity: 30,
+            blending: "screen",
           }}
           burn={{
-            opacity: 10,
-            blending: "soft-light",
+            opacity: 30,
+            blending: "screen",
           }}
           texture={{
-            opacity: 5,
+            opacity: 10,
             image: "",
-            blending: "soft-light",
+            blending: "screen",
           }}
         >
           <Media
