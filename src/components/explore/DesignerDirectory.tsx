@@ -97,22 +97,22 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
           esquina inferior izquierda del frente. vertical="center" alinea el
           avatar contra el centro vertical de las dos líneas de texto (en vez
           de contra su tope), que es lo que se ve ordenado con un avatar
-          circular pequeño al lado de un heading+label. Tamaño reducido a la
-          mitad de "m" (32px → 16px): Avatar acepta `size` numérico en rem
-          (ver sizeInRem en dist/components/Avatar.js), así que size={1} = 1rem
-          = 16px sin recurrir a `style`. gap bajado de 12 a 8 para que no quede
-          un hueco de aire entre el avatar más chico y el bloque de texto. */}
+          circular al lado de un heading+label. Tamaño 150% del "m" original
+          (32px): Avatar acepta `size` numérico en rem (ver sizeInRem en
+          dist/components/Avatar.js), así que size={3} = 3rem = 48px sin
+          recurrir a `style`. gap subido de 8 a 12 para que el aire entre el
+          avatar más grande y el bloque de texto quede proporcionado. */}
       <Row
         position="absolute"
         bottom="0"
         left="0"
         fillWidth
         padding="16"
-        gap="8"
+        gap="12"
         vertical="center"
         zIndex={3}
       >
-        <Avatar {...cornerAvatarProps} size={1} />
+        <Avatar {...cornerAvatarProps} size={3} />
         <Column gap="4">
           <Heading variant="display-strong-xs" onBackground="neutral-strong" wrap="balance">
             {displayName}
@@ -139,12 +139,38 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         // capas overlay arrancan en `opacity: 0` y solo se revelan en
         // `.holoFx:hover` (más `m: { hide: true }` hardcodeado, sin prop para
         // desactivarlo): es un efecto de HOVER por diseño del componente, no
-        // se ve en una captura estática ni en viewport "m" (tablet); default
-        // del componente es 30/30 (ver dist/components/HoloFx.js). Dos rondas
-        // anteriores: 50/45 (mucho) → 25/22 (todavía mucho). Bajamos otra vez,
-        // casi a la mitad, a shine 13/burn 11: un brillo apenas perceptible al
-        // mover el cursor, no un efecto llamativo.
-        <HoloFx fill radius="l" shine={{ opacity: 13 }} burn={{ opacity: 11 }}>
+        // se ve en una captura estática ni en viewport "m" (tablet). Defaults
+        // reales del componente (dist/components/HoloFx.js): shine
+        // opacity 30 blending "color-dodge", burn opacity 30
+        // filter "brightness(0.2) contrast(2)" blending "color-dodge",
+        // texture opacity 10 blending "color-dodge" image
+        // "repeating-linear-gradient(...)" (patrón de rayas diagonales, no
+        // vacío). Config final pedida por el usuario (copiada tal cual de la
+        // documentación oficial): shine/burn opacity 10, texture opacity 5,
+        // los tres con blending "color-dodge" (nombre real de prop
+        // confirmado en HoloFx.json: `blending`, no `mixBlendMode` — el
+        // componente internamente mapea blending -> mixBlendMode en el
+        // style). texture.image="" es un string válido (no rompe tipos ni
+        // runtime): React omite un style con valor "" al aplicarlo al DOM,
+        // así que en la práctica equivale a no tener textura visible en vez
+        // del patrón de rayas por default.
+        <HoloFx
+          fill
+          radius="l"
+          shine={{
+            opacity: 10,
+            blending: "color-dodge",
+          }}
+          burn={{
+            opacity: 10,
+            blending: "color-dodge",
+          }}
+          texture={{
+            opacity: 5,
+            image: "",
+            blending: "color-dodge",
+          }}
+        >
           <Media
             src={imageSrc}
             alt={designer.name}
