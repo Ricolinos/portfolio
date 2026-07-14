@@ -525,11 +525,10 @@ export function ClientProfileView({
       )}
       <Column gap="4" style={{ minWidth: 0 }}>
         <Heading variant="heading-strong-l">{displayName}</Heading>
-        <Row gap="8" vertical="center" wrap style={{ minWidth: 0 }}>
-          <Tag size="s" variant="brand" label="Cliente" />
-          {isOwnProfile && email && (
-            // Ellipsis en vez de quiebre a media palabra ("hubnerds.co m");
-            // el correo completo queda en el title al hover
+        {isOwnProfile && email && (
+          <Row gap="8" vertical="center" wrap style={{ minWidth: 0 }}>
+            {/* Ellipsis en vez de quiebre a media palabra ("hubnerds.co m"); */}
+            {/* el correo completo queda en el title al hover */}
             <Text
               variant="label-default-s"
               onBackground="neutral-weak"
@@ -543,8 +542,8 @@ export function ClientProfileView({
             >
               {email}
             </Text>
-          )}
-        </Row>
+          </Row>
+        )}
         {(company || brand) && (
           <Text variant="label-default-s" onBackground="neutral-weak">
             {[company, brand].filter(Boolean).join(" · ")}
