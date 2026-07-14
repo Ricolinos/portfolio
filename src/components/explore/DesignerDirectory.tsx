@@ -97,18 +97,22 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
           esquina inferior izquierda del frente. vertical="center" alinea el
           avatar contra el centro vertical de las dos líneas de texto (en vez
           de contra su tope), que es lo que se ve ordenado con un avatar
-          circular pequeño al lado de un heading+label. */}
+          circular pequeño al lado de un heading+label. Tamaño reducido a la
+          mitad de "m" (32px → 16px): Avatar acepta `size` numérico en rem
+          (ver sizeInRem en dist/components/Avatar.js), así que size={1} = 1rem
+          = 16px sin recurrir a `style`. gap bajado de 12 a 8 para que no quede
+          un hueco de aire entre el avatar más chico y el bloque de texto. */}
       <Row
         position="absolute"
         bottom="0"
         left="0"
         fillWidth
         padding="16"
-        gap="12"
+        gap="8"
         vertical="center"
         zIndex={3}
       >
-        <Avatar {...cornerAvatarProps} size="m" />
+        <Avatar {...cornerAvatarProps} size={1} />
         <Column gap="4">
           <Heading variant="display-strong-xs" onBackground="neutral-strong" wrap="balance">
             {displayName}
@@ -136,11 +140,11 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         // `.holoFx:hover` (más `m: { hide: true }` hardcodeado, sin prop para
         // desactivarlo): es un efecto de HOVER por diseño del componente, no
         // se ve en una captura estática ni en viewport "m" (tablet); default
-        // del componente es 30/30 (ver dist/components/HoloFx.js). Una ronda
-        // anterior subió esto a 50/45 y se sintió "mucho"; bajamos a la mitad
-        // de esa intensidad (shine 25, burn 22) para un brillo perceptible
-        // pero sutil al pasar el mouse.
-        <HoloFx fill radius="l" shine={{ opacity: 25 }} burn={{ opacity: 22 }}>
+        // del componente es 30/30 (ver dist/components/HoloFx.js). Dos rondas
+        // anteriores: 50/45 (mucho) → 25/22 (todavía mucho). Bajamos otra vez,
+        // casi a la mitad, a shine 13/burn 11: un brillo apenas perceptible al
+        // mover el cursor, no un efecto llamativo.
+        <HoloFx fill radius="l" shine={{ opacity: 13 }} burn={{ opacity: 11 }}>
           <Media
             src={imageSrc}
             alt={designer.name}
@@ -359,12 +363,21 @@ function DesignerBack({
             resolviéndose en el Column contenedor, sin relación con el tipo
             de bulge). repeat:true cicla continuamente mientras
             `matrixActive` esté encendido. fps más bajo (30) porque puede
-            haber 8+ tarjetas con el canvas corriendo en simultáneo. */}
+            haber 8+ tarjetas con el canvas corriendo en simultáneo.
+            colors: "success-solid-strong" era un verde fijo ajeno al tema;
+            "brand-solid-strong" es EL token de marca configurable por el
+            usuario (mismo esquema "brand" que el glow radial de arriba en
+            este archivo y que Header.tsx/HomeHero.tsx usan para acentos),
+            así que el ripple ahora respeta el tema activo en vez de
+            imponer un color fijo. Default del componente es
+            "brand-solid-medium" (ver dist/components/MatrixFx.js); usamos
+            el escalón "strong" para que el trazo del ripple siga
+            destacando sobre el fondo de la tarjeta. */}
         <MatrixFx
           trigger="manual"
           active={matrixActive}
           revealFrom="center"
-          colors={["success-solid-strong"]}
+          colors={["brand-solid-strong"]}
           bulge={{ type: "wave", duration: 3, intensity: 20, repeat: true }}
           fps={30}
           position="absolute"
