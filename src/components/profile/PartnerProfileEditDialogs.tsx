@@ -8,6 +8,7 @@ import {
   Feedback,
   Heading,
   Icon,
+  IconButton,
   Input,
   Line,
   Modal,
@@ -20,8 +21,7 @@ import {
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import {
   updateDesignerCard,
   updateFeaturedImage,
@@ -198,15 +198,12 @@ type PartnerEditSectionKey = (typeof PARTNER_EDIT_SECTIONS)[number]["key"];
 // document.body con z-index fijo en 9, más bajo que el z-index 10 del propio
 // Modal: dentro de un modal el dropdown queda oculto detrás del overlay y sus
 // opciones no reciben clicks. Este selector reutiliza los mismos primitivos
-// (Input de solo lectura + Option), pero con su propio portal a document.body
-// posicionado con `position: fixed` según el rectángulo real del trigger
-// (medido con getBoundingClientRect, igual que hacen Modal/DropdownWrapper
-// internamente): así escapa tanto del overflow:auto del modal como de su
-// z-index, y se recalcula en resize/scroll para funcionar en cualquier tamaño
-// de pantalla. En modo `multiple` muestra las etiquetas en español en vez del
-// "N options selected" hardcodeado en inglés de Select.js.
-const ROLE_MENU_MARGIN = 12;
-const ROLE_MENU_MIN_HEIGHT = 160;
+// (Input de solo lectura + Option), pero expande el menú EN FLUJO NORMAL del
+// documento (como un acordeón) justo debajo del Input, en vez de portalizarlo:
+// así hereda el scroll interno y el click-outside del propio `contentRef` del
+// Modal sin depender de ningún cálculo de posición ni de ningún detalle
+// interno de Modal/ScrollLock. En modo `multiple` muestra las etiquetas en
+// español en vez del "N options selected" hardcodeado en inglés de Select.js.
 const ROLE_MENU_MAX_HEIGHT = 320;
 
 function RoleSelect({
@@ -227,71 +224,21 @@ function RoleSelect({
   multiple?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{
-    left: number;
-    width: number;
-    top?: number;
-    bottom?: number;
-    maxHeight: number;
-  } | null>(null);
   const selectedValues = Array.isArray(value) ? value : [];
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const updateMenuPosition = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const viewportWidth = window.innerWidth;
-    const spaceBelow = viewportHeight - rect.bottom - ROLE_MENU_MARGIN;
-    const spaceAbove = rect.top - ROLE_MENU_MARGIN;
-    // Se abre hacia arriba solo si abajo no cabe ni el mínimo y arriba hay
-    // más espacio disponible; así funciona igual de bien con el trigger
-    // pegado al fondo del modal (común en pantallas de celular).
-    const openUp = spaceBelow < ROLE_MENU_MIN_HEIGHT && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(
-      Math.min(ROLE_MENU_MIN_HEIGHT, viewportHeight - ROLE_MENU_MARGIN * 2),
-      Math.min(ROLE_MENU_MAX_HEIGHT, openUp ? spaceAbove : spaceBelow),
-    );
-    const width = Math.min(rect.width, viewportWidth - ROLE_MENU_MARGIN * 2);
-    const left = Math.min(Math.max(rect.left, ROLE_MENU_MARGIN), viewportWidth - width - ROLE_MENU_MARGIN);
-    setMenuPosition(
-      openUp
-        ? { left, width, bottom: viewportHeight - rect.top + 4, maxHeight }
-        : { left, width, top: rect.bottom + 4, maxHeight },
-    );
-  }, []);
-
-  useEffect(() => {
     if (!open) return;
-    updateMenuPosition();
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setOpen(false);
       }
     };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    const handleReposition = () => updateMenuPosition();
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-    // capture: true también recalcula si lo que hace scroll es el propio
-    // contenedor interno del Modal, no solo la ventana.
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, true);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition, true);
     };
-  }, [open, updateMenuPosition]);
+  }, [open]);
 
   const displayText = multiple
     ? selectedValues.map((v) => options.find((o) => o.value === v)?.label ?? v).join(", ")
@@ -309,47 +256,8 @@ function RoleSelect({
     }
   };
 
-  const menu = open && menuPosition && (
-    <Column
-      position="fixed"
-      radius="l"
-      border="neutral-alpha-medium"
-      background="surface"
-      shadow="l"
-      padding="4"
-      gap="2"
-      overflowY="auto"
-      style={{
-        left: menuPosition.left,
-        width: menuPosition.width,
-        top: menuPosition.top,
-        bottom: menuPosition.bottom,
-        maxHeight: menuPosition.maxHeight,
-        zIndex: 1000,
-      }}
-    >
-      {options.map((option) => {
-        const selected = multiple ? selectedValues.includes(option.value) : option.value === value;
-        return (
-          <Option
-            key={option.value}
-            label={option.label}
-            value={option.value}
-            selected={selected}
-            onClick={() => handleOptionClick(option.value)}
-            hasPrefix={
-              multiple && selected ? (
-                <Icon name="check" size="xs" onBackground="neutral-weak" />
-              ) : undefined
-            }
-          />
-        );
-      })}
-    </Column>
-  );
-
   return (
-    <Column ref={containerRef} fillWidth>
+    <Column ref={containerRef} gap="4" fillWidth>
       <Input
         id={id}
         label={label}
@@ -359,7 +267,37 @@ function RoleSelect({
         cursor="interactive"
         onClick={() => setOpen((v) => !v)}
       />
-      {mounted && menu ? createPortal(menu, document.body) : null}
+      {open && (
+        <Column
+          radius="l"
+          border="neutral-alpha-medium"
+          background="surface"
+          shadow="l"
+          padding="4"
+          gap="2"
+          fillWidth
+          overflowY="auto"
+          style={{ maxHeight: ROLE_MENU_MAX_HEIGHT }}
+        >
+          {options.map((option) => {
+            const selected = multiple ? selectedValues.includes(option.value) : option.value === value;
+            return (
+              <Option
+                key={option.value}
+                label={option.label}
+                value={option.value}
+                selected={selected}
+                onClick={() => handleOptionClick(option.value)}
+                hasPrefix={
+                  multiple && selected ? (
+                    <Icon name="check" size="xs" onBackground="neutral-weak" />
+                  ) : undefined
+                }
+              />
+            );
+          })}
+        </Column>
+      )}
     </Column>
   );
 }
@@ -404,6 +342,8 @@ export function PartnerEditInfoDialog({
   const [secondaryRoles, setSecondaryRoles] = useState<string[]>(initialSecondaryRoles ?? []);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingExit, setConfirmingExit] = useState(false);
+  const initialSnapshotRef = useRef("");
 
   // Reabrir el modal debe partir del valor guardado, no de un borrador previo sin guardar.
   // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe reiniciar el formulario al abrir, no en cada cambio de props mientras el modal está abierto.
@@ -416,9 +356,30 @@ export function PartnerEditInfoDialog({
       setPrimaryRole(initialPrimaryRole ?? "");
       setSecondaryRoles(initialSecondaryRoles ?? []);
       setError(null);
+      setConfirmingExit(false);
+      initialSnapshotRef.current = JSON.stringify({
+        isPublic: initialIsPublic,
+        shareWhatsapp: initialShareWhatsapp,
+        form: initial,
+        primaryRole: initialPrimaryRole ?? "",
+        secondaryRoles: initialSecondaryRoles ?? [],
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  const isDirty =
+    isOpen &&
+    initialSnapshotRef.current !==
+      JSON.stringify({ isPublic, shareWhatsapp, form, primaryRole, secondaryRoles });
+
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingExit(true);
+    } else {
+      onClose();
+    }
+  };
 
   const tooLong =
     form.cardQuote.length > MAX_CARD_QUOTE_CHARS ||
@@ -454,11 +415,42 @@ export function PartnerEditInfoDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={requestClose}
       title="Editar información de perfil"
       backdrop={modalBackdrop}
     >
+      <Row position="absolute" left="0" top={0} paddingLeft="l" zIndex={2}>
+        <IconButton
+          icon="close"
+          onClick={requestClose}
+          tooltip="Cerrar"
+          tooltipPosition="right"
+          variant="secondary"
+        />
+      </Row>
+
       <Column gap="16" fillWidth paddingTop="12">
+        {confirmingExit ? (
+          <Column gap="16" fillWidth paddingTop="12">
+            <Feedback
+              variant="warning"
+              title="Tienes cambios sin guardar"
+              description="Si sales ahora, perderás los ajustes que hiciste en este formulario."
+            />
+            <Row fillWidth gap="8" horizontal="end" wrap>
+              <Button variant="tertiary" size="m" onClick={() => setConfirmingExit(false)}>
+                Seguir editando
+              </Button>
+              <Button variant="secondary" size="m" onClick={onClose}>
+                Salir de todos modos
+              </Button>
+              <Button variant="primary" size="m" onClick={handleSave} loading={saving}>
+                Guardar y salir
+              </Button>
+            </Row>
+          </Column>
+        ) : (
+          <>
         <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
           {/* ── Navegación lateral (escritorio): máx. 30% del ancho ── */}
           <Column
@@ -717,6 +709,8 @@ export function PartnerEditInfoDialog({
             Guardar cambios
           </Button>
         </Row>
+          </>
+        )}
       </Column>
     </Modal>
   );
