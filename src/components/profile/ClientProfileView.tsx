@@ -568,59 +568,9 @@ export function ClientProfileView({
         <Column fillWidth paddingX="32" paddingTop="40" gap="24">
           {/* ── Cabecera del panel ─────────────────────────────────────────── */}
           {(() => {
-            const headerContent = (
-              <Row
-                fillWidth
-                gap="20"
-                vertical="center"
-                horizontal="between"
-                wrap
-                s={{ direction: "column", horizontal: "start" }}
-              >
-                {identity}
-                <Row
-                  gap="20"
-                  vertical="center"
-                  wrap
-                  s={{ direction: "column", style: { width: "100%" } }}
-                >
-                  {isOwnProfile && (
-                    <>
-                      {/* Divisor vertical solo en pantallas amplias; en móvil el bloque se apila */}
-                      <Line
-                        vert
-                        background="neutral-alpha-medium"
-                        style={{ alignSelf: "stretch" }}
-                        s={{ hide: true }}
-                      />
-                      {/* Mismo patrón que "Administra tus proyectos" del perfil de Partner */}
-                      <Row
-                        background="brand-alpha-weak"
-                        padding="20"
-                        radius="m"
-                        vertical="center"
-                        gap="16"
-                        maxWidth={26}
-                        s={{ style: { maxWidth: "100%", width: "100%" } }}
-                        style={{ minWidth: 0 }}
-                      >
-                        <Icon name="warning" size="m" onBackground="brand-strong" />
-                        <Column gap="4" style={{ minWidth: 0 }}>
-                          <Text variant="heading-strong-s">Administra tu cuenta</Text>
-                          <Text variant="body-default-s" onBackground="neutral-weak">
-                            Haz clic derecho sobre esta portada (o mantén presionado en pantallas
-                            táctiles) para cambiar tu imagen, editar tu perfil o ajustar tu
-                            seguridad y privacidad.
-                          </Text>
-                        </Column>
-                      </Row>
-                    </>
-                  )}
-                </Row>
-              </Row>
-            );
+            const headerContent = identity;
             return (
-              <Card fillWidth padding="24" radius="l">
+              <Card fillWidth padding="24" radius="l" position="relative">
                 {isOwnProfile ? (
                   // El menú cubre toda la cabecera, no solo la zona de identidad
                   <ContextMenu
@@ -654,6 +604,20 @@ export function ClientProfileView({
                   </ContextMenu>
                 ) : (
                   headerContent
+                )}
+                {isOwnProfile && (
+                  // Vía adicional (además del click derecho) para abrir el modal de
+                  // edición completa; hermano del ContextMenu, no anidado dentro, para
+                  // que el click en el engrane no dispare también el menú contextual.
+                  <Row position="absolute" top="16" right="16" style={{ zIndex: 1 }}>
+                    <IconButton
+                      icon="settings"
+                      tooltip="Editar perfil"
+                      tooltipPosition="left"
+                      variant="secondary"
+                      onClick={() => setOpenDialog("info")}
+                    />
+                  </Row>
                 )}
               </Card>
             );

@@ -28,7 +28,6 @@ import {
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { ImageCropper } from "@/components/shared/ImageCropper";
-import { AppearancePanel } from "./AppearancePanel";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 // Salida final del recorte: la restricción de 400×400 se garantiza aquí.
@@ -504,21 +503,23 @@ export function EditInfoDialog({
               )}
 
               {section === "perfil" && (
-                <Column gap="12" fillWidth>
+                <Grid columns={2} s={{ columns: 1 }} gap="12" fillWidth>
                   <Input id="profile-address" label="Dirección" value={form.address} onChange={set("address")} />
-                  <Column gap="4" fillWidth>
-                    <Input
-                      id="profile-motto"
-                      label="Lema"
-                      value={form.motto}
-                      onChange={set("motto")}
-                      maxLength={MAX_MOTTO_CHARS}
-                    />
-                    <Text variant="label-default-s" onBackground="neutral-weak">
-                      * El lema no puede exceder los {MAX_MOTTO_CHARS} caracteres.
-                    </Text>
-                  </Column>
-                </Column>
+                  <Input
+                    id="profile-motto"
+                    label="Lema"
+                    value={form.motto}
+                    onChange={set("motto")}
+                    maxLength={MAX_MOTTO_CHARS}
+                  />
+                  <Text
+                    variant="label-default-s"
+                    onBackground="neutral-weak"
+                    style={{ gridColumn: "1 / -1" }}
+                  >
+                    * El lema no puede exceder los {MAX_MOTTO_CHARS} caracteres.
+                  </Text>
+                </Grid>
               )}
 
               {section === "seguridad" && (
@@ -549,10 +550,6 @@ export function EditInfoDialog({
               )}
             </Column>
           </Row>
-
-          {/* Personalización de apariencia en el espacio inferior del modal */}
-          <Line background="neutral-alpha-weak" />
-          <AppearancePanel />
 
           {error && <Feedback variant="danger" description={error} />}
 
