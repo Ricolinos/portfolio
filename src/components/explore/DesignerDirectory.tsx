@@ -147,28 +147,32 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         // "repeating-linear-gradient(...)" (patrón de rayas diagonales, no
         // vacío). Config final pedida por el usuario (copiada tal cual de la
         // documentación oficial): shine/burn opacity 10, texture opacity 5,
-        // los tres con blending "color-dodge" (nombre real de prop
-        // confirmado en HoloFx.json: `blending`, no `mixBlendMode` — el
-        // componente internamente mapea blending -> mixBlendMode en el
-        // style). texture.image="" es un string válido (no rompe tipos ni
-        // runtime): React omite un style con valor "" al aplicarlo al DOM,
-        // así que en la práctica equivale a no tener textura visible en vez
-        // del patrón de rayas por default.
+        // los tres con blending "soft-light": color-dodge aclara dividiendo
+        // por el inverso del blend, así que "quema" a blanco casi sin
+        // importar la opacity sobre zonas claras de la imagen; soft-light da
+        // un brillo mucho más contenido (equivalente a una luz suave
+        // encima), que es lo que se buscaba con un HoloFx discreto. Nombre
+        // real de prop confirmado en HoloFx.json: `blending`, no
+        // `mixBlendMode` (el componente lo mapea internamente en el style).
+        // texture.image="" es un string válido (no rompe tipos ni runtime):
+        // React omite un style con valor "" al aplicarlo al DOM, así que en
+        // la práctica equivale a no tener textura visible en vez del patrón
+        // de rayas por default.
         <HoloFx
           fill
           radius="l"
           shine={{
             opacity: 10,
-            blending: "color-dodge",
+            blending: "soft-light",
           }}
           burn={{
             opacity: 10,
-            blending: "color-dodge",
+            blending: "soft-light",
           }}
           texture={{
             opacity: 5,
             image: "",
-            blending: "color-dodge",
+            blending: "soft-light",
           }}
         >
           <Media
