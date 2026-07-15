@@ -28,7 +28,6 @@ import {
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { ImageCropper } from "@/components/shared/ImageCropper";
-import { AppearancePanel } from "./AppearancePanel";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 // Salida final del recorte: la restricción de 400×400 se garantiza aquí.
@@ -221,6 +220,8 @@ export function EditInfoDialog({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingExit, setConfirmingExit] = useState(false);
+  const initialSnapshotRef = useRef("");
 
   // Reinicia el estado cada vez que el diálogo se abre: sin esto arrastraría
   // texto sin guardar o el paso de confirmación de una apertura anterior.
@@ -231,9 +232,21 @@ export function EditInfoDialog({
       setStep("form");
       setPassword("");
       setError(null);
+      setConfirmingExit(false);
+      initialSnapshotRef.current = JSON.stringify(initial);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  const isDirty = isOpen && initialSnapshotRef.current !== JSON.stringify(form);
+
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingExit(true);
+    } else {
+      onClose();
+    }
+  };
 
 
   const set = (field: keyof EditProfileInitial) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -308,8 +321,27 @@ export function EditInfoDialog({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Editar perfil" backdrop={modalBackdrop}>
-      {step === "confirm" ? (
+    <Modal isOpen={isOpen} onClose={requestClose} title="Editar perfil" backdrop={modalBackdrop}>
+      {confirmingExit ? (
+        <Column gap="16" fillWidth paddingTop="12">
+          <Feedback
+            variant="warning"
+            title="Tienes cambios sin guardar"
+            description="Si sales ahora, perderás los ajustes que hiciste en este formulario."
+          />
+          <Row fillWidth gap="8" horizontal="end" wrap>
+            <Button variant="tertiary" size="m" onClick={() => setConfirmingExit(false)}>
+              Seguir editando
+            </Button>
+            <Button variant="secondary" size="m" onClick={onClose}>
+              Salir de todos modos
+            </Button>
+            <Button variant="primary" size="m" onClick={handleSave} loading={saving}>
+              Guardar y salir
+            </Button>
+          </Row>
+        </Column>
+      ) : step === "confirm" ? (
         <Column gap="16" fillWidth paddingTop="12">
           <Feedback
             variant="info"
@@ -504,21 +536,23 @@ export function EditInfoDialog({
               )}
 
               {section === "perfil" && (
-                <Column gap="12" fillWidth>
+                <Grid columns={2} s={{ columns: 1 }} gap="12" fillWidth>
                   <Input id="profile-address" label="Dirección" value={form.address} onChange={set("address")} />
-                  <Column gap="4" fillWidth>
-                    <Input
-                      id="profile-motto"
-                      label="Lema"
-                      value={form.motto}
-                      onChange={set("motto")}
-                      maxLength={MAX_MOTTO_CHARS}
-                    />
-                    <Text variant="label-default-s" onBackground="neutral-weak">
-                      * El lema no puede exceder los {MAX_MOTTO_CHARS} caracteres.
-                    </Text>
-                  </Column>
-                </Column>
+                  <Input
+                    id="profile-motto"
+                    label="Lema"
+                    value={form.motto}
+                    onChange={set("motto")}
+                    maxLength={MAX_MOTTO_CHARS}
+                  />
+                  <Text
+                    variant="label-default-s"
+                    onBackground="neutral-weak"
+                    style={{ gridColumn: "1 / -1" }}
+                  >
+                    * El lema no puede exceder los {MAX_MOTTO_CHARS} caracteres.
+                  </Text>
+                </Grid>
               )}
 
               {section === "seguridad" && (
@@ -549,10 +583,6 @@ export function EditInfoDialog({
               )}
             </Column>
           </Row>
-
-          {/* Personalización de apariencia en el espacio inferior del modal */}
-          <Line background="neutral-alpha-weak" />
-          <AppearancePanel />
 
           {error && <Feedback variant="danger" description={error} />}
 
