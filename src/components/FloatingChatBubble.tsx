@@ -154,11 +154,12 @@ function computeLightRect(pos: StoredPos): PanelRect {
 // que se envuelve en una barra superior delgada (mismo estilo del header del
 // panel light: Row con padding 12 + borderBottom neutral-alpha-weak) con dos
 // acciones — "Vista compacta" (vuelve a light, icono minimize = flechas hacia
-// adentro) y "Minimizar" (colapsa a la burbuja, icono minus = el glyph de
-// minimizar clásico de ventanas, para no repetir el icono de la acción
-// anterior). El Row que envuelve MessengerView usa flex:1 + minHeight:0 (no
-// fillHeight) para que los 3 paneles internos (riel/lista/conversación) no
-// desborden dentro del Row raíz de altura fija en px del morph.
+// adentro) y "Cerrar" (colapsa a la burbuja, icono close = la X clásica de
+// cerrar, para no repetir el icono minus/guion que ya usa el botón de
+// minimizar del panel light). El Row que envuelve MessengerView usa flex:1 +
+// minHeight:0 (no fillHeight) para que los 3 paneles internos
+// (riel/lista/conversación) no desborden dentro del Row raíz de altura fija
+// en px del morph.
 function FullMessengerChrome({
   viewerId,
   onCompact,
@@ -190,12 +191,12 @@ function FullMessengerChrome({
             onClick={onCompact}
           />
           <IconButton
-            icon="minus"
+            icon="close"
             size="s"
             variant="tertiary"
-            tooltip="Minimizar"
+            tooltip="Cerrar"
             tooltipPosition="bottom"
-            aria-label="Minimizar"
+            aria-label="Cerrar"
             onClick={onMinimize}
           />
         </Row>
@@ -455,6 +456,32 @@ export const FloatingChatBubble = () => {
       if (fadeInTimeout.current !== null) window.clearTimeout(fadeInTimeout.current);
     };
   }, []);
+
+  // Bloquea el scroll del fondo SOLO en modo full: ahí el panel es
+  // prácticamente pantalla completa con backdrop, así que scrollear la página
+  // detrás no tiene sentido (y se ve mal debajo del blur). En light el panel
+  // es chico y no bloquea nada, así que el fondo sigue scrolleable. El
+  // cleanup restaura los valores previos en cualquier salida (full -> light,
+  // full -> closed o desmontaje), así que no hace falta duplicar esta lógica
+  // en los handlers de compactar/minimizar.
+  useEffect(() => {
+    if (mode !== "full") return;
+    const { body } = document;
+    const previousOverflow = body.style.overflow;
+    const previousPaddingRight = body.style.paddingRight;
+    // Medir el ancho de la scrollbar ANTES de ocultarla: al poner overflow
+    // hidden el documento deja de tener scrollbar y clientWidth cambia, así
+    // que hay que capturar la diferencia mientras el scroll todavía existe.
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    body.style.overflow = "hidden";
+    return () => {
+      body.style.overflow = previousOverflow;
+      body.style.paddingRight = previousPaddingRight;
+    };
+  }, [mode]);
 
   // Solo sesiones Clerk válidas montan la burbuja; visitantes anónimos nunca la ven.
   // Dentro de /mensajes (o cualquier subruta) la burbuja es redundante: ya se está

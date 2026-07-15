@@ -315,7 +315,7 @@ export function LightMessenger({
             onClick={onExpand}
           />
           <IconButton
-            icon="minimize"
+            icon="minus"
             size="s"
             variant="tertiary"
             tooltip="Minimizar"
