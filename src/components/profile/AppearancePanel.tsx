@@ -1,14 +1,19 @@
 "use client";
 
-import { Column, Row, Scroller, Text, ThemeSwitcher, useStyle } from "@once-ui-system/core";
+import { Button, Column, Row, Scroller, Text } from "@once-ui-system/core";
 import classNames from "classnames";
 import styles from "./AppearancePanel.module.scss";
 
-// Subconjunto del StylePanel de Once UI: solo Tema, Forma y esquemas de color
-// (Brand/Accent/Neutral). setStyle persiste solo (localStorage + data-attrs).
+// Editor de la apariencia DEL PERFIL de un Partner (marca, acento, neutro y
+// forma de bordes), persistida en BD vía updateProfileAppearance — NO toca
+// el estilo global del sitio (fijo en once-ui.config.ts, ver Header.tsx). Un
+// valor `null` en cualquier campo significa "sin override": el perfil hereda
+// la marca Hub-Nerds. La fila "Tema" del viejo StylePanel se quitó de aquí:
+// el tema claro/oscuro/sistema es preferencia del VISITANTE, no del dueño
+// del perfil, y ahora vive en el modal "Ajustes" del Header.
 
-// BorderStyle tipado del ThemeProvider (el "sharp" del StylePanel compilado no existe en el tipo)
-const SHAPES = ["conservative", "playful", "rounded"] as const;
+// Whitelist idéntica a PROFILE_BRAND_COLORS/PROFILE_NEUTRAL_COLORS/
+// PROFILE_BORDER_STYLES en src/app/actions/updateProfile.ts.
 const SCHEMES = [
   "blue",
   "indigo",
@@ -25,6 +30,21 @@ const SCHEMES = [
   "cyan",
 ] as const;
 const NEUTRALS = ["gray", "sand", "slate", "dusk", "mint", "rose"] as const;
+const SHAPES = ["sharp", "conservative", "playful", "rounded"] as const;
+
+export interface ProfileAppearanceValue {
+  brand: string | null;
+  accent: string | null;
+  neutral: string | null;
+  border: string | null;
+}
+
+const EMPTY_APPEARANCE: ProfileAppearanceValue = {
+  brand: null,
+  accent: null,
+  neutral: null,
+  border: null,
+};
 
 function ColorRow({
   label,
@@ -34,7 +54,7 @@ function ColorRow({
 }: {
   label: string;
   options: readonly string[];
-  value: string;
+  value: string | null;
   onSelect: (color: string) => void;
 }) {
   return (
@@ -73,33 +93,39 @@ function ColorRow({
   );
 }
 
-export function AppearancePanel() {
-  const { border, brand, accent, neutral, setStyle } = useStyle();
+export function AppearancePanel({
+  value,
+  onChange,
+}: {
+  value: ProfileAppearanceValue;
+  onChange: (next: ProfileAppearanceValue) => void;
+}) {
+  const hasOverride = Boolean(value.brand || value.accent || value.neutral || value.border);
 
   return (
     <Column fillWidth gap="16">
-      <Column fillWidth gap="4">
-        <Text variant="heading-strong-s" onBackground="neutral-strong">
-          Página
-        </Text>
+      {/* El título/descripción de esta sección ya los pinta el contenedor
+          genérico de PartnerEditInfoDialog (PARTNER_EDIT_SECTIONS); solo el
+          botón de reset va aquí, alineado a la derecha. */}
+      <Row fillWidth horizontal="end">
+        <Button
+          size="s"
+          variant="tertiary"
+          prefixIcon="refresh"
+          disabled={!hasOverride}
+          onClick={() => onChange(EMPTY_APPEARANCE)}
+        >
+          Restablecer a la marca Hub-Nerds
+        </Button>
+      </Row>
+
+      <Column fillWidth gap="4" paddingTop="8">
+        <Text variant="label-strong-s">Forma</Text>
         <Text variant="body-default-s" onBackground="neutral-weak">
-          Personaliza el tema de la plataforma.
+          Bordes de tu tarjeta y de los componentes de tu perfil.
         </Text>
       </Column>
       <Column fillWidth border="neutral-alpha-medium" radius="l">
-        <Row
-          fillWidth
-          horizontal="between"
-          vertical="center"
-          paddingX="20"
-          paddingY="12"
-          borderBottom="neutral-alpha-medium"
-        >
-          <Text variant="label-default-s" onBackground="neutral-strong">
-            Tema
-          </Text>
-          <ThemeSwitcher />
-        </Row>
         <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="12">
           <Text variant="label-default-s" onBackground="neutral-strong">
             Forma
@@ -110,8 +136,8 @@ export function AppearancePanel() {
                 <button
                   type="button"
                   aria-label={`Forma: ${radius}`}
-                  className={classNames(styles.select, border === radius && styles.selected)}
-                  onClick={() => setStyle({ border: radius })}
+                  className={classNames(styles.select, value.border === radius && styles.selected)}
+                  onClick={() => onChange({ ...value, border: radius })}
                 >
                   <div className={classNames(styles.swatch, styles.neutralSwatch)} />
                 </button>
@@ -122,24 +148,25 @@ export function AppearancePanel() {
       </Column>
 
       <Column fillWidth gap="4" paddingTop="8">
-        <Text variant="heading-strong-s" onBackground="neutral-strong">
-          Color
-        </Text>
+        <Text variant="label-strong-s">Color</Text>
         <Text variant="body-default-s" onBackground="neutral-weak">
-          Personaliza los esquemas de color.
+          Esquemas de marca, acento y neutro.
         </Text>
       </Column>
       <Column fillWidth border="neutral-alpha-medium" radius="l">
-        <ColorRow label="Marca" options={SCHEMES} value={brand} onSelect={(c) => setStyle({ brand: c as never })} />
-        <ColorRow label="Acento" options={SCHEMES} value={accent} onSelect={(c) => setStyle({ accent: c as never })} />
-        <Row
-          fillWidth
-          horizontal="between"
-          vertical="center"
-          paddingX="20"
-          paddingY="12"
-          gap="24"
-        >
+        <ColorRow
+          label="Marca"
+          options={SCHEMES}
+          value={value.brand}
+          onSelect={(c) => onChange({ ...value, brand: c })}
+        />
+        <ColorRow
+          label="Acento"
+          options={SCHEMES}
+          value={value.accent}
+          onSelect={(c) => onChange({ ...value, accent: c })}
+        />
+        <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="12" gap="24">
           <Text variant="label-default-s" onBackground="neutral-strong" style={{ minWidth: 48 }}>
             Neutro
           </Text>
@@ -149,8 +176,8 @@ export function AppearancePanel() {
                 key={color}
                 type="button"
                 aria-label={`Neutro: ${color}`}
-                className={classNames(styles.select, neutral === color && styles.selected)}
-                onClick={() => setStyle({ neutral: color as never })}
+                className={classNames(styles.select, value.neutral === color && styles.selected)}
+                onClick={() => onChange({ ...value, neutral: color })}
               >
                 <div
                   className={styles.swatch}

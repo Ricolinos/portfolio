@@ -64,6 +64,13 @@ model User {
   // Estado manual de presencia: null = automático (según lastSeenAt);
   // "busy" = ocupado, fijado a mano por el propio usuario.
   presenceStatus    String?
+  // Personalización de apariencia del perfil de Partner (/[username] y
+  // tarjeta Designerd en /explorar/designerds). null = default de la marca.
+  // Whitelists exactas validadas en la server action (updateProfileAppearance).
+  profileBrand      String?
+  profileAccent     String?
+  profileNeutral    String?
+  profileBorder     String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

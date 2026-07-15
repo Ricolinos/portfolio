@@ -17,8 +17,8 @@ import {
   Option,
   Row,
   SmartLink,
-  StylePanel,
   Text,
+  ThemeSwitcher,
   UserMenu,
 } from "@once-ui-system/core";
 
@@ -486,7 +486,22 @@ export const Header = () => {
         title="Ajustes"
         backdrop={<BrandModalBackdrop />}
       >
-        <StylePanel fillWidth />
+        {/* La identidad de marca (Hub-Nerds: cyan/inverse/plastic) es fija para
+            todo el sitio — ver once-ui.config.ts. Este modal ya NO expone el
+            StylePanel completo de Once UI (que permitía a cualquier visitante
+            cambiar brand/accent/neutral/border globales); solo queda la
+            preferencia de tema, legítimamente del visitante. La
+            personalización de color/forma vive ahora en el perfil de cada
+            Partner (AppearancePanel, dentro de "Editar información de
+            perfil"), persistida en BD y visible solo en SU perfil. */}
+        <Column fillWidth border="neutral-alpha-medium" radius="l">
+          <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="12">
+            <Text variant="label-default-s" onBackground="neutral-strong">
+              Tema
+            </Text>
+            <ThemeSwitcher />
+          </Row>
+        </Column>
       </Modal>
     </>
   );

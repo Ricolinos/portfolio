@@ -334,6 +334,66 @@ export async function updatePartnerRoles(input: PartnerRolesInput): Promise<void
   revalidatePath("/explorar/designerds");
 }
 
+const PROFILE_BRAND_COLORS = [
+  "blue",
+  "indigo",
+  "violet",
+  "magenta",
+  "pink",
+  "red",
+  "orange",
+  "yellow",
+  "moss",
+  "green",
+  "emerald",
+  "aqua",
+  "cyan",
+] as const;
+const PROFILE_NEUTRAL_COLORS = ["gray", "sand", "slate", "dusk", "mint", "rose"] as const;
+const PROFILE_BORDER_STYLES = ["rounded", "playful", "conservative", "sharp"] as const;
+
+export interface ProfileAppearanceInput {
+  brand?: string | null;
+  accent?: string | null;
+  neutral?: string | null;
+  border?: string | null;
+}
+
+function cleanAppearanceValue<T extends string>(
+  value: string | null | undefined,
+  allowed: readonly T[],
+  label: string,
+): T | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (!(allowed as readonly string[]).includes(trimmed)) {
+    throw new Error(`${label} no es válido.`);
+  }
+  return trimmed as T;
+}
+
+// Personalización de apariencia del perfil de Partner (esquema de color,
+// acento, neutro y estilo de bordes). null = restablecer al default de la
+// marca. Solo el propio Partner dueño del registro puede modificarla.
+export async function updateProfileAppearance(input: ProfileAppearanceInput): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("No autenticado");
+  const partner = await requirePartner(userId);
+
+  const profileBrand = cleanAppearanceValue(input.brand, PROFILE_BRAND_COLORS, "El color de marca");
+  const profileAccent = cleanAppearanceValue(input.accent, PROFILE_BRAND_COLORS, "El color de acento");
+  const profileNeutral = cleanAppearanceValue(input.neutral, PROFILE_NEUTRAL_COLORS, "El color neutro");
+  const profileBorder = cleanAppearanceValue(input.border, PROFILE_BORDER_STYLES, "El estilo de bordes");
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { profileBrand, profileAccent, profileNeutral, profileBorder },
+  });
+  if (partner.username) revalidatePath(`/${partner.username}`);
+  revalidatePath("/explorar/designerds");
+}
+
 // Tras user.setProfileImage() en el cliente, Clerk ya tiene la imagen nueva;
 // esto copia la URL resultante a la BD para que el perfil no quede desfasado.
 export async function syncProfileImage(): Promise<void> {

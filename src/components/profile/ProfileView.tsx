@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Arrow,
   Avatar,
@@ -30,6 +30,8 @@ import {
   Tag,
   Text,
   TiltFx,
+  useStyle,
+  useTheme,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
@@ -41,6 +43,7 @@ import {
   FeaturedImageUploadDialog,
   PartnerEditInfoDialog,
 } from "./PartnerProfileEditDialogs";
+import type { ProfileAppearanceValue } from "./AppearancePanel";
 import { NewCollabProjectDialog, type ConnectionOption } from "./ClientCollabDialogs";
 import { ContactPartnerDialog } from "./PartnerCollabDialogs";
 import styles from "./ProfileView.module.scss";
@@ -90,6 +93,12 @@ interface ProfileViewProps {
   // Matriz de roles (Fase 4): rol principal destacado + hasta 2 secundarios.
   primaryRole?: string | null;
   secondaryRoles?: string[];
+  // Personalización de apariencia del perfil (editable por el propio Partner
+  // vía updateProfileAppearance); null = default de la marca del sitio.
+  profileBrand?: string | null;
+  profileAccent?: string | null;
+  profileNeutral?: string | null;
+  profileBorder?: string | null;
   projects: PartnerProject[];
   pieces: PartnerPiece[];
   // Id de usuario del dueño del perfil (el partner); usado para que un
@@ -669,6 +678,10 @@ export function ProfileView({
   bio,
   primaryRole,
   secondaryRoles = [],
+  profileBrand,
+  profileAccent,
+  profileNeutral,
+  profileBorder,
   projects,
   pieces,
   partnerId,
@@ -692,6 +705,69 @@ export function ProfileView({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [contactDialogOpen, setContactDialogOpen] = useState(false);
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
+
+  // Apariencia del DUEÑO del perfil (marca/acento/neutro/forma). Arranca en
+  // los valores guardados en BD (props) y, cuando isOwnProfile, se sobre-
+  // escribe en vivo con el preview del AppearancePanel mientras el Partner
+  // edita (ver onPreviewAppearanceChange más abajo) — sin esperar a guardar.
+  // El efecto re-sincroniza con las props cada vez que cambian (tras
+  // router.refresh() al guardar, o al abrir el perfil de otro Partner).
+  const savedAppearance: ProfileAppearanceValue = {
+    brand: profileBrand ?? null,
+    accent: profileAccent ?? null,
+    neutral: profileNeutral ?? null,
+    border: profileBorder ?? null,
+  };
+  const [appearance, setAppearance] = useState<ProfileAppearanceValue>(savedAppearance);
+  useEffect(() => {
+    setAppearance(savedAppearance);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileBrand, profileAccent, profileNeutral, profileBorder]);
+
+  // Solo los campos con override (no-null) del dueño llegan al DOM: el resto
+  // hereda la marca Hub-Nerds fija (once-ui.config.ts) por ausencia de
+  // atributo.
+  //
+  // HALLAZGO (verificado en navegador real + dist/css/tokens.css): las
+  // variables de bajo nivel (--function-brand-500 etc, definidas por
+  // selectores de atributo simples como [data-brand=violet]) SÍ cascadean
+  // con normalidad a cualquier descendiente. PERO los tokens semánticos que
+  // de verdad consumen los componentes (--brand-alpha-weak, --neutral-
+  // solid-strong, --brand-solid-strong, etc.) se definen en UN SOLO bloque
+  // grande por tema, con selector `[data-theme=dark]` / `[data-theme=light]`
+  // (y, para los *-solid-* de brand, además compuesto con `[data-solid=...]`)
+  // — y esos selectores SOLO calzan en <html> porque es el único elemento
+  // con data-theme/data-solid en todo el documento. Una custom property
+  // inherited computa su valor UNA VEZ en el elemento donde su regla hace
+  // match (aquí: resuelve var(--function-brand-500) con el brand de <html>,
+  // "cyan") y ese valor YA RESUELTO es lo que cascadea hacia abajo — un
+  // [data-brand=violet] en un wrapper descendiente cambia --function-brand-*
+  // localmente, pero NO revierte la resolución de --brand-alpha-weak que ya
+  // quedó fija en cyan desde <html>. Confirmado con getComputedStyle en
+  // Edge: --function-brand-500 sí daba el hex de violeta dentro del wrapper,
+  // pero --brand-solid-strong seguía dando el hex de cyan.
+  // FIX: repetir data-theme (+ data-solid/data-solid-style, fijos de marca)
+  // en el propio wrapper cuando hay algún override — así el bloque semántico
+  // completo vuelve a hacer match AQUÍ, usando ya el brand/accent/neutral
+  // locales, y todo lo de abajo hereda los tokens correctos.
+  const { resolvedTheme } = useTheme();
+  const { solid, solidStyle } = useStyle();
+  const hasAppearanceOverride = Boolean(
+    appearance.brand || appearance.accent || appearance.neutral || appearance.border,
+  );
+  const appearanceDataAttrs: Record<string, string> = {
+    ...(appearance.brand ? { "data-brand": appearance.brand } : {}),
+    ...(appearance.accent ? { "data-accent": appearance.accent } : {}),
+    ...(appearance.neutral ? { "data-neutral": appearance.neutral } : {}),
+    ...(appearance.border ? { "data-border": appearance.border } : {}),
+    ...(hasAppearanceOverride
+      ? {
+          "data-theme": resolvedTheme,
+          "data-solid": solid,
+          "data-solid-style": solidStyle,
+        }
+      : {}),
+  };
 
   const collabProjectOptions: ConnectionOption[] = partnerConnections.map((connection) => ({
     value: connection.id,
@@ -748,7 +824,13 @@ export function ProfileView({
 
   return (
     <RevealFx fillWidth horizontal="center" revealedByDefault>
-      <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
+      <Column
+        fillWidth
+        maxWidth="l"
+        horizontal="center"
+        paddingBottom="80"
+        {...appearanceDataAttrs}
+      >
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
           {/* ── Layout de grilla: identidad + proyectos comparten el mismo track ── */}
@@ -1105,6 +1187,8 @@ export function ProfileView({
               }}
               initialPrimaryRole={primaryRole}
               initialSecondaryRoles={secondaryRoles}
+              initialAppearance={savedAppearance}
+              onPreviewAppearanceChange={setAppearance}
               avatarUrl={avatarUrl}
               displayName={displayName}
               username={username}

@@ -218,6 +218,10 @@ async function ProfileContent({
         bio={profileUser?.bio}
         primaryRole={profileUser?.primaryRole}
         secondaryRoles={profileUser?.secondaryRoles ?? []}
+        profileBrand={profileUser?.profileBrand}
+        profileAccent={profileUser?.profileAccent}
+        profileNeutral={profileUser?.profileNeutral}
+        profileBorder={profileUser?.profileBorder}
         projects={projects}
         pieces={pieces}
         partnerId={ownerId}
