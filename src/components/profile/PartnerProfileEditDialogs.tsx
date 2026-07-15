@@ -8,7 +8,6 @@ import {
   Feedback,
   Heading,
   Icon,
-  IconButton,
   Input,
   Line,
   Modal,
@@ -419,16 +418,6 @@ export function PartnerEditInfoDialog({
       title="Editar información de perfil"
       backdrop={modalBackdrop}
     >
-      <Row position="absolute" left="0" top={0} paddingLeft="l" zIndex={2}>
-        <IconButton
-          icon="close"
-          onClick={requestClose}
-          tooltip="Cerrar"
-          tooltipPosition="right"
-          variant="secondary"
-        />
-      </Row>
-
       <Column gap="16" fillWidth paddingTop="12">
         {confirmingExit ? (
           <Column gap="16" fillWidth paddingTop="12">

@@ -10,7 +10,6 @@ import {
   Feedback,
   Grid,
   Heading,
-  IconButton,
   Input,
   Line,
   Modal,
@@ -323,16 +322,6 @@ export function EditInfoDialog({
 
   return (
     <Modal isOpen={isOpen} onClose={requestClose} title="Editar perfil" backdrop={modalBackdrop}>
-      <Row position="absolute" left="0" top={0} paddingLeft="l" zIndex={2}>
-        <IconButton
-          icon="close"
-          onClick={requestClose}
-          tooltip="Cerrar"
-          tooltipPosition="right"
-          variant="secondary"
-        />
-      </Row>
-
       {confirmingExit ? (
         <Column gap="16" fillWidth paddingTop="12">
           <Feedback
