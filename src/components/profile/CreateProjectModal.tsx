@@ -19,6 +19,7 @@ import {
   RevealFx,
   Row,
   ScrollLock,
+  SegmentedControl,
   ShineFx,
   Spinner,
   TagInput,
@@ -43,6 +44,13 @@ import {
   updatePortfolioPiece,
 } from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
+import {
+  coverKindOf,
+  isPlayableVideoUrl,
+  isVideoDataUrl,
+  resolveCoverSrc,
+  toVideoCoverUrl,
+} from "@/lib/coverMedia";
 import { readFileAsDataUrl } from "@/lib/files";
 import { PIECE_CATEGORIES } from "@/lib/pieceCategories";
 import { AttachFilesModal, type AttachmentKind, type ProjectAttachment } from "./AttachFilesModal";
@@ -55,6 +63,7 @@ import {
   createBlock,
 } from "./ContentBlocks";
 import styles from "./CreateProjectModal.module.scss";
+import { VideoFileDropzone } from "./VideoFileDropzone";
 
 const modalBackdrop = <BrandModalBackdrop />;
 
@@ -82,6 +91,22 @@ const SPLIT_MAX = 0.8;
 const MAX_SUBCATEGORIES = 10;
 const MAX_SOFTWARE = 15;
 const SUBCATEGORY_SUGGESTION_LIMIT = 8;
+
+// Sin bucket de Storage, la portada viaja como data URL dentro del body de
+// la server action: 10MB es el límite configurado en next.config.mjs para
+// desarrollo, pero Vercel capa las funciones serverless a ~4.5MB en
+// producción. Un GIF sin recomprimir (ver comentario de `coverKind` más
+// abajo) puede pesar varios MB fácilmente — este umbral es solo un AVISO no
+// bloqueante para que el usuario sepa que puede fallar al publicar.
+const GIF_SIZE_WARNING_BYTES = 3 * 1024 * 1024;
+
+type CoverKind = "image" | "gif" | "video";
+
+const COVER_KIND_OPTIONS: { value: CoverKind; label: string; prefixIcon: "gallery" | "sparkles" | "video" }[] = [
+  { value: "image", label: "Imagen", prefixIcon: "gallery" },
+  { value: "gif", label: "GIF animado", prefixIcon: "sparkles" },
+  { value: "video", label: "Video", prefixIcon: "video" },
+];
 
 // FEATURE FUTURA (oculta a pedido, sin borrar código): el panel/botón
 // "Adjuntar archivo" del panel de herramientas se gatea con esta constante
@@ -642,8 +667,14 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [category, setCategory] = useState("");
   const [subcategories, setSubcategories] = useState<string[]>([]);
   const [software, setSoftware] = useState<string[]>([]);
+  const [coverKind, setCoverKind] = useState<CoverKind>("image");
   const [coverUrl, setCoverUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
+  const [coverSizeWarning, setCoverSizeWarning] = useState<string | null>(null);
+  // Portada tipo "video": la URL SIN el prefijo "video:" (ver lib/coverMedia)
+  // — el prefijo se agrega recién al guardar (handleSave), así el input del
+  // usuario es la URL real y no un valor con prefijo confuso.
+  const [videoUrl, setVideoUrl] = useState("");
   // Colapso puramente de UI (mismo criterio que ContentBlockCard): la
   // portada sigue siendo obligatoria, esto solo minimiza su sección en el
   // lienzo cuando ya se subió la imagen.
@@ -693,7 +724,10 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setCategory("");
     setSubcategories([]);
     setSoftware([]);
+    setCoverKind("image");
     setCoverUrl("");
+    setCoverSizeWarning(null);
+    setVideoUrl("");
     setBlocks([]);
     setTags([]);
     setCollaborators([]);
@@ -730,7 +764,21 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         setCategory(piece.category === "Documento" ? "" : piece.category);
         setSubcategories(piece.subcategories);
         setSoftware(piece.software);
-        setCoverUrl(piece.coverUrl);
+        // La portada guardada puede ser imagen/GIF (data URL directo) o
+        // video (URL real con el prefijo "video:", ver lib/coverMedia):
+        // separarla aquí en `coverKind` + el campo correspondiente es lo
+        // único que le permite al editor precargar el tab y la vista previa
+        // correctos.
+        const kind = coverKindOf(piece.coverUrl) ?? "image";
+        setCoverKind(kind);
+        setCoverSizeWarning(null);
+        if (kind === "video") {
+          setVideoUrl(resolveCoverSrc(piece.coverUrl));
+          setCoverUrl("");
+        } else {
+          setCoverUrl(piece.coverUrl);
+          setVideoUrl("");
+        }
         setBlocks(piece.contentBlocks);
         setTags(piece.tags);
         setCollaborators(piece.collaborators);
@@ -771,13 +819,33 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       return;
     }
     setIsDirty(true);
-  }, [title, category, subcategories, software, coverUrl, blocks, releaseDate, attachments]);
+  }, [
+    title,
+    category,
+    subcategories,
+    software,
+    coverKind,
+    coverUrl,
+    videoUrl,
+    blocks,
+    releaseDate,
+    attachments,
+  ]);
 
   const handleCoverUpload = async (file: File) => {
     setCoverUploading(true);
+    setCoverSizeWarning(null);
     try {
       const url = await readFileAsDataUrl(file);
       setCoverUrl(url);
+      // GIF sin recomprimir (ver MediaUpload compress={false} más abajo):
+      // avisa si pesa mucho, sin bloquear — el límite real de producción
+      // (Vercel, ~4.5MB) solo se confirma al intentar guardar.
+      if (coverKind === "gif" && file.size > GIF_SIZE_WARNING_BYTES) {
+        setCoverSizeWarning(
+          `Este GIF pesa ${(file.size / (1024 * 1024)).toFixed(1)} MB. Los archivos pesados pueden fallar al publicar en producción — si el guardado falla, usa un GIF más liviano.`,
+        );
+      }
     } catch {
       setError("No se pudo subir la portada. Intenta de nuevo.");
     } finally {
@@ -995,6 +1063,29 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         return;
       }
     }
+    // Portada tipo video: `videoUrl` guarda DOS formas posibles (ver
+    // VideoFileDropzone/Input de abajo) — un data URL subido
+    // ("data:video/mp4;base64,...", autodescriptivo, se guarda tal cual) o
+    // una URL EXTERNA pegada a mano, validada con el MISMO criterio que
+    // <Media> (once-ui) usa para decidir si sabe reproducirla (archivo
+    // .mp4/.webm/etc. — YouTube ya no se admite en portada, ver
+    // lib/coverMedia.ts): cualquier otra URL caería en next/image en la
+    // vista pública y, si el host no está en `images.remotePatterns`
+    // (next.config.mjs), rompe el render completo de esa página.
+    let finalCoverUrl: string | undefined = coverUrl || undefined;
+    if (coverKind === "video") {
+      const trimmedVideoUrl = videoUrl.trim();
+      if (!trimmedVideoUrl) {
+        finalCoverUrl = undefined;
+      } else if (isVideoDataUrl(trimmedVideoUrl)) {
+        finalCoverUrl = trimmedVideoUrl;
+      } else if (isPlayableVideoUrl(trimmedVideoUrl)) {
+        finalCoverUrl = toVideoCoverUrl(trimmedVideoUrl);
+      } else {
+        setError("La URL de video no es válida. Usa una URL directa a .mp4/.webm/.mov.");
+        return;
+      }
+    }
     setError(null);
     setSaving(publish ? "publish" : "draft");
     try {
@@ -1018,7 +1109,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         category: category || undefined,
         subcategories,
         software,
-        coverUrl: coverUrl || undefined,
+        coverUrl: finalCoverUrl,
         isPublic: publish,
         gallery: attachments.map((attachment) => attachment.url),
         // LEGACY: passthrough sin editar (ver comentario junto al estado
@@ -1197,36 +1288,131 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                             Portada
                           </Text>
                         </Row>
-                        {coverCollapsed && coverUrl && (
-                          <Media
-                            src={coverUrl}
-                            alt="Portada"
-                            aspectRatio="16 / 9"
-                            // SizeProps: un `width` NUMÉRICO se interpreta como
-                            // REM (ver ai/gotchas.json, mismo criterio que
-                            // RevealFx.translateY) — `width={64}` renderizaba
-                            // 64rem (~1024px), un thumbnail gigante que tapaba
-                            // el lienzo y hacía parecer que el colapso de la
-                            // portada no funcionaba (el toggle de estado sí
-                            // corría bien). `"64"` como SpacingToken (string)
-                            // es el equivalente real a 64px.
-                            width="64"
-                            radius="s"
-                          />
+                        {coverCollapsed && (coverKind === "video" ? videoUrl : coverUrl) && (
+                          coverKind === "video" ? (
+                            // Sin thumbnail real de video sin Storage (no hay
+                            // forma de extraer el primer frame): mismo criterio
+                            // de fallback que las tarjetas de listado (ver
+                            // lib/coverMedia + fallback en ExploreFeed/
+                            // ProfileView/HomeShowcase), a 64px no vale la pena
+                            // ni el embed de YouTube ni el <video>.
+                            <Row
+                              width="64"
+                              radius="s"
+                              background="neutral-alpha-weak"
+                              horizontal="center"
+                              vertical="center"
+                              style={{ aspectRatio: "16 / 9" }}
+                            >
+                              <Icon name="video" size="s" onBackground="neutral-weak" />
+                            </Row>
+                          ) : (
+                            <Media
+                              src={coverUrl}
+                              alt="Portada"
+                              aspectRatio="16 / 9"
+                              // SizeProps: un `width` NUMÉRICO se interpreta como
+                              // REM (ver ai/gotchas.json, mismo criterio que
+                              // RevealFx.translateY) — `width={64}` renderizaba
+                              // 64rem (~1024px), un thumbnail gigante que tapaba
+                              // el lienzo y hacía parecer que el colapso de la
+                              // portada no funcionaba (el toggle de estado sí
+                              // corría bien). `"64"` como SpacingToken (string)
+                              // es el equivalente real a 64px.
+                              width="64"
+                              radius="s"
+                            />
+                          )
                         )}
                       </Row>
                       {!coverCollapsed && (
-                        <MediaUpload
-                          aspectRatio="16 / 9"
-                          accept="image/*"
-                          compress
-                          resizeMaxWidth={1600}
-                          resizeMaxHeight={1600}
-                          initialPreviewImage={coverUrl || null}
-                          emptyState="Subir"
-                          loading={coverUploading}
-                          onFileUpload={handleCoverUpload}
-                        />
+                        <Column fillWidth gap="12">
+                          <SegmentedControl
+                            fillWidth
+                            selected={coverKind}
+                            onToggle={(value) => setCoverKind(value as CoverKind)}
+                            buttons={COVER_KIND_OPTIONS.map((option) => ({
+                              ...option,
+                              disabled,
+                            }))}
+                          />
+                          {coverKind === "video" ? (
+                            // DECISIÓN (tarea "portada de video por
+                            // archivo"): subir un .mp4 corto es la opción
+                            // PROTAGONISTA (VideoFileDropzone, mismas reglas
+                            // que lib/videoUpload.ts) — YouTube se elimina de
+                            // portada. Una URL externa directa a .mp4/.webm/
+                            // .mov se conserva como opción SECUNDARIA (el
+                            // código ya la soportaba y sigue siendo razonable
+                            // para no duplicar un archivo que ya vive en otro
+                            // hosting), oculta mientras haya un video subido.
+                            <Column fillWidth gap="12">
+                              <VideoFileDropzone
+                                value={isVideoDataUrl(videoUrl) ? videoUrl : ""}
+                                onChange={setVideoUrl}
+                                disabled={disabled}
+                                aspectRatio="16 / 9"
+                              />
+                              {!isVideoDataUrl(videoUrl) && (
+                                <Column fillWidth gap="8">
+                                  <Input
+                                    id="project-cover-video-url"
+                                    label="O pega la URL de un video externo (.mp4/.webm/.mov)"
+                                    placeholder="https://.../video.mp4"
+                                    value={videoUrl}
+                                    onChange={(e) => setVideoUrl(e.target.value)}
+                                    disabled={disabled}
+                                    error={Boolean(videoUrl.trim()) && !isPlayableVideoUrl(videoUrl)}
+                                    errorMessage={
+                                      videoUrl.trim() && !isPlayableVideoUrl(videoUrl)
+                                        ? "Usa una URL directa a .mp4/.webm/.mov."
+                                        : undefined
+                                    }
+                                  />
+                                  {isPlayableVideoUrl(videoUrl) && (
+                                    <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "16 / 9" }}>
+                                      <Media
+                                        src={videoUrl.trim()}
+                                        alt="Vista previa del video"
+                                        fill
+                                        fillHeight
+                                      />
+                                    </Column>
+                                  )}
+                                </Column>
+                              )}
+                            </Column>
+                          ) : (
+                            <>
+                              {/* `key` fuerza remount al cambiar de tab: MediaUpload
+                                  guarda su propio `previewImage` en estado interno
+                                  (ver dist/modules/media/MediaUpload.impl.js) que
+                                  solo se resincroniza con `initialPreviewImage` si
+                                  cambia — pero al pasar de "video" a "imagen"/"gif"
+                                  ese prop puede seguir siendo el mismo string vacío,
+                                  y sin remount el componente no vuelve a leerlo. */}
+                              <MediaUpload
+                                key={coverKind}
+                                aspectRatio="16 / 9"
+                                // GIF: SIN compresión (compress=false evita el paso
+                                // por Compressor.js/canvas, que solo captura el
+                                // frame actual del GIF y mata la animación — ver
+                                // dist/modules/media/MediaUpload.impl.js).
+                                accept={coverKind === "gif" ? "image/gif" : "image/*"}
+                                compress={coverKind === "image"}
+                                resizeMaxWidth={1600}
+                                resizeMaxHeight={1600}
+                                initialPreviewImage={coverUrl || null}
+                                emptyState={coverKind === "gif" ? "Subir GIF animado" : "Subir"}
+                                loading={coverUploading}
+                                onFileUpload={handleCoverUpload}
+                              />
+                              {coverSizeWarning && (
+                                <Feedback variant="warning" description={coverSizeWarning} />
+                              )}
+                            </>
+                          )}
+                        </Column>
                       )}
                     </Column>
 

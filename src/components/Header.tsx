@@ -12,13 +12,12 @@ import {
   Column,
   Icon,
   Line,
-  Modal,
   NavIcon,
   Option,
   Row,
   SmartLink,
-  StylePanel,
   Text,
+  ThemeSwitcher,
   UserMenu,
 } from "@once-ui-system/core";
 
@@ -27,7 +26,6 @@ import { ThemeToggle } from "./ThemeToggle";
 import { MegaMenu, type MenuGroup } from "./MegaMenu";
 import { MobileMegaMenu } from "./MobileMegaMenu";
 import { AuthModal, type AuthMode } from "./auth/AuthModal";
-import { BrandModalBackdrop } from "./BrandModalBackdrop";
 import styles from "./Header.module.scss";
 
 // ─── Navegación ───────────────────────────────────────────────────────────────
@@ -132,14 +130,12 @@ const AuthZone = ({
   mobile = false,
   compact = false,
   onOpenAuth,
-  onOpenSettings,
 }: {
   mobile?: boolean;
   // Escritorio angosto (905–1199px): el chip completo con nombre/correo no
   // cabe junto al buscador y los menús y desborda el viewport; solo avatar.
   compact?: boolean;
   onOpenAuth: (mode: AuthMode) => void;
-  onOpenSettings: () => void;
 }) => {
   const { isLoaded, isSignedIn, user } = useUser();
   const { signOut } = useClerk();
@@ -183,15 +179,17 @@ const AuthZone = ({
           <Line background="neutral-alpha-medium" />
           <Option href={user.username ? `/${user.username}` : "/dashboard/client/settings"} label="Perfil" value="perfil"
             hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
-          <Option label="Ajustes" value="settings"
-            onClick={onOpenSettings}
-            hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
+          <Option
+            href={user.username ? `/${user.username}?editar=1` : "/dashboard/client/settings"}
+            label="Editar Perfil"
+            value="editar-perfil"
+            hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
+          />
           {display.themeSwitcher && (
             <>
               <Line background="neutral-alpha-weak" />
-              <Row paddingX="12" paddingY="8" vertical="center" horizontal="between" fillWidth>
-                <Text variant="label-default-s" onBackground="neutral-weak">Tema</Text>
-                <ThemeToggle />
+              <Row fillWidth horizontal="center" paddingY="8">
+                <ThemeSwitcher />
               </Row>
             </>
           )}
@@ -228,15 +226,17 @@ const AuthZone = ({
           <Column minWidth={12} padding="4" gap="2">
             <Option href={user.username ? `/${user.username}` : "/dashboard/client/settings"} label="Perfil" value="perfil"
               hasPrefix={<Icon name="person" size="s" onBackground="neutral-weak" />} />
-            <Option label="Ajustes" value="settings"
-              onClick={onOpenSettings}
-              hasPrefix={<Icon name="settings" size="s" onBackground="neutral-weak" />} />
+            <Option
+              href={user.username ? `/${user.username}?editar=1` : "/dashboard/client/settings"}
+              label="Editar Perfil"
+              value="editar-perfil"
+              hasPrefix={<Icon name="edit" size="s" onBackground="neutral-weak" />}
+            />
             {display.themeSwitcher && (
               <>
                 <Line background="neutral-alpha-weak" />
-                <Row paddingX="12" paddingY="8" vertical="center" horizontal="between" fillWidth>
-                  <Text variant="label-default-s" onBackground="neutral-weak">Tema</Text>
-                  <ThemeToggle />
+                <Row fillWidth horizontal="center" paddingY="8">
+                  <ThemeSwitcher />
                 </Row>
               </>
             )}
@@ -309,7 +309,6 @@ export const Header = () => {
   const [isCompact, setIsCompact]         = useState(false);
   const [scrolled, setScrolled]           = useState(false);
   const [authMode, setAuthMode]           = useState<AuthMode | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const pathname   = usePathname() ?? "/";
   const { isLoaded, isSignedIn, user } = useUser();
   const role = user?.publicMetadata?.role as string | undefined;
@@ -405,7 +404,7 @@ export const Header = () => {
                 </Row>
               </Row>
               <Row vertical="center" gap="8" paddingRight="4">
-                <AuthZone compact={isCompact} onOpenAuth={setAuthMode} onOpenSettings={() => setIsSettingsOpen(true)} />
+                <AuthZone compact={isCompact} onOpenAuth={setAuthMode} />
               </Row>
             </Row>
           </motion.div>
@@ -472,22 +471,13 @@ export const Header = () => {
                 onClose={() => setMobileOpen(false)}
               />
               <Line background="neutral-alpha-weak" />
-              <AuthZone mobile={true} onOpenAuth={setAuthMode} onOpenSettings={() => setIsSettingsOpen(true)} />
+              <AuthZone mobile={true} onOpenAuth={setAuthMode} />
             </Column>
           </motion.div>
         )}
       </AnimatePresence>
 
       <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />
-
-      <Modal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        title="Ajustes"
-        backdrop={<BrandModalBackdrop />}
-      >
-        <StylePanel fillWidth />
-      </Modal>
     </>
   );
 };

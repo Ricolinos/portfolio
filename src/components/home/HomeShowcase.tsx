@@ -19,6 +19,7 @@ import {
 } from "@once-ui-system/core";
 import { useMemo, useState } from "react";
 import { SearchBarShell } from "@/components/explore/SearchBarShell";
+import { coverKindOf, resolveCoverSrc } from "@/lib/coverMedia";
 
 const SUGGESTED_SEARCHES = ["Diseño Gráfico", "Animación", "Branding"];
 
@@ -179,17 +180,36 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
   const tagLabel =
     tagCategories.length > 1 ? `${tagCategories[0]} +${tagCategories.length - 1}` : project.tag;
 
+  // Mismo criterio que ExploreFeed: sin Storage no hay thumbnail de video
+  // (primer frame), y esta grilla puede mostrar varias tarjetas a la vez —
+  // placeholder estático en vez de autoplay múltiple. GIF sí llega tal cual
+  // a <Media> (data URL de imagen, se anima solo).
+  const isVideoCover = coverKindOf(project.image) === "video";
+  const coverSrc = resolveCoverSrc(project.image);
+
   const card = (
     <Card fillWidth direction="column" gap="12" padding="12" radius="l" border="neutral-alpha-weak">
       <Column fillWidth radius="m" overflow="hidden">
-        <Animation triggerType="hover" scale={1.03} fade={1} reverse easing="ease" fillWidth>
-          <Media
-            src={project.image}
-            alt={project.title}
-            aspectRatio="4 / 3"
-            sizes="(max-width: 768px) 100vw, 25vw"
-          />
-        </Animation>
+        {isVideoCover ? (
+          <Column
+            fillWidth
+            background="neutral-alpha-medium"
+            horizontal="center"
+            vertical="center"
+            style={{ aspectRatio: "4 / 3" }}
+          >
+            <Icon name="video" size="l" onBackground="neutral-weak" />
+          </Column>
+        ) : (
+          <Animation triggerType="hover" scale={1.03} fade={1} reverse easing="ease" fillWidth>
+            <Media
+              src={coverSrc}
+              alt={project.title}
+              aspectRatio="4 / 3"
+              sizes="(max-width: 768px) 100vw, 25vw"
+            />
+          </Animation>
+        )}
       </Column>
       <Column fillWidth gap="8" paddingX="4" paddingBottom="4">
         <Row fillWidth horizontal="between" vertical="start" gap="8">

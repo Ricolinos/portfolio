@@ -103,6 +103,9 @@ export async function getEligibleRecipients(): Promise<
       role: "collaborator",
       id: { not: userId },
       username: { not: null },
+      // Perfil privado (isPublic: false) = no buscable como destinatario;
+      // el propio colaborador sigue pudiendo iniciar conversaciones normalmente.
+      isPublic: true,
     },
     select: {
       id: true,

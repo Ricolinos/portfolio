@@ -27,11 +27,13 @@ import {
   updatePartnerContactSharing,
   updatePartnerRoles,
   updatePartnerVisibility,
+  updateProfileAppearance,
   type DesignerCardInput,
 } from "@/app/actions/updateProfile";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { ImageCropper } from "@/components/shared/ImageCropper";
 import { MAX_SECONDARY_ROLES, PARTNER_ROLES } from "@/lib/partnerRoles";
+import { AppearancePanel, type ProfileAppearanceValue } from "@/components/profile/AppearancePanel";
 
 const MAX_FEATURED_BYTES = 4 * 1024 * 1024;
 // Salida final de la imagen destacada, misma proporción vertical 3:4 de la
@@ -183,6 +185,12 @@ const PARTNER_EDIT_SECTIONS = [
     description: "Quién puede ver tu perfil y tus datos de contacto.",
   },
   {
+    key: "apariencia",
+    label: "Apariencia",
+    icon: "paintBrush",
+    description: "Los colores y la forma que ven los visitantes de TU perfil.",
+  },
+  {
     key: "seguridad",
     label: "Seguridad",
     icon: "shield",
@@ -309,6 +317,8 @@ export function PartnerEditInfoDialog({
   initial,
   initialPrimaryRole,
   initialSecondaryRoles,
+  initialAppearance,
+  onPreviewAppearanceChange,
   avatarUrl,
   displayName,
   username,
@@ -323,6 +333,11 @@ export function PartnerEditInfoDialog({
   initial: DesignerCardInput;
   initialPrimaryRole?: string | null;
   initialSecondaryRoles?: string[];
+  // Apariencia guardada del perfil (null en cada campo = default de marca).
+  initialAppearance: ProfileAppearanceValue;
+  // Refleja en vivo, en el render del perfil detrás del modal, cada cambio
+  // de apariencia mientras el Partner todavía no guarda (preview en vivo).
+  onPreviewAppearanceChange: (next: ProfileAppearanceValue) => void;
   avatarUrl?: string;
   displayName: string;
   username: string;
@@ -339,10 +354,27 @@ export function PartnerEditInfoDialog({
   const [form, setForm] = useState<DesignerCardInput>(initial);
   const [primaryRole, setPrimaryRole] = useState(initialPrimaryRole ?? "");
   const [secondaryRoles, setSecondaryRoles] = useState<string[]>(initialSecondaryRoles ?? []);
+  const [appearance, setAppearance] = useState<ProfileAppearanceValue>(initialAppearance);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmingExit, setConfirmingExit] = useState(false);
   const initialSnapshotRef = useRef("");
+
+  // Cambio de un swatch: actualiza el borrador local Y empuja el preview en
+  // vivo hacia ProfileView (los data-attrs del wrapper del perfil), para que
+  // el propio Partner vea el resultado sin guardar todavía.
+  const handleAppearanceChange = (next: ProfileAppearanceValue) => {
+    setAppearance(next);
+    onPreviewAppearanceChange(next);
+  };
+
+  // Cancelar / salir sin guardar: además de cerrar, revierte el preview en
+  // vivo al valor realmente guardado (si no se revirtiera, ProfileView
+  // seguiría mostrando el borrador descartado hasta la próxima recarga).
+  const cancelAndClose = () => {
+    onPreviewAppearanceChange(initialAppearance);
+    onClose();
+  };
 
   // Reabrir el modal debe partir del valor guardado, no de un borrador previo sin guardar.
   // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe reiniciar el formulario al abrir, no en cada cambio de props mientras el modal está abierto.
@@ -354,6 +386,7 @@ export function PartnerEditInfoDialog({
       setForm(initial);
       setPrimaryRole(initialPrimaryRole ?? "");
       setSecondaryRoles(initialSecondaryRoles ?? []);
+      setAppearance(initialAppearance);
       setError(null);
       setConfirmingExit(false);
       initialSnapshotRef.current = JSON.stringify({
@@ -362,6 +395,7 @@ export function PartnerEditInfoDialog({
         form: initial,
         primaryRole: initialPrimaryRole ?? "",
         secondaryRoles: initialSecondaryRoles ?? [],
+        appearance: initialAppearance,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -370,7 +404,7 @@ export function PartnerEditInfoDialog({
   const isDirty =
     isOpen &&
     initialSnapshotRef.current !==
-      JSON.stringify({ isPublic, shareWhatsapp, form, primaryRole, secondaryRoles });
+      JSON.stringify({ isPublic, shareWhatsapp, form, primaryRole, secondaryRoles, appearance });
 
   const requestClose = () => {
     if (isDirty) {
@@ -401,6 +435,7 @@ export function PartnerEditInfoDialog({
         updatePartnerContactSharing(shareWhatsapp),
         updateDesignerCard(form),
         updatePartnerRoles({ primaryRole, secondaryRoles }),
+        updateProfileAppearance(appearance),
       ]);
       onClose();
       router.refresh();
@@ -430,7 +465,7 @@ export function PartnerEditInfoDialog({
               <Button variant="tertiary" size="m" onClick={() => setConfirmingExit(false)}>
                 Seguir editando
               </Button>
-              <Button variant="secondary" size="m" onClick={onClose}>
+              <Button variant="secondary" size="m" onClick={cancelAndClose}>
                 Salir de todos modos
               </Button>
               <Button variant="primary" size="m" onClick={handleSave} loading={saving}>
@@ -662,6 +697,10 @@ export function PartnerEditInfoDialog({
               </Column>
             )}
 
+            {section === "apariencia" && (
+              <AppearancePanel value={appearance} onChange={handleAppearanceChange} />
+            )}
+
             {section === "seguridad" && (
               <Column gap="16" fillWidth>
                 <Feedback
@@ -691,7 +730,7 @@ export function PartnerEditInfoDialog({
         <Line background="neutral-alpha-weak" />
 
         <Row fillWidth gap="8" horizontal="end">
-          <Button variant="secondary" size="m" onClick={onClose} disabled={saving}>
+          <Button variant="secondary" size="m" onClick={cancelAndClose} disabled={saving}>
             Cancelar
           </Button>
           <Button variant="primary" size="m" onClick={handleSave} loading={saving} disabled={tooLong}>

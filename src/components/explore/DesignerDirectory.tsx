@@ -23,6 +23,8 @@ import {
   Row,
   Text,
   TiltFx,
+  useStyle,
+  useTheme,
 } from "@once-ui-system/core";
 import { RoleTag } from "@/components/RoleTag";
 import { ALL_SPECIALTIES, useExploreSearch } from "./SearchContext";
@@ -40,6 +42,10 @@ export type PlatformDesigner = {
   bio: string | null;
   primaryRole: string | null;
   secondaryRoles: string[];
+  profileBrand: string | null;
+  profileAccent: string | null;
+  profileNeutral: string | null;
+  profileBorder: string | null;
 };
 
 type Designer = {
@@ -57,6 +63,10 @@ type Designer = {
   bio: string | null;
   primaryRole: string | null;
   secondaryRoles: string[];
+  profileBrand: string | null;
+  profileAccent: string | null;
+  profileNeutral: string | null;
+  profileBorder: string | null;
 };
 
 // La proporción vertical fija de la tarjeta (3/4) vive en
@@ -512,25 +522,65 @@ function DesignerCard({
   flipped: boolean;
   onFlip: (flipped: boolean) => void;
 }) {
-  return (
-    <TiltFx fillWidth radius="l" intensity={3}>
-      <FlipFx
-        fillWidth
-        radius="l"
-        className={styles.flipCard}
-        flipped={flipped}
-        onFlip={onFlip}
-        front={<DesignerFront designer={designer} seed={seed} />}
-        back={
-          <DesignerBack
-            designer={designer}
-            seed={seed}
-            matrixActive={flipped}
-            onFlipBack={() => onFlip(false)}
-          />
+  // Paleta propia del dueño de la tarjeta (solo campos con override; el resto
+  // hereda la marca Hub-Nerds). `display: contents` saca el wrapper del box
+  // model por completo (no ocupa celda de grid propia, no interfiere con el
+  // tamaño que TiltFx/FlipFx calculan) pero SÍ deja las custom properties de
+  // los data-attrs cascadeando a los hijos vía herencia normal de CSS. Un div
+  // nativo (no Column/Row) porque solo necesitamos el atributo, cero layout
+  // propio.
+  //
+  // data-theme/data-solid/data-solid-style repetidos aquí por el mismo
+  // motivo documentado en ProfileView.tsx: los tokens SEMÁNTICOS (--brand-
+  // alpha-weak, --brand-solid-strong, etc., los que de verdad pintan Tag/
+  // Button/Card) se calculan una sola vez en <html> vía selectores
+  // `[data-theme=x]` (algunos compuestos con `[data-solid=y]`) y ese valor ya
+  // resuelto es lo que hereda cualquier descendiente — un data-brand/accent/
+  // neutral distinto más abajo en el árbol NO alcanza a esos tokens a menos
+  // que el bloque `[data-theme=x]` vuelva a hacer match en ese descendiente.
+  // Verificado con getComputedStyle en Edge real (ver informe de la tarea).
+  const { resolvedTheme } = useTheme();
+  const { solid, solidStyle } = useStyle();
+  // profileBorder se ignora a propósito: los bordes de las tarjetas
+  // Designerd NO se personalizan (consistencia visual del grid), aunque el
+  // usuario tenga un valor legado guardado en BD.
+  const hasDesignerOverride = Boolean(
+    designer.profileBrand || designer.profileAccent || designer.profileNeutral,
+  );
+  const cardDataAttrs: Record<string, string> = {
+    ...(designer.profileBrand ? { "data-brand": designer.profileBrand } : {}),
+    ...(designer.profileAccent ? { "data-accent": designer.profileAccent } : {}),
+    ...(designer.profileNeutral ? { "data-neutral": designer.profileNeutral } : {}),
+    ...(hasDesignerOverride
+      ? {
+          "data-theme": resolvedTheme,
+          "data-solid": solid,
+          "data-solid-style": solidStyle,
         }
-      />
-    </TiltFx>
+      : {}),
+  };
+
+  return (
+    <div style={{ display: "contents" }} {...cardDataAttrs}>
+      <TiltFx fillWidth radius="l" intensity={3}>
+        <FlipFx
+          fillWidth
+          radius="l"
+          className={styles.flipCard}
+          flipped={flipped}
+          onFlip={onFlip}
+          front={<DesignerFront designer={designer} seed={seed} />}
+          back={
+            <DesignerBack
+              designer={designer}
+              seed={seed}
+              matrixActive={flipped}
+              onFlipBack={() => onFlip(false)}
+            />
+          }
+        />
+      </TiltFx>
+    </div>
   );
 }
 
@@ -557,6 +607,10 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
       bio: user.bio,
       primaryRole: user.primaryRole,
       secondaryRoles: user.secondaryRoles ?? [],
+      profileBrand: user.profileBrand,
+      profileAccent: user.profileAccent,
+      profileNeutral: user.profileNeutral,
+      profileBorder: user.profileBorder,
     }));
   }, [platformDesigners]);
 

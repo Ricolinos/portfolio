@@ -19,7 +19,7 @@ import {
 } from "@once-ui-system/core";
 import { LinearGauge } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, useEffect, useState } from "react";
 import { sendContactRequest } from "@/app/actions/collab";
 import {
   CollaboratorSearchModal,
@@ -88,6 +88,10 @@ interface ClientProfileViewProps {
   // Partners públicos aún sin Connection con este cliente, para el buscador
   // de "Buscar más talento" (CollaboratorSearchModal).
   discoverablePartners?: CollaboratorSearchPerson[];
+  // ?editar=1 en la URL (ver [username]/page.tsx): abre automáticamente el
+  // modal "Editar perfil" al montar — usado por el menú del avatar del
+  // Header ("Editar Perfil").
+  openEditOnMount?: boolean;
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -452,9 +456,20 @@ export function ClientProfileView({
   collabProjects = [],
   resources = [],
   discoverablePartners = [],
+  openEditOnMount = false,
 }: ClientProfileViewProps) {
   const router = useRouter();
   const [openDialog, setOpenDialog] = useState<"avatar" | "info" | "security" | null>(null);
+
+  // Apertura automática del modal "Editar perfil" al llegar con ?editar=1
+  // (menú del avatar del Header → "Editar Perfil"). Solo al montar.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe correr al montar.
+  useEffect(() => {
+    if (isOwnProfile && openEditOnMount) {
+      setOpenDialog("info");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
   const [resourceDialog, setResourceDialog] = useState<"add" | null>(null);
   const [shareCandidate, setShareCandidate] = useState<ClientResourceData | null>(null);

@@ -25,6 +25,7 @@ import {
   Row,
   Scroller,
   Select,
+  SegmentedControl,
   Spinner,
   StatusIndicator,
   Switch,
@@ -36,6 +37,7 @@ import {
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { type DragEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
+import { CarouselVideoSlide, MdxCarousel } from "@/components/mdx-carousel";
 import { readFileAsDataUrl } from "@/lib/files";
 import {
   DEFAULT_TEXT_PT,
@@ -45,6 +47,7 @@ import {
   TEXT_SIZE_PRESETS,
 } from "@/lib/fontLibrary";
 import { PROJECT_SUBCATEGORIES, PROJECT_VERTICALS } from "@/lib/projectCategories";
+import { VideoFileDropzone } from "./VideoFileDropzone";
 
 // El Canvas no edita un .md crudo: el usuario arma bloques estructurados y
 // estos se serializan a Markdown/MDX (texto plano) tras bambalinas al
@@ -158,7 +161,15 @@ export type ContentBlock =
   | { id: string; type: "carousel"; images: { id: string; url: string; alt: string }[] }
   | { id: string; type: "embed"; language: string; code: string }
   | { id: string; type: "link"; url: string; label: string }
-  | { id: string; type: "video"; url: string }
+  // FEATURE (tarea "video por archivo"): dos modos, elegidos con
+  // `SegmentedControl` en el editor. `source` decide cuál de los dos campos
+  // usa `blockToMarkdown` — se conservan AMBOS al cambiar de tab (no se
+  // pisan entre sí) para no perder lo ya escrito/subido si el usuario
+  // cambia de opinión de ida y vuelta. `url` = link de YouTube (modo
+  // original, retrocompatible: piezas viejas sin `source`/`fileUrl` caen en
+  // "url" vía el default de ContentBlockCard). `fileUrl` = data URL de un
+  // .mp4 subido (mismas reglas que la portada, ver lib/videoUpload.ts).
+  | { id: string; type: "video"; source?: "url" | "file"; url: string; fileUrl?: string }
   | { id: string; type: "divider" }
   | { id: string; type: "tag"; label: string; variant: TagVariant; size: TagSize }
   // Chips de categorías predefinidas del dominio (verticales/subcategorías
@@ -191,7 +202,27 @@ export type ContentBlock =
       type: "masonry";
       images: { id: string; url: string; alt: string }[];
       columns: number;
+    }
+  // FEATURE (tarea "Carousel nativo Once UI"): bloque nuevo, DISTINTO del
+  // viejo "carousel" (que se conserva intacto — ver comentario junto a
+  // BLOCK_TYPES, ahora relabeled "Tira de fotos" en la UI): este produce un
+  // `Carousel` real de Once UI (un slide grande a la vez, con flechas e
+  // indicador) vía el wrapper `MdxCarousel` (ver mdx-carousel.tsx),
+  // mientras que "carousel" sigue siendo una tira horizontal (`Scroller`).
+  // Slides mixtos: imagen, video de YouTube, o video de archivo subido
+  // (mismas reglas que el bloque "video", ver lib/videoUpload.ts).
+  | {
+      id: string;
+      type: "mediaCarousel";
+      slides: CarouselSlide[];
+      indicator: "line" | "thumbnail";
+      aspectRatio: string;
     };
+
+export type CarouselSlide =
+  | { id: string; kind: "image"; url: string; alt: string }
+  | { id: string; kind: "youtube"; url: string }
+  | { id: string; kind: "file"; url: string };
 
 export type ContentBlockType = ContentBlock["type"];
 
@@ -209,7 +240,13 @@ export type ContentBlockType = ContentBlock["type"];
 export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string }[] = [
   { type: "image", label: "Imagen", icon: "images" },
   { type: "text", label: "Texto", icon: "document" },
-  { type: "carousel", label: "Carousel de fotos", icon: "carousel" },
+  // Re-etiquetado (tarea "Carousel nativo Once UI"): mismo bloque de
+  // siempre (tira horizontal con Scroller, ver blockToMarkdown case
+  // "carousel") — solo cambia el label para dejarle el nombre "Carousel" al
+  // bloque nuevo de abajo. Las piezas ya guardadas con este tipo no
+  // cambian: solo es texto de la UI del editor.
+  { type: "carousel", label: "Tira de fotos", icon: "carousel" },
+  { type: "mediaCarousel", label: "Carousel", icon: "camera" },
   { type: "embed", label: "Código", icon: "codeBracket" },
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
@@ -228,7 +265,8 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
 const ALL_BLOCK_META: Record<ContentBlockType, { label: string; icon: string }> = {
   image: { label: "Imagen", icon: "images" },
   text: { label: "Texto", icon: "document" },
-  carousel: { label: "Carousel de fotos", icon: "carousel" },
+  carousel: { label: "Tira de fotos", icon: "carousel" },
+  mediaCarousel: { label: "Carousel", icon: "camera" },
   embed: { label: "Código", icon: "codeBracket" },
   link: { label: "Links", icon: "openLink" },
   video: { label: "Video", icon: "film" },
@@ -277,7 +315,9 @@ export function createBlock(type: ContentBlockType): ContentBlock {
     case "link":
       return { id: newId(), type, url: "", label: "" };
     case "video":
-      return { id: newId(), type, url: "" };
+      return { id: newId(), type, source: "url", url: "", fileUrl: "" };
+    case "mediaCarousel":
+      return { id: newId(), type, slides: [], indicator: "thumbnail", aspectRatio: "16 / 9" };
     case "divider":
       return { id: newId(), type };
     case "tag":
@@ -697,6 +737,20 @@ function blockToMarkdown(block: ContentBlock): string {
       return `<Row fillWidth horizontal="center">\n  <SmartLink href="${escapeAttr(block.url)}">${label}</SmartLink>\n</Row>`;
     }
     case "video": {
+      // Dos modos (tarea "video por archivo"): "file" (subido, ver
+      // VideoFileDropzone) serializa un <video> nativo con la data URL
+      // directa en `src` — sobrevive el pipeline MDX como prop STRING plana
+      // (mismo mecanismo que cualquier otro `src="..."` de este archivo,
+      // ver GOTCHA junto a `escapeAttr`), sin necesitar registro en el mapa
+      // de `components` de mdx.tsx (elemento HTML nativo, como el <iframe>
+      // de YouTube de siempre). `controls` sin `autoPlay`: dentro del
+      // cuerpo del artículo un video es contenido a demanda, no decorativo
+      // (a diferencia de la portada, que autoplay-mutea de fondo).
+      if (block.source === "file") {
+        const fileUrl = block.fileUrl?.trim();
+        if (!fileUrl) return "";
+        return `<Column fillWidth radius="m" overflow="hidden" aspectRatio="16 / 9">\n  <video src="${escapeAttr(fileUrl)}" controls playsInline></video>\n</Column>`;
+      }
       const youtubeId = extractYouTubeId(block.url);
       if (!youtubeId) return "";
       const embedUrl = `https://www.youtube.com/embed/${youtubeId}`;
@@ -840,6 +894,33 @@ function blockToMarkdown(block: ContentBlock): string {
         .map((i) => `  <Media src="${escapeAttr(i.url)}" alt="${escapeAttr(i.alt)}" radius="m" />`)
         .join("\n");
       return `<MasonryGrid columns="${block.columns}">\n${items}\n</MasonryGrid>`;
+    }
+    case "mediaCarousel": {
+      // `MdxCarousel` (ver mdx-carousel.tsx) arma `Carousel.items` (array,
+      // imposible como prop JSX — mismo GOTCHA de arriba) a partir de sus
+      // `children` literales, así que cada slide se serializa como un tag
+      // propio con props STRING planas. Slides sin contenido real (imagen
+      // sin `url`, YouTube sin id extraíble, archivo sin subir) se
+      // descartan, igual que el resto de los bloques con listas.
+      const validSlides = block.slides.filter((s) => {
+        if (s.kind === "image") return Boolean(s.url);
+        if (s.kind === "youtube") return Boolean(extractYouTubeId(s.url));
+        return Boolean(s.url);
+      });
+      if (validSlides.length === 0) return "";
+      const items = validSlides
+        .map((s) => {
+          if (s.kind === "image") {
+            return `  <Media src="${escapeAttr(s.url)}" alt="${escapeAttr(s.alt)}" />`;
+          }
+          if (s.kind === "youtube") {
+            const youtubeId = extractYouTubeId(s.url) ?? "";
+            return `  <CarouselVideoSlide kind="youtube" youtubeId="${escapeAttr(youtubeId)}" />`;
+          }
+          return `  <CarouselVideoSlide kind="file" src="${escapeAttr(s.url)}" />`;
+        })
+        .join("\n");
+      return `<MdxCarousel indicator="${block.indicator}" aspectRatio="${escapeAttr(block.aspectRatio)}" controls>\n${items}\n</MdxCarousel>`;
     }
   }
 }
@@ -2093,6 +2174,245 @@ function RichTextEditor({
   );
 }
 
+const CAROUSEL_ASPECT_RATIO_OPTIONS = [
+  { label: "16 / 9 (panorámico)", value: "16 / 9" },
+  { label: "4 / 3 (clásico)", value: "4 / 3" },
+  { label: "1 / 1 (cuadrado)", value: "1 / 1" },
+];
+
+const CAROUSEL_INDICATOR_OPTIONS: { value: "line" | "thumbnail"; label: string }[] = [
+  { value: "thumbnail", label: "Miniaturas" },
+  { value: "line", label: "Línea" },
+];
+
+const CAROUSEL_SLIDE_KIND_ICON: Record<CarouselSlide["kind"], string> = {
+  image: "images",
+  youtube: "link",
+  file: "film",
+};
+
+const CAROUSEL_SLIDE_KIND_LABEL: Record<CarouselSlide["kind"], string> = {
+  image: "Imagen",
+  youtube: "YouTube",
+  file: "Video",
+};
+
+interface MediaCarouselBlockEditorProps {
+  block: Extract<ContentBlock, { type: "mediaCarousel" }>;
+  onChange: (next: ContentBlock) => void;
+  disabled?: boolean;
+}
+
+// Editor del bloque "Carousel" (tarea "Carousel nativo Once UI", ver GOTCHA
+// extenso junto a `CarouselSlide`/blockToMarkdown case "mediaCarousel"):
+// lista reordenable de slides mixtos (imagen / YouTube / video subido) +
+// controles de indicador/proporción, con una vista previa en vivo que usa
+// LOS MISMOS componentes reales del visor publicado (`MdxCarousel`/
+// `CarouselVideoSlide`, ver mdx-carousel.tsx) para que "lo que ves en el
+// editor" sea "lo que se publica", igual criterio que carousel/masonry/
+// logoCloud más abajo.
+function MediaCarouselBlockEditor({ block, onChange, disabled }: MediaCarouselBlockEditorProps) {
+  const updateSlides = (slides: CarouselSlide[]) => onChange({ ...block, slides });
+
+  const addSlide = (kind: CarouselSlide["kind"]) => {
+    const slide: CarouselSlide =
+      kind === "image"
+        ? { id: newId(), kind: "image", url: "", alt: "" }
+        : kind === "youtube"
+          ? { id: newId(), kind: "youtube", url: "" }
+          : { id: newId(), kind: "file", url: "" };
+    updateSlides([...block.slides, slide]);
+  };
+
+  const moveSlide = (id: string, direction: "up" | "down") => {
+    const index = block.slides.findIndex((s) => s.id === id);
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (index < 0 || targetIndex < 0 || targetIndex >= block.slides.length) return;
+    const next = [...block.slides];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    updateSlides(next);
+  };
+
+  const removeSlide = (id: string) => updateSlides(block.slides.filter((s) => s.id !== id));
+
+  // Mismo filtro que blockToMarkdown case "mediaCarousel": la vista previa
+  // en vivo solo muestra slides ya "completos" (mismo criterio que decide
+  // qué sobrevive al guardar).
+  const previewSlides = block.slides.filter((s) => {
+    if (s.kind === "image") return Boolean(s.url);
+    if (s.kind === "youtube") return Boolean(extractYouTubeId(s.url));
+    return Boolean(s.url);
+  });
+
+  return (
+    <Column gap="16">
+      <Row gap="8" wrap>
+        <Select
+          id={`block-${block.id}-indicator`}
+          label="Indicador"
+          options={CAROUSEL_INDICATOR_OPTIONS}
+          value={block.indicator}
+          onSelect={(value) => onChange({ ...block, indicator: value as "line" | "thumbnail" })}
+          disabled={disabled}
+          style={{ width: "12rem" }}
+        />
+        <Select
+          id={`block-${block.id}-aspect-ratio`}
+          label="Proporción"
+          options={CAROUSEL_ASPECT_RATIO_OPTIONS}
+          value={block.aspectRatio}
+          onSelect={(value) => onChange({ ...block, aspectRatio: value })}
+          disabled={disabled}
+          style={{ width: "12rem" }}
+        />
+      </Row>
+
+      {block.slides.length > 0 && (
+        <Column gap="12">
+          {block.slides.map((slide, index) => (
+            <Column key={slide.id} gap="8" radius="m" border="neutral-alpha-weak" padding="12">
+              <Row fillWidth horizontal="between" vertical="center">
+                <Row gap="8" vertical="center">
+                  <Icon name={CAROUSEL_SLIDE_KIND_ICON[slide.kind]} size="s" onBackground="neutral-weak" />
+                  <Text variant="label-default-s" onBackground="neutral-weak">
+                    Slide {index + 1} · {CAROUSEL_SLIDE_KIND_LABEL[slide.kind]}
+                  </Text>
+                </Row>
+                <Row gap="4">
+                  <IconButton
+                    icon="chevronUp"
+                    variant="tertiary"
+                    size="s"
+                    tooltip="Mover arriba"
+                    onClick={() => moveSlide(slide.id, "up")}
+                    disabled={disabled || index === 0}
+                  />
+                  <IconButton
+                    icon="chevronDown"
+                    variant="tertiary"
+                    size="s"
+                    tooltip="Mover abajo"
+                    onClick={() => moveSlide(slide.id, "down")}
+                    disabled={disabled || index === block.slides.length - 1}
+                  />
+                  <IconButton
+                    icon="trash"
+                    variant="tertiary"
+                    size="s"
+                    tooltip="Quitar slide"
+                    onClick={() => removeSlide(slide.id)}
+                    disabled={disabled}
+                  />
+                </Row>
+              </Row>
+              {slide.kind === "image" && (
+                <Column style={{ maxWidth: "10rem" }}>
+                  <MediaUpload
+                    aspectRatio="1"
+                    accept="image/*"
+                    compress
+                    resizeMaxWidth={1600}
+                    resizeMaxHeight={1600}
+                    initialPreviewImage={slide.url || null}
+                    emptyState="Subir imagen"
+                    radius="m"
+                    onFileUpload={async (file) => {
+                      const url = await readFileAsDataUrl(file);
+                      updateSlides(
+                        block.slides.map((s) => (s.id === slide.id ? { ...s, url } : s)),
+                      );
+                    }}
+                  />
+                </Column>
+              )}
+              {slide.kind === "youtube" && (
+                <Input
+                  id={`block-${block.id}-${slide.id}-youtube`}
+                  label="Link de YouTube"
+                  placeholder="https://www.youtube.com/watch?v=…"
+                  value={slide.url}
+                  onChange={(e) =>
+                    updateSlides(
+                      block.slides.map((s) =>
+                        s.id === slide.id ? { ...s, url: e.target.value } : s,
+                      ),
+                    )
+                  }
+                  disabled={disabled}
+                  error={Boolean(slide.url.trim()) && !extractYouTubeId(slide.url)}
+                  errorMessage={
+                    slide.url.trim() && !extractYouTubeId(slide.url)
+                      ? "No se reconoce el link como un video de YouTube válido."
+                      : undefined
+                  }
+                />
+              )}
+              {slide.kind === "file" && (
+                <VideoFileDropzone
+                  value={slide.url}
+                  onChange={(url) =>
+                    updateSlides(block.slides.map((s) => (s.id === slide.id ? { ...s, url } : s)))
+                  }
+                  disabled={disabled}
+                  aspectRatio="16 / 9"
+                />
+              )}
+            </Column>
+          ))}
+        </Column>
+      )}
+
+      <Row gap="8" wrap>
+        <Button
+          variant="secondary"
+          size="s"
+          prefixIcon="images"
+          onClick={() => addSlide("image")}
+          disabled={disabled}
+        >
+          Agregar imagen
+        </Button>
+        <Button
+          variant="secondary"
+          size="s"
+          prefixIcon="link"
+          onClick={() => addSlide("youtube")}
+          disabled={disabled}
+        >
+          Agregar YouTube
+        </Button>
+        <Button
+          variant="secondary"
+          size="s"
+          prefixIcon="film"
+          onClick={() => addSlide("file")}
+          disabled={disabled}
+        >
+          Agregar video (archivo)
+        </Button>
+      </Row>
+
+      {previewSlides.length > 0 && (
+        <MdxCarousel indicator={block.indicator} aspectRatio={block.aspectRatio} controls>
+          {previewSlides.map((slide) =>
+            slide.kind === "image" ? (
+              <Media key={slide.id} src={slide.url} alt={slide.alt} />
+            ) : slide.kind === "youtube" ? (
+              <CarouselVideoSlide
+                key={slide.id}
+                kind="youtube"
+                youtubeId={extractYouTubeId(slide.url) ?? ""}
+              />
+            ) : (
+              <CarouselVideoSlide key={slide.id} kind="file" src={slide.url} />
+            ),
+          )}
+        </MdxCarousel>
+      )}
+    </Column>
+  );
+}
+
 interface ContentBlockCardProps {
   block: ContentBlock;
   onChange: (block: ContentBlock) => void;
@@ -2363,43 +2683,72 @@ export function ContentBlockCard({
       )}
 
       {!collapsed && block.type === "video" && (
-        <Column gap="8">
-          <Input
-            id={`block-${block.id}-url`}
-            label="Link de YouTube"
-            placeholder="https://www.youtube.com/watch?v=…"
-            value={block.url}
-            onChange={(e) => onChange({ ...block, url: e.target.value })}
-            disabled={disabled}
+        // FEATURE (tarea "video por archivo"): dos modos, mismo criterio de
+        // SegmentedControl que la portada (ver CreateProjectModal). `source`
+        // por defecto "url" (retrocompatible: bloques guardados antes de
+        // esta tarea no tienen el campo, ver createBlock/tipo ContentBlock)
+        // — el operador `??` cubre ese caso sin migrar Markdown viejo.
+        <Column gap="12">
+          <SegmentedControl
+            fillWidth
+            selected={block.source ?? "url"}
+            onToggle={(value) => onChange({ ...block, source: value as "url" | "file" })}
+            buttons={[
+              { value: "url", label: "YouTube", prefixIcon: "link", disabled },
+              { value: "file", label: "Subir archivo", prefixIcon: "film", disabled },
+            ]}
           />
-          {(() => {
-            const youtubeId = extractYouTubeId(block.url);
-            if (youtubeId) {
-              return (
-                <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "16 / 9" }}>
-                  <iframe
-                    width="100%"
-                    height="100%"
-                    src={`https://www.youtube.com/embed/${youtubeId}`}
-                    title="Video de YouTube"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    style={{ border: 0 }}
-                  />
-                </Column>
-              );
-            }
-            if (block.url.trim() !== "") {
-              return (
-                <Feedback
-                  variant="danger"
-                  description="No se reconoce el link como un video de YouTube válido."
-                />
-              );
-            }
-            return null;
-          })()}
+          {(block.source ?? "url") === "file" ? (
+            <VideoFileDropzone
+              value={block.fileUrl ?? ""}
+              onChange={(fileUrl) => onChange({ ...block, fileUrl })}
+              disabled={disabled}
+              aspectRatio="16 / 9"
+            />
+          ) : (
+            <Column gap="8">
+              <Input
+                id={`block-${block.id}-url`}
+                label="Link de YouTube"
+                placeholder="https://www.youtube.com/watch?v=…"
+                value={block.url}
+                onChange={(e) => onChange({ ...block, url: e.target.value })}
+                disabled={disabled}
+              />
+              {(() => {
+                const youtubeId = extractYouTubeId(block.url);
+                if (youtubeId) {
+                  return (
+                    <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "16 / 9" }}>
+                      <iframe
+                        width="100%"
+                        height="100%"
+                        src={`https://www.youtube.com/embed/${youtubeId}`}
+                        title="Video de YouTube"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        style={{ border: 0 }}
+                      />
+                    </Column>
+                  );
+                }
+                if (block.url.trim() !== "") {
+                  return (
+                    <Feedback
+                      variant="danger"
+                      description="No se reconoce el link como un video de YouTube válido."
+                    />
+                  );
+                }
+                return null;
+              })()}
+            </Column>
+          )}
         </Column>
+      )}
+
+      {!collapsed && block.type === "mediaCarousel" && (
+        <MediaCarouselBlockEditor block={block} onChange={onChange} disabled={disabled} />
       )}
 
       {!collapsed && block.type === "divider" && (

@@ -53,6 +53,10 @@ export default async function ExplorarCategoryPage({
         bio: true,
         primaryRole: true,
         secondaryRoles: true,
+        profileBrand: true,
+        profileAccent: true,
+        profileNeutral: true,
+        profileBorder: true,
       },
     });
     return <DesignerDirectory platformDesigners={platformDesigners} />;

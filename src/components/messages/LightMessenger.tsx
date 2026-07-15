@@ -3,6 +3,7 @@
 import {
   Avatar,
   Column,
+  EmojiPickerDropdown,
   Feedback,
   Heading,
   Icon,
@@ -190,6 +191,7 @@ export function LightMessenger({
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Espejo de `active` legible desde el intervalo de polling sin reinscribirlo
   // en cada cambio de conversación activa.
@@ -279,6 +281,17 @@ export function LightMessenger({
     const conversation = active;
     if (!trimmed || !conversation || sending) return;
     setSending(true);
+    // Limpieza optimista: el input ya no se deshabilita durante el envío, así
+    // que el usuario puede seguir escribiendo mientras el server action viaja.
+    // Si esperáramos al await para vaciar el texto, borraríamos lo que el
+    // usuario ya tecleó de más para el siguiente mensaje.
+    setText("");
+    // Regresamos el foco al input ya desde aquí (no al terminar el envío):
+    // cubre tanto el click en el IconButton (que se lleva el foco) como el
+    // caso de error más abajo, sin duplicar la llamada en cada rama.
+    requestAnimationFrame(() => {
+      document.getElementById("light-messenger-composer")?.focus();
+    });
     const result =
       conversation.kind === "direct" && conversation.threadId
         ? await sendDirectMessage(conversation.threadId, trimmed)
@@ -287,10 +300,13 @@ export function LightMessenger({
           : { ok: false as const, error: "Conversación inválida." };
     setSending(false);
     if (!result.ok) {
+      // Restauramos el mensaje fallido solo si el input sigue vacío: si el
+      // usuario ya empezó a escribir uno nuevo mientras esperaba, no se lo
+      // pisamos con el que falló.
+      setText((current) => (current ? current : trimmed));
       setMessagesError(result.error);
       return;
     }
-    setText("");
     await loadMessages(conversation);
   };
 
@@ -315,7 +331,7 @@ export function LightMessenger({
             onClick={onExpand}
           />
           <IconButton
-            icon="minimize"
+            icon="minus"
             size="s"
             variant="tertiary"
             tooltip="Minimizar"
@@ -430,9 +446,40 @@ export function LightMessenger({
           <Line background="neutral-alpha-weak" />
 
           <Row fillWidth gap="8" vertical="center" padding="12">
+            <EmojiPickerDropdown
+              placement="top-start"
+              isOpen={emojiOpen}
+              onOpenChange={setEmojiOpen}
+              trigger={
+                <IconButton
+                  icon="emoji"
+                  size="s"
+                  variant="tertiary"
+                  tooltip="Insertar emoji"
+                  tooltipPosition="top"
+                />
+              }
+              onSelect={(emoji) => {
+                setText((prev) => prev + emoji);
+                // Modo controlado (isOpen/onOpenChange): sin esto, closeAfterClick
+                // solo dispara el onOpenChange del consumidor sin tocar el estado
+                // interno del DropdownWrapper, así que el picker nunca se cerraba
+                // y su focus trap seguía re-robando el foco de la celda elegida.
+                // Cerramos explícitamente antes de focar. El DropdownWrapper
+                // re-foca su trigger (el IconButton de la carita) al cerrarse,
+                // DESPUÉS de este callback — un requestAnimationFrame pierde esa
+                // carrera; con un timeout corto le ganamos a esa restauración de
+                // foco y el foco queda en el input, no en el botón.
+                setEmojiOpen(false);
+                window.setTimeout(() => {
+                  document.getElementById("light-messenger-composer")?.focus();
+                }, 150);
+              }}
+            />
             <Column style={{ flex: 1, minWidth: 0 }}>
               <Input
                 id="light-messenger-composer"
+                height="s"
                 placeholder="Escribe un mensaje..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -442,12 +489,11 @@ export function LightMessenger({
                     handleSend();
                   }
                 }}
-                disabled={sending}
               />
             </Column>
             <IconButton
               icon="arrowUpRight"
-              size="m"
+              size="s"
               variant="primary"
               tooltip="Enviar"
               tooltipPosition="top"
