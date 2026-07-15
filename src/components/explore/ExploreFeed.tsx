@@ -18,7 +18,7 @@ import {
   Text,
   TiltFx,
 } from "@once-ui-system/core";
-import { coverKindOf, resolveCoverSrc } from "@/lib/coverMedia";
+import { coverKindOf, extractYouTubeId, resolveCoverSrc, youtubeThumbnailUrl } from "@/lib/coverMedia";
 import { useExploreSearch } from "./SearchContext";
 
 const ALL = "Todos";
@@ -32,11 +32,28 @@ export interface Shout {
   author: string;
   avatar: string | null;
   category: string;
-  description: string;
+  title: string;
+  // Descripción breve opcional (PortfolioPiece.description, máx. 140
+  // caracteres): null cuando el Partner no la llenó, sin fallback a `title`
+  // (ver lib/portfolio.ts) — `title` ya se muestra aparte en la card.
+  description: string | null;
   image: string;
   likes: number;
   // Ruta al caso de estudio MDX (/<username>/proyecto/<slug>) cuando existe
   href?: string;
+}
+
+// Overlay de "play" reutilizado sobre la miniatura de YouTube y el <video>
+// nativo (mismo patrón visual que CarouselVideoSlide, ver mdx-carousel.tsx):
+// comunica que la portada es un video sin reproducirlo dentro de la grilla.
+function PlayBadgeOverlay() {
+  return (
+    <Row position="absolute" top="0" left="0" fill horizontal="center" vertical="center" pointerEvents="none">
+      <Row radius="full" background="neutral-alpha-strong" padding="12" horizontal="center" vertical="center">
+        <Icon name="play" size="m" onBackground="neutral-strong" />
+      </Row>
+    </Row>
+  );
 }
 
 function ShoutCard({ shout }: { shout: Shout }) {
@@ -52,31 +69,49 @@ function ShoutCard({ shout }: { shout: Shout }) {
   const categoryLabel =
     categories.length > 1 ? `${categories[0]} +${categories.length - 1}` : shout.category;
 
-  // Portada de video (URL con prefijo "video:", ver lib/coverMedia): sin
-  // bucket de Storage no hay forma de extraer un primer frame como
-  // thumbnail, y reproducir el video/embed de YouTube en cada tarjeta de
-  // una grilla infinita sería caro (varios reproductores autoplay a la
-  // vez) — se muestra un placeholder estático en vez de <Media>. GIF sí
-  // llega a <Media> tal cual: es una data URL de imagen normal, se anima
-  // sola en el <img> nativo que usa next/image por debajo.
+  // Portada de video (link de YouTube o archivo .mp4/data URL, ver
+  // lib/coverMedia): sin bucket de Storage no hay forma de extraer un primer
+  // frame propio, y reproducir el embed de YouTube o un <video autoPlay> en
+  // cada tarjeta de una grilla infinita sería caro (varios reproductores a
+  // la vez) — por eso se usa una miniatura ESTÁTICA con un ícono de play
+  // sobrepuesto en vez del reproductor real. YouTube tiene una miniatura
+  // oficial (img.youtube.com, sin tocar la red desde el server); un archivo
+  // .mp4 usa el propio <video> con `preload="metadata"` (sin autoplay/loop)
+  // como "poster" — el navegador pinta el primer frame decodificado sin
+  // descargar el archivo completo. GIF sí llega a <Media> tal cual: es una
+  // data URL de imagen normal, se anima sola en el <img> nativo que usa
+  // next/image por debajo.
   const isVideoCover = coverKindOf(shout.image) === "video";
   const coverSrc = resolveCoverSrc(shout.image);
+  const youtubeId = isVideoCover ? extractYouTubeId(coverSrc) : null;
 
   const cover = isVideoCover ? (
-    <Column
-      fillWidth
-      radius="m"
-      background="neutral-alpha-medium"
-      horizontal="center"
-      vertical="center"
-      style={{ aspectRatio: "16 / 9" }}
-    >
-      <Icon name="video" size="l" onBackground="neutral-weak" />
+    <Column fillWidth radius="m" overflow="hidden" background="neutral-alpha-medium" style={{ aspectRatio: "16 / 9" }}>
+      {youtubeId ? (
+        // <img> plano (no next/image): img.youtube.com no está registrado en
+        // images.remotePatterns (next.config.mjs), solo para una miniatura.
+        // eslint-disable-next-line @next/next/no-img-element -- miniatura estática externa, no optimizable por next/image sin registrar el host.
+        <img
+          src={youtubeThumbnailUrl(youtubeId)}
+          alt={shout.title}
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        // eslint-disable-next-line jsx-a11y/media-has-caption -- poster estático (sin controls/autoplay), no hay contenido de audio que subtitular.
+        <video
+          src={coverSrc}
+          muted
+          playsInline
+          preload="metadata"
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      )}
+      <PlayBadgeOverlay />
     </Column>
   ) : (
     <Media
       src={coverSrc}
-      alt={shout.description}
+      alt={shout.title}
       radius="m"
       aspectRatio="16 / 9"
       sizes="(max-width: 768px) 100vw, 33vw"
@@ -100,9 +135,25 @@ function ShoutCard({ shout }: { shout: Shout }) {
         </Row>
 
         <Column fillWidth paddingX="20" gap="16">
-          <Text variant="body-default-m" onBackground="neutral-weak">
-            {shout.description}
-          </Text>
+          <Column fillWidth gap="4">
+            <Text variant="heading-strong-s" onBackground="neutral-strong" truncate>
+              {shout.title}
+            </Text>
+            {shout.description && (
+              <Text
+                variant="body-default-s"
+                onBackground="neutral-weak"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {shout.description}
+              </Text>
+            )}
+          </Column>
           {/* La imagen enlaza al caso de estudio; el like queda fuera del link */}
           {shout.href ? (
             <SmartLink unstyled fillWidth href={shout.href}>
@@ -151,7 +202,9 @@ export function ExploreFeed({ initialCategory, shouts }: ExploreFeedProps) {
         if (selected !== ALL && shout.category !== selected) return false;
         if (query) {
           const q = query.trim().toLowerCase();
-          if (!shout.author.toLowerCase().includes(q) && !shout.description.toLowerCase().includes(q)) {
+          const matchesTitle = shout.title.toLowerCase().includes(q);
+          const matchesDescription = shout.description?.toLowerCase().includes(q) ?? false;
+          if (!shout.author.toLowerCase().includes(q) && !matchesTitle && !matchesDescription) {
             return false;
           }
         }

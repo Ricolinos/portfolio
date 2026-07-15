@@ -89,12 +89,39 @@ export function CarouselVideoSlide({ kind, youtubeId, src, alt }: CarouselVideoS
   // más en el slide activo.
   const showStatic = isThumbnail !== false;
 
+  // GOTCHA CRÍTICO (bug "video de YouTube en carousel no reproduce click"):
+  // `Carousel` (dist/components/Carousel.js, fuera de este repo) pinta, DESPUÉS
+  // del slide activo y como hermano suyo dentro del mismo `RevealFx`, un `Row`
+  // (className `styles.controls`) con `position:"absolute" fill` que cubre TODA
+  // el área del slide para las franjas de click prev/next — sin
+  // `pointer-events:none` en su SCSS (ver Carousel.module.scss: solo hay
+  // `.left`/`.right` de 12 unidades de ancho, pero el contenedor `.controls`
+  // en sí ocupa el 100%). Ambos (el `Flex` que envuelve este slide y ese `Row`
+  // de controles) son elementos `position` con `z-index:auto`: en ese bucket
+  // el orden de pintado es por orden en el árbol, así que el `Row` posterior
+  // pinta ENCIMA — capturando cualquier click en el CENTRO del slide (el botón
+  // de play del iframe de YouTube o los controles nativos de un <video>),
+  // aunque visualmente ahí no haya ningún control de Carousel. No se puede
+  // tocar Carousel.js (dist del paquete). La solución vive acá: solo en el
+  // slide GRANDE activo (no en la miniatura, donde no aplica) se sube este
+  // contenedor a `zIndex={1}` — un z-index explícito > 0 pinta DESPUÉS de los
+  // hermanos `z-index:auto` sin importar su orden en el DOM (mismo stacking
+  // context, ya que ni RevealFx ni el `Flex` intermedio de Carousel aíslan uno
+  // nuevo), dejando el iframe/video real por ENCIMA del `Row` de controles.
+  // Las franjas de click prev/next siguen funcionando en los bordes del
+  // slide porque siguen siendo las MISMAS franjas de 12 unidades de Carousel,
+  // ahora simplemente debajo del video en el centro (donde antes tampoco
+  // había ningún control visible). Verificado en pantalla contra la pieza
+  // real de Ricolinos y una pieza de prueba de partner_demo.
+  const isActiveVideoPlayer = isThumbnail === false;
+
   return (
     <Column
       ref={containerRef}
       fill
       overflow="hidden"
       position="relative"
+      zIndex={isActiveVideoPlayer ? 1 : undefined}
       background="neutral-alpha-weak"
     >
       {showStatic ? (

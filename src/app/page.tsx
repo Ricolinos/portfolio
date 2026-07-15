@@ -27,6 +27,7 @@ export default async function Home() {
   const pieces = feed.map((piece) => ({
     id: piece.id,
     title: piece.title,
+    description: piece.description,
     designer: piece.user.name ?? piece.user.username ?? "Partner",
     avatarUrl: piece.user.imageUrl,
     location: piece.location,

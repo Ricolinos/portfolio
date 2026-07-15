@@ -3,15 +3,34 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import type { ContentBlock } from "@/components/profile/ContentBlocks";
+import { Prisma } from "@/generated/prisma/client";
 import { isValidPieceCategory } from "@/lib/pieceCategories";
 import { prisma } from "@/lib/prisma";
+import { isPortfolioMediaUrl } from "@/lib/storageConfig";
+
+// Adjunto con nombre del modo Pro del editor MDX (ver PortfolioPiece.attachments
+// en el schema): el MDX referencia el archivo por `name`, nunca por `url`
+// directamente. `url` siempre debe apuntar al bucket portfolio-media de
+// Supabase Storage (ver isPortfolioMediaUrl), nunca a un origen arbitrario.
+export interface PieceAttachment {
+  name: string;
+  url: string;
+  type: "image" | "video";
+}
 
 export interface CreatePortfolioPieceInput {
   title: string;
+  // Resumen opcional del proyecto (máx. MAX_DESCRIPTION_LENGTH, validado
+  // server-side abajo); vacío/solo-espacios se persiste como `null`.
+  description?: string;
   content: string;
   // Bloques estructurados del Canvas; se guardan tal cual para poder
   // reabrirlos en modo edición sin depender de parsear el Markdown.
-  contentBlocks?: ContentBlock[];
+  // FEATURE (Modo Pro, ver CreateProjectModal.tsx): `undefined` = "no
+  // tocar" (el default de siempre); `null` = modo Pro, BORRA los bloques
+  // existentes explícitamente (ver `toContentBlocksData` abajo) porque el
+  // usuario escribió Markdown/MDX a mano y ya no hay Canvas que reabrir.
+  contentBlocks?: ContentBlock[] | null;
   category?: string;
   // Data URL (sin bucket de Storage todavía, igual que gallery)
   coverUrl?: string;
@@ -30,6 +49,11 @@ export interface CreatePortfolioPieceInput {
   // Usernames de colaboradores, sin validar contra la tabla User todavía
   collaborators?: string[];
   releaseDate?: Date;
+  // FEATURE (Modo Pro): adjuntos con nombre subidos a Supabase Storage que el
+  // MDX referencia por `name` (máx. MAX_ATTACHMENTS, validado abajo).
+  // `undefined` = no tocar (update); array (incluso vacío) = reemplaza el
+  // set completo, igual que `gallery`.
+  attachments?: PieceAttachment[];
 }
 
 export interface UpdatePortfolioPieceInput extends CreatePortfolioPieceInput {}
@@ -37,9 +61,14 @@ export interface UpdatePortfolioPieceInput extends CreatePortfolioPieceInput {}
 export interface PortfolioPieceForEdit {
   id: string;
   title: string;
+  description: string | null;
   category: string;
   coverUrl: string;
   contentBlocks: ContentBlock[];
+  // FEATURE (Modo Pro): fuente cruda de `content` — el editor la usa para
+  // decidir en qué modo abrir (ver CreateProjectModal.tsx: contentBlocks
+  // vacío + markdownContent con texto = pro) y para sembrar el Textarea.
+  markdownContent: string;
   tags: string[];
   subcategories: string[];
   software: string[];
@@ -49,12 +78,83 @@ export interface PortfolioPieceForEdit {
   gallery: string[];
   downloadUrl: string;
   resourcePassword: string;
+  attachments: PieceAttachment[];
 }
 
 const MAX_TAGS = 5;
 const MAX_SUBCATEGORIES = 10;
 const MAX_SOFTWARE = 15;
 const MAX_TAXONOMY_LABEL_LENGTH = 30;
+// Descripción breve opcional del proyecto (PortfolioPiece.description).
+const MAX_DESCRIPTION_LENGTH = 140;
+// FEATURE (Modo Pro): tope duro del Markdown/MDX crudo (markdownContent).
+// El asistido rara vez se acerca a esto (lo genera blocksToMarkdown a
+// partir de bloques ya acotados), pero el Pro es texto libre — sin límite,
+// una pieza gigante podría inflar el payload/BD sin aviso.
+const MAX_MARKDOWN_CONTENT_BYTES = 100 * 1024; // 100KB
+
+// FEATURE (Modo Pro): traduce el `contentBlocks` que llega del cliente al
+// valor real que espera Prisma para un campo `Json?` — `undefined` (no
+// enviado) deja el campo intacto en `update` como siempre; `null` explícito
+// (modo Pro) debe escribirse como `Prisma.DbNull` porque el driver de
+// Prisma 7 rechaza un `null` de JS a secas en columnas Json (ambiguo entre
+// "SQL NULL" y "el valor JSON `null`") — DbNull es la lectura correcta acá:
+// sin bloques en absoluto, no un array vacío.
+function toContentBlocksData(
+  contentBlocks: ContentBlock[] | null | undefined,
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+  if (contentBlocks === undefined) return undefined;
+  if (contentBlocks === null) return Prisma.DbNull;
+  return contentBlocks as unknown as Prisma.InputJsonValue;
+}
+
+// FEATURE (Modo Pro): adjuntos con nombre — máx. 30, nombre 1-80 caracteres
+// (trim, sin duplicados case-insensitive) y `url` debe pertenecer al bucket
+// portfolio-media (ver isPortfolioMediaUrl en lib/storageConfig.ts), nunca un
+// origen arbitrario pegado a mano.
+const MAX_ATTACHMENTS = 30;
+const MAX_ATTACHMENT_NAME_LENGTH = 80;
+
+function normalizeAttachments(attachments: PieceAttachment[]): PieceAttachment[] {
+  if (attachments.length > MAX_ATTACHMENTS) {
+    throw new Error(`Máximo ${MAX_ATTACHMENTS} archivos adjuntos por proyecto`);
+  }
+
+  const seen = new Set<string>();
+  const result: PieceAttachment[] = [];
+  for (const raw of attachments) {
+    const name = raw.name?.trim();
+    if (!name || name.length > MAX_ATTACHMENT_NAME_LENGTH) {
+      throw new Error(`Nombre de adjunto inválido: "${raw.name ?? ""}"`);
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`Nombre de adjunto duplicado: "${name}"`);
+    }
+    if (raw.type !== "image" && raw.type !== "video") {
+      throw new Error(`Tipo de adjunto inválido para "${name}"`);
+    }
+    if (typeof raw.url !== "string" || !isPortfolioMediaUrl(raw.url)) {
+      throw new Error(`URL de adjunto no permitida para "${name}"`);
+    }
+    seen.add(key);
+    result.push({ name, url: raw.url, type: raw.type });
+  }
+  return result;
+}
+
+// Mismo patrón que toContentBlocksData: `undefined` (no enviado) deja el
+// campo intacto en `update`; un array (incluso vacío) reemplaza el set
+// completo — vacío se persiste como `Prisma.DbNull`, no como `[]`.
+function toAttachmentsData(
+  attachments: PieceAttachment[] | undefined,
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+  if (attachments === undefined) return undefined;
+  const normalized = normalizeAttachments(attachments);
+  if (normalized.length === 0) return Prisma.DbNull;
+  return normalized as unknown as Prisma.InputJsonValue;
+}
+
 const MAX_PARTNER_RESULTS = 24;
 const MAX_SUBCATEGORY_SUGGESTIONS = 8;
 // Piezas públicas escaneadas para armar sugerencias de autocompletado
@@ -78,6 +178,16 @@ function normalizeTaxonomyList(values: string[] | undefined, max: number): strin
     if (result.length >= max) break;
   }
   return result;
+}
+
+// Trim + límite duro; vacío se persiste como `null` (columna opcional).
+function normalizeDescription(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > MAX_DESCRIPTION_LENGTH) {
+    throw new Error(`La descripción no puede superar ${MAX_DESCRIPTION_LENGTH} caracteres`);
+  }
+  return trimmed;
 }
 
 export interface PublicPartnerResult {
@@ -167,6 +277,18 @@ function validatePieceTaxonomy(input: CreatePortfolioPieceInput) {
   return { category, subcategories, software };
 }
 
+// Tope duro del Markdown/MDX guardado (ver MAX_MARKDOWN_CONTENT_BYTES):
+// aplica igual a asistido y Pro — en la práctica solo Pro (texto libre) se
+// acerca al límite.
+function validateContentSize(content: string) {
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > MAX_MARKDOWN_CONTENT_BYTES) {
+    throw new Error(
+      `El contenido es demasiado grande (${(bytes / 1024).toFixed(0)}KB). El máximo es ${MAX_MARKDOWN_CONTENT_BYTES / 1024}KB.`,
+    );
+  }
+}
+
 // Crea una pieza de portafolio desde el editor de Markdown del Partner.
 // El contenido se guarda como texto plano; siempre queda ligada al usuario
 // autenticado vía Clerk, nunca a un userId recibido del cliente.
@@ -180,20 +302,24 @@ export async function createPortfolioPiece(
   const content = input.content.trim();
   if (!title) throw new Error("El título es obligatorio");
   if (!content) throw new Error("El contenido es obligatorio");
+  validateContentSize(content);
 
   const { category, subcategories, software } = validatePieceTaxonomy(input);
+  const description = normalizeDescription(input.description);
 
   const piece = await prisma.portfolioPiece.create({
     data: {
       title,
+      description,
       markdownContent: content,
-      contentBlocks: input.contentBlocks ? (input.contentBlocks as object) : undefined,
+      contentBlocks: toContentBlocksData(input.contentBlocks),
       category: category || undefined,
       coverUrl: input.coverUrl || null,
       downloadUrl: input.downloadUrl?.trim() || null,
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,
       gallery: input.gallery && input.gallery.length > 0 ? input.gallery : undefined,
+      attachments: toAttachmentsData(input.attachments),
       tags: (input.tags ?? []).slice(0, MAX_TAGS),
       subcategories,
       software,
@@ -223,9 +349,11 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
     select: {
       id: true,
       title: true,
+      description: true,
       category: true,
       coverUrl: true,
       contentBlocks: true,
+      markdownContent: true,
       tags: true,
       subcategories: true,
       software: true,
@@ -233,6 +361,7 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
       releaseDate: true,
       isPublic: true,
       gallery: true,
+      attachments: true,
       downloadUrl: true,
       resourcePassword: true,
       userId: true,
@@ -243,11 +372,13 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
   return {
     id: piece.id,
     title: piece.title,
+    description: piece.description,
     category: piece.category,
     coverUrl: piece.coverUrl ?? "",
     contentBlocks: Array.isArray(piece.contentBlocks)
       ? (piece.contentBlocks as unknown as ContentBlock[])
       : [],
+    markdownContent: piece.markdownContent ?? "",
     tags: piece.tags,
     subcategories: piece.subcategories,
     software: piece.software,
@@ -255,6 +386,9 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
     releaseDate: piece.releaseDate ? piece.releaseDate.toISOString() : null,
     isPublic: piece.isPublic,
     gallery: Array.isArray(piece.gallery) ? (piece.gallery as unknown as string[]) : [],
+    attachments: Array.isArray(piece.attachments)
+      ? (piece.attachments as unknown as PieceAttachment[])
+      : [],
     downloadUrl: piece.downloadUrl ?? "",
     resourcePassword: piece.resourcePassword ?? "",
   };
@@ -273,6 +407,7 @@ export async function updatePortfolioPiece(
   const content = input.content.trim();
   if (!title) throw new Error("El título es obligatorio");
   if (!content) throw new Error("El contenido es obligatorio");
+  validateContentSize(content);
 
   const existing = await prisma.portfolioPiece.findUnique({
     where: { id: pieceId },
@@ -281,19 +416,22 @@ export async function updatePortfolioPiece(
   if (!existing || existing.userId !== userId) throw new Error("No autorizado");
 
   const { category, subcategories, software } = validatePieceTaxonomy(input);
+  const description = normalizeDescription(input.description);
 
   await prisma.portfolioPiece.update({
     where: { id: pieceId },
     data: {
       title,
+      description,
       markdownContent: content,
-      contentBlocks: input.contentBlocks ? (input.contentBlocks as object) : undefined,
+      contentBlocks: toContentBlocksData(input.contentBlocks),
       category: category || undefined,
       coverUrl: input.coverUrl || null,
       downloadUrl: input.downloadUrl?.trim() || null,
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,
       gallery: input.gallery && input.gallery.length > 0 ? input.gallery : undefined,
+      attachments: toAttachmentsData(input.attachments),
       tags: (input.tags ?? []).slice(0, MAX_TAGS),
       subcategories,
       software,

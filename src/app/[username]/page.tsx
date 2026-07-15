@@ -191,6 +191,7 @@ async function ProfileContent({
           select: {
             id: true,
             title: true,
+            description: true,
             category: true,
             coverUrl: true,
             views: true,

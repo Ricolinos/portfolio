@@ -57,6 +57,7 @@ import {
   HiOutlineQuestionMarkCircle,
   HiOutlineRocketLaunch,
   HiOutlineSparkles,
+  HiOutlineSquare2Stack,
   HiOutlineSquares2X2,
   HiOutlineTrash,
   HiOutlineUserGroup,
@@ -74,6 +75,8 @@ import {
   PiImageDuotone,
   PiImagesDuotone,
   PiLinkDuotone,
+  PiListBulletsDuotone,
+  PiListNumbersDuotone,
   PiShapes,
   PiSmileyDuotone,
   PiTextAaBold,
@@ -89,6 +92,17 @@ import {
   PiUserCircleDuotone,
 } from "react-icons/pi";
 import { SiFigma, SiJavascript, SiNextdotjs, SiSupabase } from "react-icons/si";
+// Iconos de tipos de bloque del editor de contenido (ver ContentBlocks.tsx,
+// BLOCK_TYPES/ALL_BLOCK_META): Tabler (Tb) para representar el RESULTADO
+// visual real de cada bloque, no un objeto literal relacionado (ver
+// auditoría "iconos coherentes"). `carouselSlides` = Carousel nativo de
+// Once UI (un slide con flechas/indicador, ver mdx-carousel.tsx).
+// `swipeStrip` = tira horizontal deslizable de chips (bloque "scroller",
+// retirado del picker de "Añadir sección" pero conservado para piezas
+// viejas). `sectionDivider` = bloque "Nueva sección" (divisor + título,
+// tarea "HeadingNav"): un separador con un título propio, no un simple
+// guion (`divider`, ya usado para el bloque "Divisor" sin título).
+import { TbCarouselHorizontal, TbNewSection, TbSwipe } from "react-icons/tb";
 
 export const iconLibrary: Record<string, IconType> = {
   arrowUpRight: HiArrowUpRight,
@@ -150,10 +164,30 @@ export const iconLibrary: Record<string, IconType> = {
   warning: HiOutlineExclamationTriangle,
   xCircle: HiOutlineXCircle,
   divider: HiOutlineMinus,
+  // Bloque "Carousel" (mediaCarousel, Carousel nativo Once UI: un slide a la
+  // vez con flechas + indicador).
+  carouselSlides: TbCarouselHorizontal,
+  // Bloque "Cuadrícula de fotos" (masonry, MasonryGrid real): grid 2x2, no
+  // una sola foto (ver auditoría de iconos).
+  photoGrid: HiOutlineSquares2X2,
+  // Bloque "Tira de fotos" (carousel legacy, Scroller de imágenes apiladas
+  // una tras otra): dos cuadros superpuestos = pila de fotos deslizable.
+  photoStack: HiOutlineSquare2Stack,
+  // Bloque "Tira deslizable" (scroller, chips en Scroller horizontal):
+  // gesto de deslizar/swipe, no una sola flecha.
+  swipeStrip: TbSwipe,
+  // Bloque "Nueva sección" (section, `---` + `## título`): separador con un
+  // título propio, distinto de `divider` (un guion sin texto).
+  sectionDivider: TbNewSection,
   bold: PiTextBDuotone,
   italic: PiTextItalicDuotone,
   underline: PiTextUnderlineDuotone,
   strikethrough: PiTextStrikethroughDuotone,
+  // Listas del bloque de texto (toolbar, tarea "listas en la herramienta de
+  // texto"): mismo estilo Duotone que el resto de los íconos de formato
+  // inline (bold/italic/underline/strikethrough).
+  listBullets: PiListBulletsDuotone,
+  listNumbers: PiListNumbersDuotone,
   textLight: PiTextAaLight,
   textStrong: PiTextAaBold,
   alignLeft: PiTextAlignLeftDuotone,

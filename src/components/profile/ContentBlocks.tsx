@@ -35,7 +35,15 @@ import {
   Tooltip,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
-import { type DragEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  type ClipboardEvent,
+  type DragEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
 import { CarouselVideoSlide, MdxCarousel } from "@/components/mdx-carousel";
 import { uploadMediaFile } from "@/lib/storageUpload";
@@ -171,6 +179,13 @@ export type ContentBlock =
   // .mp4 subido (mismas reglas que la portada, ver lib/videoUpload.ts).
   | { id: string; type: "video"; source?: "url" | "file"; url: string; fileUrl?: string }
   | { id: string; type: "divider" }
+  // FEATURE (bloque "Nueva sección", tarea "HeadingNav"): el canvas SOLO
+  // edita `title` (un Input de una línea) — ver ContentBlockCard más abajo.
+  // Serializa a `---` (divisor) + `## título` (ver blockToMarkdown case
+  // "section"): markdown puro que el visor ya sabe renderizar (hr → Line
+  // estilizada, `##` → heading real con id de ancla vía `createHeading`), sin
+  // requerir ningún registro nuevo en el mapa de `components` de mdx.tsx.
+  | { id: string; type: "section"; title: string }
   | { id: string; type: "tag"; label: string; variant: TagVariant; size: TagSize }
   // Chips de categorías predefinidas del dominio (verticales/subcategorías
   // reales de src/lib/projectCategories.ts): multi-select en el editor con
@@ -245,16 +260,27 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
   // "carousel") — solo cambia el label para dejarle el nombre "Carousel" al
   // bloque nuevo de abajo. Las piezas ya guardadas con este tipo no
   // cambian: solo es texto de la UI del editor.
-  { type: "carousel", label: "Tira de fotos", icon: "carousel" },
-  { type: "mediaCarousel", label: "Carousel", icon: "camera" },
+  { type: "carousel", label: "Tira de fotos", icon: "photoStack" },
+  { type: "mediaCarousel", label: "Carousel", icon: "carouselSlides" },
   { type: "embed", label: "Código", icon: "codeBracket" },
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
+  // Bloque "Nueva sección" (tarea "HeadingNav"): divisor + título propio
+  // (`## texto`, ver blockToMarkdown case "section") — a diferencia de
+  // "divider" (un guion sin texto), este alimenta el HeadingNav del visor de
+  // proyecto con una entrada navegable por sección.
+  { type: "section", label: "Nueva sección", icon: "sectionDivider" },
   { type: "avatarGroup", label: "Colaboradores", icon: "userGroup" },
   { type: "logoCloud", label: "Nube de logos", icon: "grid" },
-  { type: "scroller", label: "Tira deslizable", icon: "arrowRight" },
-  { type: "masonry", label: "Cuadrícula de fotos", icon: "gallery" },
+  { type: "masonry", label: "Cuadrícula de fotos", icon: "photoGrid" },
 ];
+// "Tira deslizable" (scroller) se retira del picker de "Añadir sección"
+// (tarea "quitar scroller del picker", auditoría de herramientas — mismo
+// criterio que Insignia/Categorías/Links/Etiqueta/Estado/Barra de progreso
+// arriba): su `type` SIGUE en `ContentBlock`/`createBlock`/`blockToMarkdown`/
+// el render de `ContentBlockCard` y en `ALL_BLOCK_META` más abajo intactos,
+// así que una pieza vieja con este bloque sigue editándose y renderizando
+// exactamente igual — solo desaparece como opción para instanciar uno nuevo.
 
 // Mapa COMPLETO de label/icon por tipo (a diferencia de `BLOCK_TYPES`, que
 // solo lista lo instanciable desde el panel): la cabecera de
@@ -265,12 +291,13 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
 const ALL_BLOCK_META: Record<ContentBlockType, { label: string; icon: string }> = {
   image: { label: "Imagen", icon: "images" },
   text: { label: "Texto", icon: "document" },
-  carousel: { label: "Tira de fotos", icon: "carousel" },
-  mediaCarousel: { label: "Carousel", icon: "camera" },
+  carousel: { label: "Tira de fotos", icon: "photoStack" },
+  mediaCarousel: { label: "Carousel", icon: "carouselSlides" },
   embed: { label: "Código", icon: "codeBracket" },
   link: { label: "Links", icon: "openLink" },
   video: { label: "Video", icon: "film" },
   divider: { label: "Divisor", icon: "divider" },
+  section: { label: "Nueva sección", icon: "sectionDivider" },
   tag: { label: "Etiqueta", icon: "shapes" },
   categoryTags: { label: "Categorías", icon: "briefcase" },
   badge: { label: "Insignia", icon: "sparkles" },
@@ -278,8 +305,8 @@ const ALL_BLOCK_META: Record<ContentBlockType, { label: string; icon: string }> 
   progress: { label: "Barra de progreso", icon: "refreshCw" },
   avatarGroup: { label: "Colaboradores", icon: "userGroup" },
   logoCloud: { label: "Nube de logos", icon: "grid" },
-  scroller: { label: "Tira deslizable", icon: "arrowRight" },
-  masonry: { label: "Cuadrícula de fotos", icon: "gallery" },
+  scroller: { label: "Tira deslizable", icon: "swipeStrip" },
+  masonry: { label: "Cuadrícula de fotos", icon: "photoGrid" },
 };
 
 const BLOCK_LABEL: Record<ContentBlockType, string> = Object.fromEntries(
@@ -320,6 +347,8 @@ export function createBlock(type: ContentBlockType): ContentBlock {
       return { id: newId(), type, slides: [], indicator: "thumbnail", aspectRatio: "16 / 9" };
     case "divider":
       return { id: newId(), type };
+    case "section":
+      return { id: newId(), type, title: "" };
     case "tag":
       return { id: newId(), type, label: "", variant: "neutral", size: "m" };
     case "categoryTags":
@@ -416,9 +445,55 @@ type TextSegment =
       text: string;
       align?: TextBlockAlign;
       variant?: string;
-    };
+    }
+  // FEATURE (listas en la herramienta de texto): mismo criterio que
+  // "heading" arriba — un `<ul>/<ol>` real del contentEditable (producido
+  // por `execCommand("insertUnorderedList"/"insertOrderedList")`, ver
+  // toolbar de `RichTextEditor`) sale de su propia ruta Markdown (líneas
+  // `- item`/`1. item`, ver `serializeListElement`) en vez de ir embebido
+  // como HTML crudo dentro de un `<Text>` — así SÍ pasa por la sintaxis real
+  // de lista de remark y llega a `components.ul`/`ol`/`li` de mdx.tsx (List/
+  // ListItem de Once UI), en vez de quedar como un `<ul>` nativo sin
+  // registrar (mismo GOTCHA de "HTML embebido literal no pasa por
+  // `components`" documentado junto a `escapeJsxText`/`TextSegment`).
+  | { type: "list"; markdown: string };
 
 const HEADING_TAG_LEVEL: Record<string, 2 | 3 | 4> = { H2: 2, H3: 3, H4: 4 };
+const LIST_TAGS = new Set(["UL", "OL"]);
+
+// Serializa un `<ul>`/`<ol>` real del contentEditable a líneas Markdown de
+// lista (`- item` / `1. item`). Anidación simple: si un `<li>` trae su
+// propia `<ul>/<ol>` hija (indentado por Tab dentro del contentEditable,
+// comportamiento nativo de `execCommand`), se serializa recursivamente con 4
+// espacios de indentación extra por nivel — 4 es el indent "universal" que
+// CommonMark/remark reconoce como contenido anidado tanto bajo un marcador
+// de viñeta ("- ", 2 chars) como bajo uno numerado de un dígito ("1. ", 3
+// chars), sin necesitar calcular el ancho exacto del marcador padre.
+function serializeListElement(el: Element, depth: number): string[] {
+  const ordered = el.tagName === "OL";
+  const indent = "    ".repeat(depth);
+  const lines: string[] = [];
+  let index = 1;
+  Array.from(el.children).forEach((child) => {
+    if (child.tagName !== "LI") return;
+    const nestedLists = Array.from(child.children).filter((c) => LIST_TAGS.has(c.tagName));
+    // Clona el <li> y le quita las listas anidadas antes de leer su
+    // `innerHTML`: el contenido PROPIO del item (texto + negrita/cursiva/
+    // enlace inline, ver GOTCHA de `TextSegment` arriba — sobrevive igual
+    // que en un párrafo normal) debe quedar en su propia línea, separado de
+    // las líneas que aporta la lista anidada.
+    const clone = child.cloneNode(true) as Element;
+    clone.querySelectorAll("ul, ol").forEach((nested) => nested.remove());
+    const itemHtml = (clone.innerHTML || "").replace(/\s+/g, " ").trim();
+    const marker = ordered ? `${index}.` : "-";
+    lines.push(`${indent}${marker} ${itemHtml}`.trimEnd());
+    nestedLists.forEach((nested) => {
+      lines.push(...serializeListElement(nested, depth + 1));
+    });
+    if (ordered) index += 1;
+  });
+  return lines;
+}
 
 // Mismo mapeo que `variantMap` de HeadingLink.js (harness Once UI): variant
 // tipográfico real por nivel de heading, para que un heading alineado (ruta
@@ -520,7 +595,8 @@ function splitTextBlockHtml(html: string): TextSegment[] {
   const hasHeading = Array.from(container.children).some(
     (child) => child.tagName in HEADING_TAG_LEVEL,
   );
-  if (!hasHeading) return [{ type: "text", html }];
+  const hasList = Array.from(container.children).some((child) => LIST_TAGS.has(child.tagName));
+  if (!hasHeading && !hasList) return [{ type: "text", html }];
 
   const segments: TextSegment[] = [];
   let buffer = "";
@@ -529,9 +605,10 @@ function splitTextBlockHtml(html: string): TextSegment[] {
     buffer = "";
   };
   container.childNodes.forEach((node) => {
-    if (node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName in HEADING_TAG_LEVEL) {
+    const tagName = node.nodeType === Node.ELEMENT_NODE ? (node as Element).tagName : undefined;
+    if (tagName && tagName in HEADING_TAG_LEVEL) {
       flush();
-      const level = HEADING_TAG_LEVEL[(node as Element).tagName];
+      const level = HEADING_TAG_LEVEL[tagName];
       // ATX heading de una sola línea: se aplana cualquier formato inline
       // interno (negrita/cursiva/enlace) a texto plano — un heading Once UI
       // ya trae su propio peso tipográfico fuerte, y anidar Markdown dentro
@@ -549,6 +626,10 @@ function splitTextBlockHtml(html: string): TextSegment[] {
       const rawVariant = (node as Element).getAttribute("data-variant");
       const variant = rawVariant && HEADING_VARIANT_VALUES.has(rawVariant) ? rawVariant : undefined;
       if (text) segments.push({ type: "heading", level, text, align, variant });
+    } else if (tagName && LIST_TAGS.has(tagName)) {
+      flush();
+      const lines = serializeListElement(node as Element, 0);
+      if (lines.length > 0) segments.push({ type: "list", markdown: lines.join("\n") });
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       buffer += (node as Element).outerHTML;
     } else {
@@ -663,6 +744,12 @@ function blockToMarkdown(block: ContentBlock): string {
       const hexColor = block.hexColor;
       const segments = splitTextBlockHtml(html);
       const parts = segments.map((segment) => {
+        if (segment.type === "list") {
+          // Ver GOTCHA junto a `TextSegment`/`serializeListElement`: markdown
+          // de lista real (línea propia, fuera de cualquier <Text>) para que
+          // pase por la sintaxis de remark y llegue a `components.ul/ol/li`.
+          return segment.markdown;
+        }
         if (segment.type !== "heading") {
           return serializeTextSegment(
             segment.html,
@@ -765,6 +852,17 @@ function blockToMarkdown(block: ContentBlock): string {
     }
     case "divider":
       return "---";
+    case "section": {
+      // `---\n\n## título`: la línea en blanco ENTRE el divisor y el heading
+      // es obligatoria (no solo la que ya pone `blocksToMarkdown.join("\n\n")`
+      // ENTRE bloques) — sin ella, remark podría leer el `##` como parte del
+      // mismo párrafo del `---` en vez de dos nodos de bloque separados (hr +
+      // heading). Sin título, el bloque degrada a un divisor plano (mismo
+      // output que "divider"): un heading vacío no aporta nada al
+      // HeadingNav ni al visor.
+      const title = block.title.trim();
+      return title ? `---\n\n## ${title}` : "---";
+    }
     case "tag":
       // Envuelto en su propio `Row fillWidth horizontal="center"` (igual
       // que logoCloud/avatarGroup/status/link): `Tag` es `fitWidth` en
@@ -1175,6 +1273,321 @@ function insertTextAtCursor(text: string): void {
   selection.addRange(range);
 }
 
+// Inserta un fragmento HTML (ya saneado) en la posición del cursor —
+// contraparte de `insertTextAtCursor` para el pegado con formato (tarea
+// "pegar texto con formato").
+function insertHtmlAtCursor(html: string): void {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0);
+  range.deleteContents();
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const fragment = template.content;
+  const lastNode = fragment.lastChild;
+  range.insertNode(fragment);
+  if (lastNode) {
+    range.setStartAfter(lastNode);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+}
+
+// --- Pegado con formato (tarea "pegar texto con formato") ------------------
+// El navegador entrega el portapapeles en `text/html` cuando el origen tiene
+// una versión enriquecida (Word, Google Docs, cualquier página web, o el
+// propio contentEditable de otro bloque) y en `text/plain` como fallback
+// universal. La meta es conservar SOLO el subconjunto que la toolbar ya sabe
+// producir/serializar (negrita/cursiva/subrayado/tachado/enlace/listas/
+// párrafos), sin colar el "cruft" que Word/Docs mete en cada `<span>` (clases
+// `Mso*`, `style="mso-..."`, XML propietario en tags con namespace `o:`/`w:`/
+// `v:`) — en vez de intentar un blocklist de esas marcas específicas (fase
+// perdida, aparecen decenas de variantes), se usa un ALLOWLIST: solo se
+// reconstruyen los tags que el editor entiende, y todo lo demás se DESENVUELVE
+// (se conserva el contenido de texto, se descarta el tag) o se DESCARTA
+// entero cuando es contenido no visible (script/style/meta/XML de Word).
+const PASTE_DROP_TAGS = new Set([
+  "SCRIPT",
+  "STYLE",
+  "META",
+  "LINK",
+  "TITLE",
+  "HEAD",
+  "XML",
+  "OBJECT",
+  "NOSCRIPT",
+  "IMG",
+]);
+const PASTE_HEADING_RE = /^H[1-6]$/;
+
+function isBoldStyle(el: HTMLElement): boolean {
+  const weight = el.style.fontWeight;
+  return weight === "bold" || (weight !== "" && Number(weight) >= 600);
+}
+function isItalicStyle(el: HTMLElement): boolean {
+  return el.style.fontStyle === "italic";
+}
+function isUnderlineStyle(el: HTMLElement): boolean {
+  const decoration = el.style.textDecorationLine || el.style.textDecoration;
+  return decoration.includes("underline");
+}
+function isStrikeStyle(el: HTMLElement): boolean {
+  const decoration = el.style.textDecorationLine || el.style.textDecoration;
+  return decoration.includes("line-through");
+}
+
+// Envuelve `node` (fragmento o elemento ya limpio) en `tagName`: usado para
+// reconstruir negrita/cursiva/subrayado/tachado tanto desde el tag real
+// (B/STRONG/I/EM/...) como desde el `style` inline de un `<span>` de Word
+// (ver default branch de `cleanPastedNode`). `appendChild` sobre un
+// `DocumentFragment` mueve sus hijos (lo vacía); sobre un `Node` normal lo
+// reparenta — ambos casos dejan `node` listo para envolver de nuevo si hace
+// falta apilar varios formatos (ej. negrita + cursiva de un span "bold
+// italic").
+function wrapPasteNode(tagName: string, node: Node): Node {
+  const el = document.createElement(tagName);
+  el.appendChild(node);
+  return el;
+}
+
+// Limpia un `<li>` cuyo contenido Google Docs/Word envolvió en su propio
+// `<p>`/`<div>` (patrón común al pegar listas desde Docs): desenreda UN nivel
+// para que el `<li>` quede con contenido inline plano, listo para que
+// `serializeListElement` lo lea como una sola línea de item.
+function unwrapListItemParagraphs(fragment: DocumentFragment): DocumentFragment {
+  const unwrapped = document.createDocumentFragment();
+  Array.from(fragment.childNodes).forEach((child) => {
+    if (child.nodeType === Node.ELEMENT_NODE && (child as Element).tagName === "DIV") {
+      Array.from((child as Element).childNodes).forEach((grandChild) =>
+        unwrapped.appendChild(grandChild),
+      );
+    } else {
+      unwrapped.appendChild(child);
+    }
+  });
+  return unwrapped;
+}
+
+function cleanPastedFragment(source: Element | DocumentFragment): DocumentFragment {
+  const output = document.createDocumentFragment();
+  source.childNodes.forEach((child) => {
+    const cleaned = cleanPastedNode(child);
+    if (cleaned) output.appendChild(cleaned);
+  });
+  return output;
+}
+
+// Reconstruye recursivamente un nodo del portapapeles contra el allowlist del
+// editor (b/strong, i/em, u, s/strike/del, a[href], ul/ol/li, p/div, br). Todo
+// lo demás se desenvuelve a su contenido (spans/fonts/divs de layout,
+// conservando negrita/cursiva/subrayado/tachado si venían por `style` inline
+// en vez de por tag) o se descarta entero si es contenido no visible/no
+// textual (ver `PASTE_DROP_TAGS`, tags con namespace de Word, `display:none`).
+function cleanPastedNode(node: Node): Node | null {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent ?? "";
+    return text ? document.createTextNode(text) : null;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return null; // comentarios, etc.
+  const el = node as HTMLElement;
+  const tag = el.tagName;
+
+  // Tags con namespace de Word/Office (o:p, w:sdt, v:shapetype…) llegan como
+  // nombres literales "O:P"/"W:SDT" al parsear vía innerHTML (el navegador no
+  // los reconoce como HTML real) — se descartan por completo en vez de
+  // intentar un allowlist de las decenas de variantes que existen.
+  if (PASTE_DROP_TAGS.has(tag) || tag.includes(":")) return null;
+  const inlineDisplay = el.style.display;
+  if (inlineDisplay === "none") return null;
+
+  const childFragment = cleanPastedFragment(el);
+  const hasChildren = childFragment.childNodes.length > 0;
+
+  switch (tag) {
+    case "B":
+    case "STRONG": {
+      if (!hasChildren) return null;
+      const b = document.createElement("b");
+      b.appendChild(childFragment);
+      return b;
+    }
+    case "I":
+    case "EM": {
+      if (!hasChildren) return null;
+      const i = document.createElement("i");
+      i.appendChild(childFragment);
+      return i;
+    }
+    case "U": {
+      if (!hasChildren) return null;
+      const u = document.createElement("u");
+      u.appendChild(childFragment);
+      return u;
+    }
+    case "S":
+    case "STRIKE":
+    case "DEL": {
+      if (!hasChildren) return null;
+      const s = document.createElement("s");
+      s.appendChild(childFragment);
+      return s;
+    }
+    case "A": {
+      const href = el.getAttribute("href");
+      if (!href || !hasChildren) return hasChildren ? childFragment : null;
+      const a = document.createElement("a");
+      a.setAttribute("href", href);
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noopener noreferrer");
+      a.appendChild(childFragment);
+      return a;
+    }
+    case "UL":
+    case "OL": {
+      if (!hasChildren) return null;
+      const list = document.createElement(tag.toLowerCase());
+      list.appendChild(childFragment);
+      return list;
+    }
+    case "LI": {
+      const li = document.createElement("li");
+      if (hasChildren) li.appendChild(unwrapListItemParagraphs(childFragment));
+      return li;
+    }
+    case "BR":
+      return document.createElement("br");
+    case "P":
+    case "DIV":
+    case "SECTION":
+    case "ARTICLE": {
+      // Mismo tag "de párrafo" que usa el resto del editor (ver
+      // `BLOCK_LEVEL_TAGS`/`ensureBlockWrapping`): `<div>`, no `<p>`, para
+      // que un párrafo pegado se comporte como cualquier línea escrita a
+      // mano en este mismo contentEditable (alineación por párrafo,
+      // detección de heading, etc.).
+      if (!hasChildren) return null;
+      const div = document.createElement("div");
+      div.appendChild(childFragment);
+      return div;
+    }
+    default: {
+      if (PASTE_HEADING_RE.test(tag)) {
+        // Encabezados de Word/Docs → párrafo con negrita (la tarea pide
+        // "párrafos con bold o texto normal": el bloque de texto no maneja
+        // headings propios — esos son el bloque "Nueva sección" aparte).
+        if (!hasChildren) return null;
+        const div = document.createElement("div");
+        const b = document.createElement("b");
+        b.appendChild(childFragment);
+        div.appendChild(b);
+        return div;
+      }
+      // span/font/cualquier otro tag no reconocido (incluye los `<span
+      // style="mso-...">` de Word): se desenreda al contenido, conservando
+      // negrita/cursiva/subrayado/tachado SOLO si venían por `style` inline
+      // real (no por clase — las clases `Mso*` no traen ninguna regla CSS
+      // real disponible aquí, ya que el <style> del documento se descarta).
+      if (!hasChildren) return null;
+      let content: Node = childFragment;
+      if (isBoldStyle(el)) content = wrapPasteNode("b", content);
+      if (isItalicStyle(el)) content = wrapPasteNode("i", content);
+      if (isUnderlineStyle(el)) content = wrapPasteNode("u", content);
+      if (isStrikeStyle(el)) content = wrapPasteNode("s", content);
+      return content;
+    }
+  }
+}
+
+function sanitizePastedHtml(html: string): string {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const cleanedFragment = cleanPastedFragment(container);
+  const wrapper = document.createElement("div");
+  wrapper.appendChild(cleanedFragment);
+  return wrapper.innerHTML;
+}
+
+function escapeHtmlText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeHtmlAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+// Formato inline de una línea de texto plano con sintaxis Markdown evidente:
+// mismo subconjunto que el resto de esta sección (bold/italic/link) — listas
+// se resuelven aparte, línea por línea, en `plainTextOrMarkdownToHtml`.
+function inlineMarkdownToHtml(text: string): string {
+  let result = escapeHtmlText(text);
+  result = result.replace(
+    /\[([^\]]+)\]\(([^)\s]+)\)/g,
+    (_match, label: string, url: string) =>
+      `<a href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`,
+  );
+  result = result.replace(
+    /\*\*([^*]+)\*\*|__([^_]+)__/g,
+    (_match, a: string | undefined, b: string | undefined) => `<b>${a ?? b}</b>`,
+  );
+  result = result.replace(
+    /\*([^*]+)\*|_([^_]+)_/g,
+    (_match, a: string | undefined, b: string | undefined) => `<i>${a ?? b}</i>`,
+  );
+  return result;
+}
+
+// Sintaxis Markdown "evidente" en texto plano (sin `text/html` en el
+// portapapeles, ej. pegado desde un editor de código o una nota .md/.mdx):
+// negrita/cursiva, listas con viñeta o numeradas, y links `[texto](url)`.
+// Un texto sin ninguna de estas marcas cae al camino de texto plano de
+// siempre (sin falsos positivos de un guion suelto o un asterisco de más).
+const MARKDOWN_HINT_RE =
+  /\*\*[^*]+\*\*|__[^_]+__|\[[^\]]+\]\([^)\s]+\)|^[ \t]*[-*+][ \t]+\S|^[ \t]*\d+\.[ \t]+\S/m;
+
+function looksLikeMarkdownText(text: string): boolean {
+  return MARKDOWN_HINT_RE.test(text);
+}
+
+// Convierte texto plano en HTML para el contentEditable: con sintaxis
+// Markdown evidente, reconstruye negrita/cursiva/links/listas (mismos tags
+// que produce la toolbar); sin ella, cada línea pasa a su propio `<div>`
+// (mismo comportamiento nativo de pegado de Chrome en un contentEditable con
+// `defaultParagraphSeparator` = div, ver `EMPTY_TEXT_BLOCK_SEED`/
+// `ensureBlockWrapping`) — el pegado de texto plano "simple" no cambia.
+function plainTextOrMarkdownToHtml(text: string): string {
+  const lines = text.split(/\r\n|\r|\n/);
+  if (!looksLikeMarkdownText(text)) {
+    return lines.map((line) => `<div>${escapeHtmlText(line) || "<br>"}</div>`).join("");
+  }
+  const parts: string[] = [];
+  let listBuffer: { ordered: boolean; items: string[] } | null = null;
+  const flushList = () => {
+    if (!listBuffer) return;
+    const tag = listBuffer.ordered ? "ol" : "ul";
+    parts.push(`<${tag}>${listBuffer.items.map((item) => `<li>${item}</li>`).join("")}</${tag}>`);
+    listBuffer = null;
+  };
+  lines.forEach((line) => {
+    const bulletMatch = line.match(/^[ \t]*[-*+][ \t]+(.*)$/);
+    const numberedMatch = !bulletMatch ? line.match(/^[ \t]*\d+\.[ \t]+(.*)$/) : null;
+    if (bulletMatch || numberedMatch) {
+      const ordered = !!numberedMatch;
+      const content = inlineMarkdownToHtml((bulletMatch ?? numberedMatch)?.[1] ?? "");
+      if (!listBuffer || listBuffer.ordered !== ordered) {
+        flushList();
+        listBuffer = { ordered, items: [] };
+      }
+      listBuffer.items.push(content);
+      return;
+    }
+    flushList();
+    if (line.trim() === "") return; // separador entre párrafos markdown, no una línea vacía real
+    parts.push(`<div>${inlineMarkdownToHtml(line)}</div>`);
+  });
+  flushList();
+  return parts.join("");
+}
+
 interface RichTextEditorProps {
   html: string;
   align: TextBlockAlign;
@@ -1568,11 +1981,20 @@ function RichTextEditor({
   // correcto de la toolbar (negrita activa, tamaño del párrafo del cursor,
   // alineación del párrafo del cursor) — se recalcula en cada
   // `selectionchange` dentro de este editor, igual que `lastRangeRef`.
+  // `unorderedList`/`orderedList` (tarea "listas en la herramienta de
+  // texto"): mismo mecanismo de toggle real vía `document.queryCommandState`
+  // que bold/italic/underline/strikeThrough (ver `toggleListFormat` más
+  // abajo) — `execCommand("insertUnorderedList"/"insertOrderedList")` ya es
+  // un toggle nativo del navegador (reaplicar sobre una lista existente la
+  // "desarma" de vuelta a párrafos), así que se reutiliza el mismo patrón en
+  // vez de reinventar un estado propio de lista.
   const [activeFormats, setActiveFormats] = useState({
     bold: false,
     italic: false,
     underline: false,
     strikeThrough: false,
+    unorderedList: false,
+    orderedList: false,
   });
   // `blockFormat` (p/h2/h3/h4) ya NO tiene control de creación en la
   // toolbar (ver `cursorInHeading` más abajo) — se conserva SOLO para
@@ -1678,6 +2100,8 @@ function RichTextEditor({
         italic: document.queryCommandState("italic"),
         underline: document.queryCommandState("underline"),
         strikeThrough: document.queryCommandState("strikeThrough"),
+        unorderedList: document.queryCommandState("insertUnorderedList"),
+        orderedList: document.queryCommandState("insertOrderedList"),
       });
     } catch {
       // no-op: se conserva el último estado conocido.
@@ -1817,6 +2241,19 @@ function RichTextEditor({
     emit();
   };
 
+  // Listas (tarea "listas en la herramienta de texto"): mismo patrón toggle
+  // que `toggleInlineFormat` — `execCommand("insertUnorderedList"/
+  // "insertOrderedList")` convierte el/los párrafo(s) de la selección actual
+  // en `<ul>`/`<ol>` con sus `<li>`, o los devuelve a párrafos si ya eran una
+  // lista del mismo tipo (toggle nativo). `blockToMarkdown` (ver
+  // `splitTextBlockHtml`/`serializeListElement`) convierte esos `<ul>/<ol>/
+  // <li>` reales a Markdown de lista (`- item`/`1. item`) al guardar.
+  const toggleListFormat = (command: "insertUnorderedList" | "insertOrderedList") => {
+    focusEditor();
+    document.execCommand(command);
+    emit();
+  };
+
   const insertLink = () => {
     const url = window.prompt("URL del enlace");
     if (!url) return;
@@ -1828,6 +2265,30 @@ function RichTextEditor({
   const insertEmoji = (emoji: string) => {
     focusEditor();
     insertTextAtCursor(emoji);
+    emit();
+  };
+
+  // Pegado con formato (tarea "pegar texto con formato"): intercepta el
+  // portapapeles ANTES de que el navegador inserte su propio HTML crudo (que
+  // traería el cruft de Word/Docs sin sanear, ver `cleanPastedNode`).
+  // `text/html` tiene prioridad (preserva negrita/cursiva/enlaces/listas
+  // reales); sin ella, `text/plain` con sintaxis Markdown evidente se
+  // convierte a los mismos tags, y cualquier otro texto plano cae al mismo
+  // comportamiento de siempre (una línea por `<div>`, sin tocar el paste
+  // simple). Si el portapapeles no trae NINGUNO de los dos (ej. solo una
+  // imagen) se deja pasar el comportamiento nativo del navegador —esta app
+  // no maneja pegar imágenes en el bloque de texto, ni antes de esta tarea.
+  const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+    const html = clipboard.getData("text/html");
+    const text = clipboard.getData("text/plain");
+    if (!html && !text) return;
+    event.preventDefault();
+    focusEditor();
+    const fragmentHtml = html ? sanitizePastedHtml(html) : plainTextOrMarkdownToHtml(text);
+    if (!fragmentHtml) return;
+    insertHtmlAtCursor(fragmentHtml);
     emit();
   };
 
@@ -2142,6 +2603,23 @@ function RichTextEditor({
         />
         <Line vert background="neutral-alpha-weak" height="20" />
         <IconButton
+          icon="listBullets"
+          tooltip={inlineFormatTooltip("Lista con viñetas")}
+          variant={activeFormats.unorderedList ? "primary" : "tertiary"}
+          size="s"
+          onClick={() => toggleListFormat("insertUnorderedList")}
+          disabled={disabled || cursorInHeading}
+        />
+        <IconButton
+          icon="listNumbers"
+          tooltip={inlineFormatTooltip("Lista numerada")}
+          variant={activeFormats.orderedList ? "primary" : "tertiary"}
+          size="s"
+          onClick={() => toggleListFormat("insertOrderedList")}
+          disabled={disabled || cursorInHeading}
+        />
+        <Line vert background="neutral-alpha-weak" height="20" />
+        <IconButton
           icon="link"
           tooltip={inlineFormatTooltip("Insertar enlace")}
           variant="tertiary"
@@ -2171,6 +2649,7 @@ function RichTextEditor({
         suppressContentEditableWarning
         onInput={emit}
         onBlur={emit}
+        onPaste={handlePaste}
         // `className` reproduce el estilo real del párrafo publicado (ver
         // `getParagraphPreviewClassName`, fix del bug de preview de
         // Color/Familia/Peso, legacy); `style` cubre lo que esas clases NO
@@ -2826,6 +3305,20 @@ export function ContentBlockCard({
         <Row fillWidth vertical="center">
           <Line background="neutral-alpha-medium" fillWidth />
         </Row>
+      )}
+
+      {!collapsed && block.type === "section" && (
+        // Único campo editable del bloque (ver comentario junto al type
+        // "section"): un Input de una sola línea, mismo patrón que
+        // "Texto del enlace"/"URL" del bloque "link" — sin RichTextEditor ni
+        // formato: el título sale plano por su ruta ATX (`## título`).
+        <Input
+          id={`block-${block.id}-title`}
+          placeholder="Título de la sección"
+          value={block.title}
+          onChange={(e) => onChange({ ...block, title: e.target.value })}
+          disabled={disabled}
+        />
       )}
 
       {!collapsed && block.type === "tag" && (
