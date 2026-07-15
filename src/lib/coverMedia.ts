@@ -58,9 +58,39 @@ export function toVideoCoverUrl(url: string): string {
   return `${VIDEO_PREFIX}${url.trim()}`;
 }
 
+// GOTCHA (tarea "cards con portada de video rotas"): CreateProjectModal ya
+// NO permite guardar una portada de YouTube (ver el comentario extenso junto
+// a `VIDEO_FILE_REGEX` arriba, decisión de la tarea "portada de video por
+// archivo") — pero el campo `coverUrl` es texto libre en BD, así que una
+// pieza de ANTES de esa decisión (o escrita a mano/por script) puede seguir
+// trayendo un link de YouTube crudo, SIN el prefijo `video:`. Sin este
+// detector, `coverKindOf` clasificaba esa URL como "image" por default y las
+// tarjetas de listado (Home/Explorar/perfil) intentaban un `<Media
+// src="https://www.youtube.com/watch?v=...">` — next/image truena porque
+// youtube.com no está en `images.remotePatterns` (next.config.mjs), y el
+// render de la tarjeta se rompe. Cubre las 4 formas de URL de YouTube que
+// también reconoce el bloque "video" del cuerpo (ver ContentBlocks.tsx):
+// watch?v=, youtu.be/, /shorts/, /embed/.
+const YOUTUBE_ID_REGEX =
+  /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{6,})/i;
+
+export function extractYouTubeId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(YOUTUBE_ID_REGEX);
+  return match ? match[1] : null;
+}
+
+// Miniatura estática oficial de YouTube (sin API key, sin tocar la red desde
+// el server): mismo endpoint que ya usa CarouselVideoSlide para el slide de
+// video del cuerpo del artículo (ver mdx-carousel.tsx).
+export function youtubeThumbnailUrl(youtubeId: string): string {
+  return `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`;
+}
+
 export function coverKindOf(coverUrl: string | null | undefined): CoverKind | null {
   if (!coverUrl) return null;
   if (coverUrl.startsWith(VIDEO_PREFIX) || isVideoDataUrl(coverUrl)) return "video";
+  if (extractYouTubeId(coverUrl)) return "video";
   if (coverUrl.startsWith("data:image/gif")) return "gif";
   return "image";
 }

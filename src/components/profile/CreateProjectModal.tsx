@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  Accordion,
   Button,
   Card,
+  Checkbox,
   Chip,
   Column,
   DateInput,
@@ -24,6 +26,7 @@ import {
   Spinner,
   TagInput,
   Text,
+  Textarea,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
@@ -41,6 +44,7 @@ import {
   createPortfolioPiece,
   getPortfolioPieceForEdit,
   getSubcategorySuggestions,
+  type PieceAttachment,
   updatePortfolioPiece,
 } from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
@@ -54,7 +58,7 @@ import {
 import { PIECE_CATEGORIES } from "@/lib/pieceCategories";
 import { isPortfolioMediaUrl } from "@/lib/storageConfig";
 import { uploadMediaFile } from "@/lib/storageUpload";
-import { AttachFilesModal, type AttachmentKind, type ProjectAttachment } from "./AttachFilesModal";
+import { PieceAttachmentsPanel, type PieceAttachmentDraft } from "./PieceAttachmentsPanel";
 import {
   BLOCK_TYPES,
   blocksToMarkdown,
@@ -92,6 +96,9 @@ const SPLIT_MAX = 0.8;
 const MAX_SUBCATEGORIES = 10;
 const MAX_SOFTWARE = 15;
 const SUBCATEGORY_SUGGESTION_LIMIT = 8;
+// Mismo tope que valida el server (ver MAX_DESCRIPTION_LENGTH en
+// actions/portfolioPieces.ts): límite duro de la descripción breve opcional.
+const MAX_DESCRIPTION_LENGTH = 140;
 
 // La portada sube directo a Supabase Storage (lib/storageUpload.ts), no por
 // el body de la server action — el único tope real es el de
@@ -110,27 +117,45 @@ const COVER_KIND_OPTIONS: { value: CoverKind; label: string; prefixIcon: "galler
   { value: "video", label: "Video", prefixIcon: "video" },
 ];
 
-// FEATURE FUTURA (oculta a pedido, sin borrar código): el panel/botón
-// "Adjuntar archivo" del panel de herramientas se gatea con esta constante
-// en vez de eliminarse — `AttachFilesModal`/`isAttachOpen` siguen montados
-// tal cual (el modal nunca se abre porque el único trigger que llama
-// `setAttachOpen(true)` queda oculto), listos para reactivarse cambiando
-// este valor a `true`.
-const ATTACH_FILES_ENABLED = false;
+// FEATURE (Modo Pro): toggle entre el constructor asistido (Canvas de
+// bloques, de siempre) y escribir Markdown/MDX nativo a mano. Cambiar de
+// modo en CUALQUIER dirección, con contenido existente, borra todo el
+// contenido del proyecto (nunca se siembra un modo con el otro — evitaba
+// exponer URLs crudas de Storage en el Textarea, ver `handleModeChange` para
+// el flujo de confirmación con checkbox).
+type EditorMode = "assisted" | "pro";
 
-// gallery solo guarda URLs (sin bucket de Storage, ver AttachFilesModal): al
-// recargar una pieza para editarla, el tipo de adjunto se infiere del prefijo
-// de la data URL, y el nombre original no sobrevive al guardado.
-function inferAttachmentKind(url: string): AttachmentKind {
-  if (url.startsWith("data:audio/")) return "audio";
-  if (url.startsWith("data:video/")) return "video";
-  return "image";
-}
+const EDITOR_MODE_OPTIONS: { value: EditorMode; label: string; prefixIcon: "shapes" | "codeBracket" }[] = [
+  { value: "assisted", label: "Asistido", prefixIcon: "shapes" },
+  { value: "pro", label: "Pro", prefixIcon: "codeBracket" },
+];
+
+const PRO_MARKDOWN_PLACEHOLDER = `Escribe tu proyecto en Markdown estándar: # Títulos, listas, **negritas**, [links](https://...).
+
+También puedes usar los componentes registrados del visor, por ejemplo:
+<Media src="https://..." alt="Descripción" aspectRatio="16 / 9" radius="m" />
+<Carousel indicator="thumbnail">
+  <Media src="https://.../uno.jpg" alt="Slide 1" />
+  <Media src="https://.../dos.jpg" alt="Slide 2" />
+</Carousel>
+
+Revisa la nota "Componentes soportados" de arriba para ver la lista completa.`;
+
+// Nota de ayuda del Modo Pro (Accordion colapsable, ver JSX): mismos
+// componentes que expone `components` en mdx.tsx, resumidos en texto plano
+// — no un catálogo exhaustivo de props, solo para orientar qué etiquetas
+// existen. GOTCHA (ver `escapeAttr`/comentario extenso en ContentBlocks.tsx):
+// next-mdx-remote/rsc elimina TODO atributo escrito con llaves `prop={...}`
+// —blockJS, protección contra JS embebido—, así que Carousel se arma con
+// hijos `<Media src="" alt="" />` (nunca un `items={[...]}` con llaves) y el
+// resto de props siempre van entre comillas planas.
+const PRO_SUPPORTED_COMPONENTS_HELP =
+  'Markdown estándar (# títulos, listas, **negritas**, _cursivas_, [links](url), `código`, > citas) más los componentes ya registrados del visor: <Media src="" alt="" />, <Carousel indicator="thumbnail">...</Carousel> con hijos <Media src="" alt="" />, <Tag label="" variant="" />, <Badge title="" href="" />, <StatusIndicator color="" />, <ProgressBar value="" />, <Scroller>...</Scroller>, <MasonryGrid columns="">...</MasonryGrid>, <Feedback variant="" title="" description="" />, <Accordion title="">...</Accordion> y <Heading as="h2" align="">...</Heading>. Los atributos siempre van entre comillas planas (sin llaves {}). Los archivos del panel "Adjuntar archivos" (abajo) se referencian por su NOMBRE, no por URL: <Media src="nombre-del-adjunto" alt="" /> — usa el botón de copiar de cada adjunto para pegar el snippet exacto.';
 
 function hasForeignDialogOpen(ownDialog: HTMLElement | null): boolean {
   if (!ownDialog) return false;
-  // Un modal/diálogo anidado (AttachFilesModal, la confirmación de cierre)
-  // se porta a document.body como hermano del nuestro: si existe alguno que
+  // Un modal/diálogo anidado (la confirmación de cierre, la de cambio de
+  // modo) se porta a document.body como hermano del nuestro: si existe alguno que
   // no contenga nuestro panel, un click o Escape dentro de él no debe
   // interpretarse como "afuera" de este diálogo.
   return Array.from(document.querySelectorAll('[role="dialog"]')).some(
@@ -666,6 +691,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [title, setTitle] = useState("");
   const [titleFocused, setTitleFocused] = useState(false);
   const [titleTouched, setTitleTouched] = useState(false);
+  const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [subcategories, setSubcategories] = useState<string[]>([]);
   const [software, setSoftware] = useState<string[]>([]);
@@ -689,6 +715,23 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [coverCollapsed, setCoverCollapsed] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
+  // FEATURE (Modo Pro): "assisted" es el Canvas de bloques de siempre; "pro"
+  // reemplaza el Canvas por un Textarea de Markdown/MDX crudo. Cambiar de
+  // modo NUNCA siembra un modo con el contenido del otro (ver
+  // `handleModeChange`/SEGURIDAD más abajo: sembrar pro con
+  // blocksToMarkdown(blocks) exponía las URLs crudas de Storage de las
+  // imágenes subidas) — `pendingModeChange`/`modeChangeAckChecked` gatean el
+  // Dialog de confirmación con checkbox que, al aceptarse, borra AMBOS
+  // contenidos (blocks → [] y proMarkdown → "") y aterriza en el modo
+  // destino vacío. Sin contenido previo en ningún modo, el cambio es directo.
+  const [mode, setMode] = useState<EditorMode>("assisted");
+  const [proMarkdown, setProMarkdown] = useState("");
+  const [pendingModeChange, setPendingModeChange] = useState<EditorMode | null>(null);
+  const [modeChangeAckChecked, setModeChangeAckChecked] = useState(false);
+  // Contenido efectivo que se valida/guarda según el modo activo — el resto
+  // del componente (handleSave, dirty-tracking) lee esto, nunca `markdown`
+  // directo, para no depender de qué modo está activo.
+  const effectiveContent = mode === "pro" ? proMarkdown : markdown;
   // LEGACY: ya no se edita desde este panel (ver "Software implementado"),
   // pero se conserva el valor precargado y se reenvía tal cual al guardar —
   // omitirlo del payload haría que el server lo pisara con `[]` en cada
@@ -701,8 +744,11 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   // los usernames del bloque avatarGroup (mergedCollaborators).
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined);
-  const [attachments, setAttachments] = useState<ProjectAttachment[]>([]);
-  const [isAttachOpen, setAttachOpen] = useState(false);
+  // FEATURE (Modo Pro, panel "Adjuntar archivos"): adjuntos con nombre (ver
+  // PieceAttachmentsPanel.tsx/PortfolioPiece.attachments) — solo editable en
+  // modo Pro (en Asistido la media entra por bloques), pero el valor
+  // precargado sobrevive un cambio de modo hasta que el usuario guarde.
+  const [attachments, setAttachments] = useState<PieceAttachmentDraft[]>([]);
   const [isConfirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingPiece, setLoadingPiece] = useState(false);
@@ -729,6 +775,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setTitle("");
     setTitleFocused(false);
     setTitleTouched(false);
+    setDescription("");
     setCategory("");
     setSubcategories([]);
     setSoftware([]);
@@ -737,6 +784,10 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setCoverSizeWarning(null);
     setVideoUrl("");
     setBlocks([]);
+    setMode("assisted");
+    setProMarkdown("");
+    setPendingModeChange(null);
+    setModeChangeAckChecked(false);
     setTags([]);
     setCollaborators([]);
     setReleaseDate(undefined);
@@ -769,6 +820,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       .then((piece) => {
         if (cancelled) return;
         setTitle(piece.title);
+        setDescription(piece.description ?? "");
         setCategory(piece.category === "Documento" ? "" : piece.category);
         setSubcategories(piece.subcategories);
         setSoftware(piece.software);
@@ -787,16 +839,35 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
           setCoverUrl(piece.coverUrl);
           setVideoUrl("");
         }
-        setBlocks(piece.contentBlocks);
+        // FEATURE (Modo Pro): una pieza guardada en pro trae
+        // `contentBlocks: null` (ver actions/portfolioPieces.ts), que este
+        // fetch normaliza a `[]` — inequívoco frente a asistido porque
+        // publicar/guardar en asistido siempre exige al menos 1 bloque (ver
+        // validación de `handleSave`), así que un array vacío CON
+        // markdownContent solo puede venir de pro.
+        if (piece.contentBlocks.length === 0 && piece.markdownContent.trim()) {
+          setMode("pro");
+          setProMarkdown(piece.markdownContent);
+          setBlocks([]);
+        } else {
+          setMode("assisted");
+          setProMarkdown("");
+          setBlocks(piece.contentBlocks);
+        }
+        setPendingModeChange(null);
+        setModeChangeAckChecked(false);
         setTags(piece.tags);
         setCollaborators(piece.collaborators);
         setReleaseDate(piece.releaseDate ? new Date(piece.releaseDate) : undefined);
+        // `id` es puro estado de UI (key estable del panel, ver
+        // PieceAttachmentsPanel.tsx) — nunca viaja al server, se regenera en
+        // cada carga a partir del `name` ya persistido.
         setAttachments(
-          piece.gallery.map((url, index) => ({
-            id: `${pieceId}-${index}`,
-            name: `Archivo ${index + 1}`,
-            url,
-            kind: inferAttachmentKind(url),
+          piece.attachments.map((attachment) => ({
+            id: crypto.randomUUID(),
+            name: attachment.name,
+            url: attachment.url,
+            type: attachment.type,
           })),
         );
         setOriginalIsPublic(piece.isPublic);
@@ -829,6 +900,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setIsDirty(true);
   }, [
     title,
+    description,
     category,
     subcategories,
     software,
@@ -836,6 +908,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     coverUrl,
     videoUrl,
     blocks,
+    mode,
+    proMarkdown,
     releaseDate,
     attachments,
   ]);
@@ -861,6 +935,41 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     } finally {
       setCoverUploading(false);
     }
+  };
+
+  // SEGURIDAD (reportada por el usuario): sembrar el Textarea de Pro con
+  // blocksToMarkdown(blocks) —el comportamiento anterior— exponía las URLs
+  // crudas de Storage de las imágenes subidas desde el Canvas. Único punto
+  // de entrada para cambiar de modo, en CUALQUIER dirección: sin contenido
+  // existente (ni bloques ni Markdown Pro) el cambio es directo y gratis; con
+  // contenido, abre el Dialog de confirmación con checkbox
+  // (`pendingModeChange`/`modeChangeAckChecked`) — `confirmModeChange` es
+  // quien de verdad aplica el cambio, BORRANDO el contenido de ambos modos y
+  // aterrizando en el modo destino vacío (nunca siembra un modo con el
+  // contenido del otro).
+  const handleModeChange = (nextMode: EditorMode) => {
+    if (nextMode === mode) return;
+    const hasContent = blocks.length > 0 || proMarkdown.trim().length > 0;
+    if (!hasContent) {
+      setMode(nextMode);
+      return;
+    }
+    setModeChangeAckChecked(false);
+    setPendingModeChange(nextMode);
+  };
+
+  const confirmModeChange = () => {
+    if (!pendingModeChange) return;
+    setBlocks([]);
+    setProMarkdown("");
+    setMode(pendingModeChange);
+    setPendingModeChange(null);
+    setModeChangeAckChecked(false);
+  };
+
+  const cancelModeChange = () => {
+    setPendingModeChange(null);
+    setModeChangeAckChecked(false);
   };
 
   // Ver el comentario junto al `onClick` de los tiles del panel derecho
@@ -1053,8 +1162,12 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   };
 
   const handleSave = async (publish: boolean) => {
-    if (!title.trim() || !markdown.trim()) {
-      setError("El título y al menos una sección de contenido son obligatorios.");
+    if (!title.trim() || !effectiveContent.trim()) {
+      setError(
+        mode === "pro"
+          ? "El título y el contenido en Markdown son obligatorios."
+          : "El título y al menos una sección de contenido son obligatorios.",
+      );
       return;
     }
     // Categoría/subcategorías solo son obligatorias para PUBLICAR (mismo
@@ -1114,14 +1227,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       );
       const payload = {
         title,
-        content: markdown,
-        contentBlocks: blocks,
+        description: description.trim() || undefined,
+        content: effectiveContent,
+        // Modo Pro: `contentBlocks` se guarda explícitamente en `null` (no
+        // `undefined`) para BORRAR los bloques del Canvas en el server —
+        // ver actions/portfolioPieces.ts, que distingue "no enviado" de
+        // "enviado null" (Prisma.DbNull) para no dejar bloques huérfanos de
+        // una edición asistida previa.
+        contentBlocks: mode === "pro" ? null : blocks,
         category: category || undefined,
         subcategories,
         software,
         coverUrl: finalCoverUrl,
         isPublic: publish,
-        gallery: attachments.map((attachment) => attachment.url),
+        // FEATURE (Modo Pro): adjuntos con nombre (ver
+        // PieceAttachmentsPanel.tsx) — `id` es puro estado de UI, se
+        // descarta antes de armar el payload real (PieceAttachment no lo
+        // tiene, ver actions/portfolioPieces.ts).
+        attachments: attachments.map(({ id: _id, ...attachment }) => attachment),
         // LEGACY: passthrough sin editar (ver comentario junto al estado
         // `tags`) — nunca lo toca el usuario desde este panel.
         tags,
@@ -1235,6 +1358,21 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
             </Row>
           )}
         </Row>
+        <Row fillWidth paddingTop="8">
+          <Textarea
+            id="project-description"
+            label="Descripción breve (opcional)"
+            placeholder="Resume el proyecto en una frase corta"
+            lines={2}
+            value={description}
+            onChange={(e) => {
+              if (e.target.value.length <= MAX_DESCRIPTION_LENGTH) setDescription(e.target.value);
+            }}
+            maxLength={MAX_DESCRIPTION_LENGTH}
+            characterCount
+            disabled={disabled}
+          />
+        </Row>
         {loadingPiece ? (
           <Row fill horizontal="center" vertical="center" paddingY="80">
             <Spinner size="l" ariaLabel="Cargando proyecto" />
@@ -1258,10 +1396,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                     border="neutral-alpha-weak"
                     style={{ minHeight: "100%" }}
                   >
-                    <Feedback
-                      variant="info"
-                      description="Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
-                    />
+                    <Row fillWidth gap="12" vertical="center" s={{ direction: "column" }}>
+                      <Column flex={1}>
+                        <Feedback
+                          variant="info"
+                          description={
+                            mode === "pro"
+                              ? "Modo Pro: escribe Markdown/MDX directo y adjunta archivos abajo para referenciarlos por nombre. Cambiar a «Asistido» borrará este contenido (te lo confirmamos antes)."
+                              : "Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación. Cambiar a «Pro» borrará este contenido (te lo confirmamos antes)."
+                          }
+                        />
+                      </Column>
+                      <SegmentedControl
+                        selected={mode}
+                        onToggle={(value) => handleModeChange(value as EditorMode)}
+                        buttons={EDITOR_MODE_OPTIONS.map((option) => ({ ...option, disabled }))}
+                        fillWidth={false}
+                      />
+                    </Row>
 
                     <Row fillWidth gap="12" s={{ direction: "column" }}>
                       <Column flex={1} style={{ minWidth: 0 }}>
@@ -1434,23 +1586,53 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       )}
                     </Column>
 
-                    <Column
-                      fillWidth
-                      gap="16"
-                      radius="m"
-                      padding="8"
-                      // Feedback del canvas como dropzone: mientras hay un drag
-                      // activo (bloque existente O herramienta del panel), el
-                      // lienzo completo marca su borde/fondo para comunicar
-                      // "puedes soltar aquí"; `transition` (token nativo) anima
-                      // el cambio de color sin CSS manual.
-                      border={dragPayload ? "brand-alpha-medium" : "transparent"}
-                      background={dragPayload ? "brand-alpha-weak" : "transparent"}
-                      transition="micro-medium"
-                      onDragOver={handleCanvasDragOver}
-                      onDrop={handleCanvasDrop}
-                    >
-                      {blocks.length === 0 ? (
+                    {mode === "pro" ? (
+                      // FEATURE (Modo Pro): reemplaza el Canvas de bloques
+                      // por un Textarea de Markdown/MDX crudo. La nota
+                      // colapsable de arriba lista los componentes
+                      // soportados (mismo registro que components de
+                      // mdx.tsx) sin ser un catálogo exhaustivo de props.
+                      <Column fillWidth gap="12">
+                        <Accordion
+                          title="Componentes soportados"
+                          size="s"
+                          radius="m"
+                        >
+                          <Text variant="body-default-s" onBackground="neutral-weak">
+                            {PRO_SUPPORTED_COMPONENTS_HELP}
+                          </Text>
+                        </Accordion>
+                        <Textarea
+                          id="project-pro-markdown"
+                          label="Markdown / MDX"
+                          placeholder={PRO_MARKDOWN_PLACEHOLDER}
+                          value={proMarkdown}
+                          onChange={(e) => setProMarkdown(e.target.value)}
+                          lines={22}
+                          resize="vertical"
+                          disabled={disabled}
+                          style={{ minHeight: "30rem", fontFamily: "var(--font-code)" }}
+                        />
+                      </Column>
+                    ) : (
+                      <>
+                        <Column
+                          fillWidth
+                          gap="16"
+                          radius="m"
+                          padding="8"
+                          // Feedback del canvas como dropzone: mientras hay un drag
+                          // activo (bloque existente O herramienta del panel), el
+                          // lienzo completo marca su borde/fondo para comunicar
+                          // "puedes soltar aquí"; `transition` (token nativo) anima
+                          // el cambio de color sin CSS manual.
+                          border={dragPayload ? "brand-alpha-medium" : "transparent"}
+                          background={dragPayload ? "brand-alpha-weak" : "transparent"}
+                          transition="micro-medium"
+                          onDragOver={handleCanvasDragOver}
+                          onDrop={handleCanvasDrop}
+                        >
+                          {blocks.length === 0 ? (
                         <Column
                           fillWidth
                           horizontal="center"
@@ -1531,15 +1713,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       )}
                     </Column>
 
-                    <Row horizontal="center" paddingTop="8">
-                      <BlockTypePicker disabled={disabled} onSelect={(type) => insertBlock(type)} />
-                    </Row>
+                        <Row horizontal="center" paddingTop="8">
+                          <BlockTypePicker
+                            disabled={disabled}
+                            onSelect={(type) => insertBlock(type)}
+                          />
+                        </Row>
+                      </>
+                    )}
                   </Card>
                 </Column>
               }
               rightPanel={
                 // El scroll y el ancho los reparte ResizableSplit (ver leftPanel).
                 <Column gap="16">
+                  {/* En Modo Pro no hay Canvas donde soltar/instanciar
+                      bloques — el picker de "Añadir sección" solo tiene
+                      sentido en Asistido. */}
+                  {mode === "assisted" && (
                   <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                     <Text variant="label-strong-s" onBackground="neutral-weak">
                       Añadir sección
@@ -1620,25 +1811,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       })}
                     </Grid>
                   </Card>
+                  )}
 
-                  {ATTACH_FILES_ENABLED && (
+                  {/* FEATURE (Modo Pro): solo tiene sentido en Pro — en
+                      Asistido la media entra por bloques (cada bloque ya
+                      guarda su propia URL de Storage). Los adjuntos se
+                      referencian por NOMBRE desde el Markdown/MDX (ver
+                      PieceAttachmentsPanel.tsx/resolveAttachmentSrc en
+                      mdx.tsx). */}
+                  {mode === "pro" && (
                     <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                       <Text variant="label-strong-s" onBackground="neutral-weak">
                         Adjuntar archivos
                       </Text>
-                      <Button
-                        fillWidth
-                        variant="secondary"
-                        prefixIcon="attach"
-                        onClick={() => setAttachOpen(true)}
+                      <PieceAttachmentsPanel
+                        value={attachments}
+                        onChange={setAttachments}
                         disabled={disabled}
-                      >
-                        Adjuntar archivo
-                      </Button>
-                      <Line background="neutral-alpha-weak" />
-                      <Text variant="body-default-xs" onBackground="neutral-weak">
-                        Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
-                      </Text>
+                      />
                     </Card>
                   )}
 
@@ -1706,13 +1896,6 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         )}
       </WideDialog>
 
-      <AttachFilesModal
-        isOpen={isAttachOpen}
-        onClose={() => setAttachOpen(false)}
-        initialAttachments={attachments}
-        onConfirm={setAttachments}
-      />
-
       {/* Intercepta los 3 caminos de cierre de WideDialog (click afuera, X,
           Escape — todos pasan por `handleAttemptClose`) cuando hay cambios
           sin guardar (`isDirty`). Tres salidas, de menos a más destructiva. */}
@@ -1760,6 +1943,44 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
             description="Este proyecto ya está publicado: guardarlo como borrador lo ocultará del portafolio hasta que lo publiques de nuevo."
           />
         )}
+      </Dialog>
+
+      {/* SEGURIDAD (reportada por el usuario, ver `handleModeChange`):
+          cambiar de modo en CUALQUIER dirección con contenido existente
+          exige consentimiento EXPRESO (checkbox) antes de borrar — nunca se
+          siembra un modo con el contenido del otro (eso exponía URLs crudas
+          de Storage). El botón de confirmar queda deshabilitado hasta
+          marcar la checkbox; "Volver a la edición" cancela sin tocar nada. */}
+      <Dialog
+        isOpen={pendingModeChange !== null}
+        onClose={cancelModeChange}
+        title="Cambiar de modo borrará todo el contenido del proyecto"
+        description={
+          pendingModeChange === "pro"
+            ? "No se puede reconstruir Markdown/MDX a partir del Canvas de bloques. Si continúas, se borran las secciones del modo Asistido y el modo Pro arranca en blanco."
+            : "No se puede reconstruir el Canvas de bloques a partir del Markdown editado. Si continúas, se borra el Markdown del modo Pro y el modo Asistido arranca en blanco."
+        }
+        footer={
+          <Row fillWidth gap="8" horizontal="end" wrap>
+            <Button variant="tertiary" size="m" onClick={cancelModeChange}>
+              Volver a la edición
+            </Button>
+            <Button
+              variant="danger"
+              size="m"
+              onClick={confirmModeChange}
+              disabled={!modeChangeAckChecked}
+            >
+              Cambiar de modo y borrar
+            </Button>
+          </Row>
+        }
+      >
+        <Checkbox
+          isChecked={modeChangeAckChecked}
+          onToggle={() => setModeChangeAckChecked((current) => !current)}
+          label="Entiendo que se borrará todo el contenido"
+        />
       </Dialog>
     </>
   );

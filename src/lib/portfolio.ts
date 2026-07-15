@@ -22,7 +22,14 @@ export function toShouts(feed: Awaited<ReturnType<typeof getPortfolioFeed>>): Sh
     author: piece.user.name ?? piece.user.username ?? "Partner",
     avatar: piece.user.imageUrl,
     category: piece.category,
-    description: piece.description ?? piece.title,
+    title: piece.title,
+    // Descripción breve opcional (PortfolioPiece.description, máx. 140
+    // caracteres): antes de que este campo existiera en la UI, `description`
+    // hacía doble función como "texto secundario de la card" con fallback a
+    // `title` — ahora que el título ya se muestra aparte (ver `title` arriba
+    // y ShoutCard en ExploreFeed.tsx), `description` vuelve a ser lo que su
+    // nombre indica: null cuando el Partner no la llenó, sin fallback.
+    description: piece.description,
     // La consulta ya filtra coverUrl no nulo; el fallback solo satisface al tipo.
     image: piece.coverUrl ?? "",
     likes: piece.likes,

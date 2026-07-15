@@ -33,7 +33,7 @@ import {
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
-import { coverKindOf, resolveCoverSrc } from "@/lib/coverMedia";
+import { coverKindOf, extractYouTubeId, resolveCoverSrc, youtubeThumbnailUrl } from "@/lib/coverMedia";
 import type { IconName } from "@/resources/icons";
 import { respondContactRequest } from "@/app/actions/collab";
 import { RoleTag } from "@/components/RoleTag";
@@ -63,6 +63,9 @@ export interface PartnerProject {
 export interface PartnerPiece {
   id: string;
   title: string;
+  // Descripción breve opcional (PortfolioPiece.description, máx. 140
+  // caracteres); null cuando el Partner no la llenó.
+  description: string | null;
   category: string;
   // Nula en piezas creadas desde el editor de Markdown (sin portada)
   coverUrl: string | null;
@@ -273,18 +276,46 @@ function PieceCard({
     }
   };
 
-  // Portada de video (URL con prefijo "video:", ver lib/coverMedia): igual
-  // que en ExploreFeed/HomeShowcase, sin Storage no hay thumbnail real (no
-  // se puede extraer un primer frame), así que esta grilla de piezas del
-  // perfil usa el MISMO patrón de placeholder que ya existía para "sin
-  // portada" (Icon centrado sobre fondo neutro) — solo cambia el ícono para
-  // comunicar que sí hay video, solo que no se reproduce en la miniatura.
+  // Portada de video (link de YouTube o archivo .mp4/data URL, ver
+  // lib/coverMedia): igual que en ExploreFeed/HomeShowcase, sin Storage no
+  // hay forma de extraer un primer frame propio, así que esta grilla usa una
+  // miniatura ESTÁTICA (YouTube: miniatura oficial; .mp4: el propio <video
+  // preload="metadata"> como poster) con un ícono de play sobrepuesto. Sin
+  // portada en absoluto (piezas del editor de Markdown) conserva el
+  // placeholder de documento.
   const coverKind = coverKindOf(piece.coverUrl);
+  const coverSrc = resolveCoverSrc(piece.coverUrl);
+  const youtubeId = coverKind === "video" ? extractYouTubeId(coverSrc) : null;
   const cover =
-    coverKind && coverKind !== "video" ? (
+    coverKind === "video" ? (
+      <Column fillWidth radius="m" overflow="hidden" background="neutral-alpha-weak" style={{ aspectRatio: "4 / 3" }}>
+        {youtubeId ? (
+          // eslint-disable-next-line @next/next/no-img-element -- miniatura estática externa (img.youtube.com no está en images.remotePatterns).
+          <img
+            src={youtubeThumbnailUrl(youtubeId)}
+            alt={piece.title}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- poster estático (sin controls/autoplay), no hay audio que subtitular.
+          <video
+            src={coverSrc}
+            muted
+            playsInline
+            preload="metadata"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        )}
+        <Row position="absolute" top="0" left="0" fill horizontal="center" vertical="center" pointerEvents="none">
+          <Row radius="full" background="neutral-alpha-strong" padding="12" horizontal="center" vertical="center">
+            <Icon name="play" size="m" onBackground="neutral-strong" />
+          </Row>
+        </Row>
+      </Column>
+    ) : coverKind ? (
       <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
         <Media
-          src={resolveCoverSrc(piece.coverUrl)}
+          src={coverSrc}
           alt={piece.title}
           fill
           fillHeight
@@ -301,7 +332,7 @@ function PieceCard({
         horizontal="center"
         vertical="center"
       >
-        <Icon name={coverKind === "video" ? "video" : "document"} size="l" onBackground="neutral-weak" />
+        <Icon name="document" size="l" onBackground="neutral-weak" />
       </Column>
     );
 
@@ -355,6 +386,20 @@ function PieceCard({
           </Text>
           <Tag size="s" label={piece.category} variant="neutral" />
         </Row>
+        {piece.description && (
+          <Text
+            variant="body-default-s"
+            onBackground="neutral-weak"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {piece.description}
+          </Text>
+        )}
         <Row fillWidth horizontal="between" vertical="center" gap="12">
           <Row gap="12" vertical="center" minWidth={0}>
             <Row gap="4" vertical="center">

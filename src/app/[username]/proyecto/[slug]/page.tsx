@@ -4,6 +4,7 @@ import {
   Badge,
   Column,
   Heading,
+  HeadingNav,
   Line,
   Media,
   Meta,
@@ -16,6 +17,7 @@ import {
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
+import type { PieceAttachment } from "@/app/actions/portfolioPieces";
 import { CustomMDX, ScrollToHash } from "@/components";
 import { AppearanceScope } from "@/components/profile/AppearanceScope";
 import { getCaseStudy, slugifyTitle } from "@/lib/caseStudies";
@@ -62,11 +64,13 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
       portfolio: {
         select: {
           title: true,
+          description: true,
           category: true,
           subcategories: true,
           software: true,
           coverUrl: true,
           gallery: true,
+          attachments: true,
           markdownContent: true,
           releaseDate: true,
           createdAt: true,
@@ -100,7 +104,12 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
       metadata: {
         title: piece.title,
         publishedAt: (piece.releaseDate ?? piece.createdAt).toISOString(),
-        summary: "",
+        // Descripción breve opcional (PortfolioPiece.description, máx. 140
+        // caracteres): dobla como `summary` para el header del visor (ver
+        // JSX abajo), el fallback de OG/description (generateMetadata) y
+        // `Schema.description` — mismo campo que ya usan los .mdx legado en
+        // su frontmatter (ver lib/caseStudies.ts/getPosts).
+        summary: piece.description ?? "",
         image: coverSrc,
         images: coverSrc ? [coverSrc, ...gallery] : gallery,
         tag: piece.category,
@@ -110,13 +119,20 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
       },
       content: piece.markdownContent,
     };
-    return { post, author };
+    // FEATURE (Modo Pro): adjuntos con nombre del proyecto (ver
+    // PortfolioPiece.attachments) — el MDX los referencia por `name`, nunca
+    // por `url`. Piezas legadas en archivo (branch de abajo) no tienen fila
+    // en BD, así que nunca traen adjuntos.
+    const attachments = Array.isArray(piece.attachments)
+      ? (piece.attachments as unknown as PieceAttachment[])
+      : [];
+    return { post, author, attachments };
   }
 
   const post = getCaseStudy(username, slug);
   if (!post) return null;
 
-  return { post, author };
+  return { post, author, attachments: [] as PieceAttachment[] };
 });
 
 export async function generateMetadata({ params }: CaseStudyPageProps): Promise<Metadata> {
@@ -126,10 +142,10 @@ export async function generateMetadata({ params }: CaseStudyPageProps): Promise<
   const { post, author } = result;
   const authorName = author.name ?? username;
 
-  // Piezas creadas desde el editor propio siempre traen summary vacío (ver
-  // loadCaseStudy): sin este fallback el og:description queda vacío y
-  // muchos clientes de link preview (WhatsApp, Twitter/X) directamente
-  // omiten la tarjeta si no hay descripción.
+  // Piezas creadas desde el editor propio sin descripción breve traen
+  // summary vacío (ver loadCaseStudy): sin este fallback el og:description
+  // queda vacío y muchos clientes de link preview (WhatsApp, Twitter/X)
+  // directamente omiten la tarjeta si no hay descripción.
   const description = post.metadata.summary?.trim()
     ? post.metadata.summary
     : `Proyecto de ${authorName} (@${username}) en Hub-Nerds`;
@@ -164,7 +180,7 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
   if (!result) {
     notFound();
   }
-  const { post, author } = result;
+  const { post, author, attachments } = result;
 
   const category = post.metadata.tag?.trim();
   const subcategories = (post.metadata.subcategories ?? []).filter((s) => s.trim());
@@ -180,6 +196,20 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
         neutral: author.profileNeutral,
       }}
     >
+    {/* HeadingNav (Módulo Once UI, tarea "HeadingNav"): mismo patrón de
+        layout que ya usa src/app/blog/[slug]/page.tsx — un `Row` spacer
+        (balancea el ancho del riel de la derecha para que el contenido
+        central quede centrado de verdad) + el contenido + la columna fija
+        sticky con `HeadingNav`, oculta en breakpoints angostos (`m={{ hide:
+        true }}`, ver rules.compact.md "Responsive: breakpoint props"). El
+        propio módulo (`useHeadingLinks`) lee los headings vía
+        `document.querySelectorAll("h2,h3,h4,h5,h6")` en el DOM ya
+        renderizado — funciona igual con piezas de BD (bloque "Nueva sección"
+        → `## título`) y con los .mdx legado en archivo, sin distinguir la
+        fuente. */}
+    <Row fillWidth>
+      <Row maxWidth={12} m={{ hide: true }} />
+      <Row fillWidth horizontal="center">
     <Column as="section" maxWidth="m" horizontal="center" gap="l">
       <Schema
         as="blogPosting"
@@ -226,6 +256,16 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
           </Row>
         )}
         <Heading variant="display-strong-m">{post.metadata.title}</Heading>
+        {post.metadata.summary?.trim() && (
+          <Text
+            variant="body-default-m"
+            onBackground="neutral-weak"
+            align="center"
+            wrap="balance"
+          >
+            {post.metadata.summary}
+          </Text>
+        )}
       </Column>
       <Row marginBottom="32" horizontal="center">
         <Row gap="12" vertical="center">
@@ -278,7 +318,7 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
           simplemente ganan un poco más de aire) y evita depender de que el
           usuario agregue un bloque "Divisor" a mano entre cada sección. */}
       <Column style={{ margin: "auto" }} as="article" maxWidth="xs" gap="16">
-        <CustomMDX source={post.content} />
+        <CustomMDX source={post.content} attachments={attachments} />
       </Column>
       <Column fillWidth horizontal="center" marginTop="40" gap="24">
         <Line maxWidth="40" />
@@ -288,6 +328,19 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
       </Column>
       <ScrollToHash />
     </Column>
+      </Row>
+      <Column
+        maxWidth={12}
+        paddingLeft="40"
+        fitHeight
+        position="sticky"
+        top="80"
+        gap="16"
+        m={{ hide: true }}
+      >
+        <HeadingNav fitHeight />
+      </Column>
+    </Row>
     </AppearanceScope>
   );
 }
