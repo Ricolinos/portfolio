@@ -3,6 +3,8 @@ import { Meta } from "@once-ui-system/core";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { AppearanceScope } from "@/components/profile/AppearanceScope";
+import type { ProfileAppearanceValue } from "@/components/profile/AppearancePanel";
 import { ClientProfileView } from "@/components/profile/ClientProfileView";
 import {
   ClientProfileSkeleton,
@@ -64,10 +66,13 @@ export default async function UserProfilePage({ params, searchParams }: UserProf
   const viewer = await currentUser();
 
   const isOwnProfile = viewer?.username === username;
-  // Query ligera (lookup indexado por username) que resuelve el 404 temprano
-  // y decide el rol para elegir el fallback de Suspense correcto. Todo el
-  // fetch pesado (piezas, cotizaciones, colaboración, discoverablePartners)
-  // vive en ProfileContent, dentro del boundary.
+  // Query ligera (lookup indexado por username) que resuelve el 404 temprano,
+  // decide el rol para elegir el fallback de Suspense correcto, Y (al no
+  // llevar `select`) ya trae profileBrand/profileAccent/profileNeutral: se
+  // reutilizan abajo para el AppearanceScope EXTERIOR, sin duplicar el
+  // select ni pagar una segunda consulta. Todo el fetch pesado (piezas,
+  // cotizaciones, colaboración, discoverablePartners) vive en ProfileContent,
+  // dentro del boundary.
   const profileUser = await prisma.user.findUnique({ where: { username } });
 
   // Username sin usuario en BD y que tampoco es el perfil propio del viewer → 404
@@ -90,19 +95,38 @@ export default async function UserProfilePage({ params, searchParams }: UserProf
     notFound();
   }
 
+  // Paleta GUARDADA del dueño del perfil (null en cualquier campo = sin
+  // override, hereda la marca Hub-Nerds). Se aplica en un AppearanceScope
+  // EXTERIOR al <Suspense> —no dentro de ProfileView, que solo resuelve tras
+  // el fetch pesado— para que el <html> ya quede teñido ANTES de que se
+  // pinte siquiera el fallback: la secuencia visual queda color → skeleton ya
+  // teñido → elementos, en vez de skeleton en cyan del sitio seguido de un
+  // salto brusco de color + contenido a la vez. ProfileView monta su PROPIO
+  // AppearanceScope interior (misma paleta guardada por defecto, se desvía
+  // en vivo con el preview del dueño mientras edita) — ambas instancias
+  // conviven sin pelearse vía el stack de prioridad de
+  // appearanceOverrideController (ver AppearanceScope.tsx).
+  const savedAppearance: ProfileAppearanceValue = {
+    brand: profileUser?.profileBrand ?? null,
+    accent: profileUser?.profileAccent ?? null,
+    neutral: profileUser?.profileNeutral ?? null,
+  };
+
   return (
-    <Suspense
-      fallback={role === "collaborator" ? <PartnerProfileSkeleton /> : <ClientProfileSkeleton />}
-    >
-      <ProfileContent
-        username={username}
-        viewer={viewer}
-        profileUser={profileUser}
-        isOwnProfile={isOwnProfile}
-        role={role}
-        openEditOnMount={openEditOnMount}
-      />
-    </Suspense>
+    <AppearanceScope appearance={savedAppearance}>
+      <Suspense
+        fallback={role === "collaborator" ? <PartnerProfileSkeleton /> : <ClientProfileSkeleton />}
+      >
+        <ProfileContent
+          username={username}
+          viewer={viewer}
+          profileUser={profileUser}
+          isOwnProfile={isOwnProfile}
+          role={role}
+          openEditOnMount={openEditOnMount}
+        />
+      </Suspense>
+    </AppearanceScope>
   );
 }
 
