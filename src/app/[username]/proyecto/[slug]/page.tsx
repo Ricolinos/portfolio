@@ -19,6 +19,7 @@ import { cache } from "react";
 import { CustomMDX, ScrollToHash } from "@/components";
 import { AppearanceScope } from "@/components/profile/AppearanceScope";
 import { getCaseStudy, slugifyTitle } from "@/lib/caseStudies";
+import { isPlayableVideoUrl, isVideoDataUrl, resolveCoverSrc } from "@/lib/coverMedia";
 import { categoryExploreHref, softwareTagVariant } from "@/lib/pieceCategories";
 import { prisma } from "@/lib/prisma";
 import { baseURL } from "@/resources";
@@ -85,14 +86,23 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
 
   if (piece?.markdownContent) {
     const gallery = Array.isArray(piece.gallery) ? (piece.gallery as string[]) : [];
+    // coverUrl puede traer el prefijo "video:" (portada de video por URL,
+    // ver lib/coverMedia): se resuelve a la URL real ANTES de exponerla como
+    // `image`/`images[0]`, que es lo que consumen tanto el hero (<Media>,
+    // más abajo) como el <Schema>/generateMetadata de esta misma página.
+    // isPlayableVideoUrl (aplicado en generateMetadata) detecta el video
+    // sobre esta misma URL YA resuelta, sin depender de un campo extra en
+    // `post.metadata` — evita que el shape diverja del branch legado (MDX
+    // en archivo) más abajo, que nunca tiene portada de video.
+    const coverSrc = piece.coverUrl ? resolveCoverSrc(piece.coverUrl) : "";
     const post = {
       slug,
       metadata: {
         title: piece.title,
         publishedAt: (piece.releaseDate ?? piece.createdAt).toISOString(),
         summary: "",
-        image: piece.coverUrl ?? "",
-        images: piece.coverUrl ? [piece.coverUrl, ...gallery] : gallery,
+        image: coverSrc,
+        images: coverSrc ? [coverSrc, ...gallery] : gallery,
         tag: piece.category,
         subcategories: piece.subcategories,
         software: piece.software,
@@ -128,8 +138,13 @@ export async function generateMetadata({ params }: CaseStudyPageProps): Promise<
   // Supabase Storage): Meta.generate solo distingue http(s) vs relativa, así
   // que una data: URL termina concatenada tras baseURL y produce una imagen
   // rota fuera del sitio. Data URL no sirve para OG → usa el generador.
+  // Tampoco sirve una portada de VIDEO (YouTube/.mp4, ver lib/coverMedia):
+  // ningún cliente de link preview renderiza un <video>/iframe como
+  // og:image, así que cae al mismo generador que data: URLs.
   const image =
-    post.metadata.image && !post.metadata.image.startsWith("data:")
+    post.metadata.image &&
+    !post.metadata.image.startsWith("data:") &&
+    !isPlayableVideoUrl(post.metadata.image)
       ? post.metadata.image
       : `/api/og/generate?title=${encodeURIComponent(post.metadata.title)}`;
 
@@ -175,7 +190,9 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
         datePublished={post.metadata.publishedAt}
         dateModified={post.metadata.publishedAt}
         image={
-          post.metadata.image || `/api/og/generate?title=${encodeURIComponent(post.metadata.title)}`
+          post.metadata.image && !isPlayableVideoUrl(post.metadata.image)
+            ? post.metadata.image
+            : `/api/og/generate?title=${encodeURIComponent(post.metadata.title)}`
         }
         author={{
           name: author.name ?? username,
@@ -220,15 +237,35 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
           </SmartLink>
         </Row>
       </Row>
-      {post.metadata.images.length > 0 && (
-        <Media
-          priority
-          aspectRatio="16 / 9"
-          radius="m"
-          alt={post.metadata.title}
-          src={post.metadata.images[0]}
-        />
-      )}
+      {post.metadata.images.length > 0 &&
+        (isVideoDataUrl(post.metadata.images[0]) ? (
+          // GOTCHA (ver lib/coverMedia.ts, isVideoDataUrl): `Media` detecta
+          // video por EXTENSIÓN de archivo en la URL — un data URL de mp4
+          // subido ("data:video/mp4;base64,...") nunca la trae, así que
+          // `Media` lo trataría como imagen rota. <video> nativo (muted/
+          // loop/autoPlay, como el resto de las portadas-video del sitio)
+          // en vez de <Media> solo para este caso.
+          <Column radius="m" overflow="hidden" style={{ aspectRatio: "16 / 9" }}>
+            <video
+              src={post.metadata.images[0]}
+              muted
+              loop
+              autoPlay
+              playsInline
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            >
+              <track kind="captions" />
+            </video>
+          </Column>
+        ) : (
+          <Media
+            priority
+            aspectRatio="16 / 9"
+            radius="m"
+            alt={post.metadata.title}
+            src={post.metadata.images[0]}
+          />
+        ))}
       {/* `gap` separa los bloques de nivel superior que arma el editor
           (texto/imagen/carousel/tag/badge/status/progress/avatares/logos/
           tira/masonry). Varios de esos bloques se serializan a JSX "pelón"

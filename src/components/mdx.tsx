@@ -3,6 +3,12 @@ import React, { ReactNode } from "react";
 import { slugify as transliterate } from "transliteration";
 
 import { ptToPx, resolveFontStack } from "@/lib/fontLibrary";
+// Bloque "Carousel" del editor (ver ContentBlocks.tsx, type "mediaCarousel"):
+// wrapper sobre el `Carousel` nativo de Once UI — ver comentarios extensos
+// en mdx-carousel.tsx (incluye el fix de miniatura estática para slides de
+// video, que evita el iframe/video "vivo" duplicado en el Scroller de
+// thumbnails).
+import { CarouselVideoSlide, MdxCarousel } from "@/components/mdx-carousel";
 
 import {
   Heading,
@@ -645,6 +651,8 @@ const components = {
   ProgressBar,
   Scroller,
   MasonryGrid: createMasonryGridElement as any,
+  MdxCarousel,
+  CarouselVideoSlide,
 };
 
 // GOTCHA (case study de "3 negocios ideas" 2026-07-10): el bloque "text" del

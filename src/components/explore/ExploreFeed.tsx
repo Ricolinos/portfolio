@@ -8,6 +8,7 @@ import {
   Card,
   Column,
   Grid,
+  Icon,
   InfiniteScroll,
   Media,
   RevealFx,
@@ -17,6 +18,7 @@ import {
   Text,
   TiltFx,
 } from "@once-ui-system/core";
+import { coverKindOf, resolveCoverSrc } from "@/lib/coverMedia";
 import { useExploreSearch } from "./SearchContext";
 
 const ALL = "Todos";
@@ -50,6 +52,40 @@ function ShoutCard({ shout }: { shout: Shout }) {
   const categoryLabel =
     categories.length > 1 ? `${categories[0]} +${categories.length - 1}` : shout.category;
 
+  // Portada de video (URL con prefijo "video:", ver lib/coverMedia): sin
+  // bucket de Storage no hay forma de extraer un primer frame como
+  // thumbnail, y reproducir el video/embed de YouTube en cada tarjeta de
+  // una grilla infinita sería caro (varios reproductores autoplay a la
+  // vez) — se muestra un placeholder estático en vez de <Media>. GIF sí
+  // llega a <Media> tal cual: es una data URL de imagen normal, se anima
+  // sola en el <img> nativo que usa next/image por debajo.
+  const isVideoCover = coverKindOf(shout.image) === "video";
+  const coverSrc = resolveCoverSrc(shout.image);
+
+  const cover = isVideoCover ? (
+    <Column
+      fillWidth
+      radius="m"
+      background="neutral-alpha-medium"
+      horizontal="center"
+      vertical="center"
+      style={{ aspectRatio: "16 / 9" }}
+    >
+      <Icon name="video" size="l" onBackground="neutral-weak" />
+    </Column>
+  ) : (
+    <Media
+      src={coverSrc}
+      alt={shout.description}
+      radius="m"
+      aspectRatio="16 / 9"
+      sizes="(max-width: 768px) 100vw, 33vw"
+      draggable={false}
+      onDragStart={(event: DragEvent) => event.preventDefault()}
+      onContextMenu={(event: MouseEvent) => event.preventDefault()}
+    />
+  );
+
   return (
     <TiltFx fillWidth radius="l">
       <Card fillWidth direction="column" radius="l" border="neutral-alpha-weak" background="neutral-alpha-weak">
@@ -70,28 +106,10 @@ function ShoutCard({ shout }: { shout: Shout }) {
           {/* La imagen enlaza al caso de estudio; el like queda fuera del link */}
           {shout.href ? (
             <SmartLink unstyled fillWidth href={shout.href}>
-              <Media
-                src={shout.image}
-                alt={shout.description}
-                radius="m"
-                aspectRatio="16 / 9"
-                sizes="(max-width: 768px) 100vw, 33vw"
-                draggable={false}
-                onDragStart={(event: DragEvent) => event.preventDefault()}
-                onContextMenu={(event: MouseEvent) => event.preventDefault()}
-              />
+              {cover}
             </SmartLink>
           ) : (
-            <Media
-              src={shout.image}
-              alt={shout.description}
-              radius="m"
-              aspectRatio="16 / 9"
-              sizes="(max-width: 768px) 100vw, 33vw"
-              draggable={false}
-              onDragStart={(event: DragEvent) => event.preventDefault()}
-              onContextMenu={(event: MouseEvent) => event.preventDefault()}
-            />
+            cover
           )}
         </Column>
 

@@ -33,6 +33,7 @@ import {
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
+import { coverKindOf, resolveCoverSrc } from "@/lib/coverMedia";
 import type { IconName } from "@/resources/icons";
 import { respondContactRequest } from "@/app/actions/collab";
 import { RoleTag } from "@/components/RoleTag";
@@ -272,29 +273,37 @@ function PieceCard({
     }
   };
 
-  const cover = piece.coverUrl ? (
-    <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
-      <Media
-        src={piece.coverUrl}
-        alt={piece.title}
-        fill
-        fillHeight
-        objectFit="cover"
-        sizes="(max-width: 768px) 100vw, 33vw"
-      />
-    </Column>
-  ) : (
-    <Column
-      fillWidth
-      radius="m"
-      background="neutral-alpha-weak"
-      style={{ aspectRatio: "4 / 3" }}
-      horizontal="center"
-      vertical="center"
-    >
-      <Icon name="document" size="l" onBackground="neutral-weak" />
-    </Column>
-  );
+  // Portada de video (URL con prefijo "video:", ver lib/coverMedia): igual
+  // que en ExploreFeed/HomeShowcase, sin Storage no hay thumbnail real (no
+  // se puede extraer un primer frame), así que esta grilla de piezas del
+  // perfil usa el MISMO patrón de placeholder que ya existía para "sin
+  // portada" (Icon centrado sobre fondo neutro) — solo cambia el ícono para
+  // comunicar que sí hay video, solo que no se reproduce en la miniatura.
+  const coverKind = coverKindOf(piece.coverUrl);
+  const cover =
+    coverKind && coverKind !== "video" ? (
+      <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
+        <Media
+          src={resolveCoverSrc(piece.coverUrl)}
+          alt={piece.title}
+          fill
+          fillHeight
+          objectFit="cover"
+          sizes="(max-width: 768px) 100vw, 33vw"
+        />
+      </Column>
+    ) : (
+      <Column
+        fillWidth
+        radius="m"
+        background="neutral-alpha-weak"
+        style={{ aspectRatio: "4 / 3" }}
+        horizontal="center"
+        vertical="center"
+      >
+        <Icon name={coverKind === "video" ? "video" : "document"} size="l" onBackground="neutral-weak" />
+      </Column>
+    );
 
   const card = (
     <Card
