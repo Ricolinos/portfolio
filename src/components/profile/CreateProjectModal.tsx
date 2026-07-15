@@ -4,6 +4,7 @@ import {
   Accordion,
   Button,
   Card,
+  Checkbox,
   Chip,
   Column,
   DateInput,
@@ -43,6 +44,7 @@ import {
   createPortfolioPiece,
   getPortfolioPieceForEdit,
   getSubcategorySuggestions,
+  type PieceAttachment,
   updatePortfolioPiece,
 } from "@/app/actions/portfolioPieces";
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
@@ -56,7 +58,7 @@ import {
 import { PIECE_CATEGORIES } from "@/lib/pieceCategories";
 import { isPortfolioMediaUrl } from "@/lib/storageConfig";
 import { uploadMediaFile } from "@/lib/storageUpload";
-import { AttachFilesModal, type AttachmentKind, type ProjectAttachment } from "./AttachFilesModal";
+import { PieceAttachmentsPanel, type PieceAttachmentDraft } from "./PieceAttachmentsPanel";
 import {
   BLOCK_TYPES,
   blocksToMarkdown,
@@ -116,8 +118,11 @@ const COVER_KIND_OPTIONS: { value: CoverKind; label: string; prefixIcon: "galler
 ];
 
 // FEATURE (Modo Pro): toggle entre el constructor asistido (Canvas de
-// bloques, de siempre) y escribir Markdown/MDX nativo a mano. Ver
-// `handleModeChange` para el flujo de siembra/advertencia entre ambos.
+// bloques, de siempre) y escribir Markdown/MDX nativo a mano. Cambiar de
+// modo en CUALQUIER dirección, con contenido existente, borra todo el
+// contenido del proyecto (nunca se siembra un modo con el otro — evitaba
+// exponer URLs crudas de Storage en el Textarea, ver `handleModeChange` para
+// el flujo de confirmación con checkbox).
 type EditorMode = "assisted" | "pro";
 
 const EDITOR_MODE_OPTIONS: { value: EditorMode; label: string; prefixIcon: "shapes" | "codeBracket" }[] = [
@@ -145,29 +150,12 @@ Revisa la nota "Componentes soportados" de arriba para ver la lista completa.`;
 // hijos `<Media src="" alt="" />` (nunca un `items={[...]}` con llaves) y el
 // resto de props siempre van entre comillas planas.
 const PRO_SUPPORTED_COMPONENTS_HELP =
-  'Markdown estándar (# títulos, listas, **negritas**, _cursivas_, [links](url), `código`, > citas) más los componentes ya registrados del visor: <Media src="" alt="" />, <Carousel indicator="thumbnail">...</Carousel> con hijos <Media src="" alt="" />, <Tag label="" variant="" />, <Badge title="" href="" />, <StatusIndicator color="" />, <ProgressBar value="" />, <Scroller>...</Scroller>, <MasonryGrid columns="">...</MasonryGrid>, <Feedback variant="" title="" description="" />, <Accordion title="">...</Accordion> y <Heading as="h2" align="">...</Heading>. Los atributos siempre van entre comillas planas (sin llaves {}).';
-
-// FEATURE FUTURA (oculta a pedido, sin borrar código): el panel/botón
-// "Adjuntar archivo" del panel de herramientas se gatea con esta constante
-// en vez de eliminarse — `AttachFilesModal`/`isAttachOpen` siguen montados
-// tal cual (el modal nunca se abre porque el único trigger que llama
-// `setAttachOpen(true)` queda oculto), listos para reactivarse cambiando
-// este valor a `true`.
-const ATTACH_FILES_ENABLED = false;
-
-// gallery solo guarda URLs (sin bucket de Storage, ver AttachFilesModal): al
-// recargar una pieza para editarla, el tipo de adjunto se infiere del prefijo
-// de la data URL, y el nombre original no sobrevive al guardado.
-function inferAttachmentKind(url: string): AttachmentKind {
-  if (url.startsWith("data:audio/")) return "audio";
-  if (url.startsWith("data:video/")) return "video";
-  return "image";
-}
+  'Markdown estándar (# títulos, listas, **negritas**, _cursivas_, [links](url), `código`, > citas) más los componentes ya registrados del visor: <Media src="" alt="" />, <Carousel indicator="thumbnail">...</Carousel> con hijos <Media src="" alt="" />, <Tag label="" variant="" />, <Badge title="" href="" />, <StatusIndicator color="" />, <ProgressBar value="" />, <Scroller>...</Scroller>, <MasonryGrid columns="">...</MasonryGrid>, <Feedback variant="" title="" description="" />, <Accordion title="">...</Accordion> y <Heading as="h2" align="">...</Heading>. Los atributos siempre van entre comillas planas (sin llaves {}). Los archivos del panel "Adjuntar archivos" (abajo) se referencian por su NOMBRE, no por URL: <Media src="nombre-del-adjunto" alt="" /> — usa el botón de copiar de cada adjunto para pegar el snippet exacto.';
 
 function hasForeignDialogOpen(ownDialog: HTMLElement | null): boolean {
   if (!ownDialog) return false;
-  // Un modal/diálogo anidado (AttachFilesModal, la confirmación de cierre)
-  // se porta a document.body como hermano del nuestro: si existe alguno que
+  // Un modal/diálogo anidado (la confirmación de cierre, la de cambio de
+  // modo) se porta a document.body como hermano del nuestro: si existe alguno que
   // no contenga nuestro panel, un click o Escape dentro de él no debe
   // interpretarse como "afuera" de este diálogo.
   return Array.from(document.querySelectorAll('[role="dialog"]')).some(
@@ -728,19 +716,18 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
   // FEATURE (Modo Pro): "assisted" es el Canvas de bloques de siempre; "pro"
-  // reemplaza el Canvas por un Textarea de Markdown/MDX crudo. `blocks`
-  // sigue siendo la fuente de verdad del Canvas incluso en modo pro (no se
-  // toca mientras se escribe a mano) — solo cambia qué se guarda como
-  // `content`/`contentBlocks` (ver `handleSave`) y qué se muestra en el
-  // lienzo (ver JSX). `proMarkdownSeedRef` guarda el texto con el que se
-  // sembró el Textarea al entrar a pro (blocksToMarkdown de ese momento):
-  // `handleModeChange` lo compara contra el valor actual para saber si hay
-  // que advertir antes de volver a "assisted" (si no se tocó nada, el
-  // regreso es gratis).
+  // reemplaza el Canvas por un Textarea de Markdown/MDX crudo. Cambiar de
+  // modo NUNCA siembra un modo con el contenido del otro (ver
+  // `handleModeChange`/SEGURIDAD más abajo: sembrar pro con
+  // blocksToMarkdown(blocks) exponía las URLs crudas de Storage de las
+  // imágenes subidas) — `pendingModeChange`/`modeChangeAckChecked` gatean el
+  // Dialog de confirmación con checkbox que, al aceptarse, borra AMBOS
+  // contenidos (blocks → [] y proMarkdown → "") y aterriza en el modo
+  // destino vacío. Sin contenido previo en ningún modo, el cambio es directo.
   const [mode, setMode] = useState<EditorMode>("assisted");
   const [proMarkdown, setProMarkdown] = useState("");
-  const proMarkdownSeedRef = useRef("");
-  const [isModeDowngradeConfirmOpen, setModeDowngradeConfirmOpen] = useState(false);
+  const [pendingModeChange, setPendingModeChange] = useState<EditorMode | null>(null);
+  const [modeChangeAckChecked, setModeChangeAckChecked] = useState(false);
   // Contenido efectivo que se valida/guarda según el modo activo — el resto
   // del componente (handleSave, dirty-tracking) lee esto, nunca `markdown`
   // directo, para no depender de qué modo está activo.
@@ -757,8 +744,11 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   // los usernames del bloque avatarGroup (mergedCollaborators).
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined);
-  const [attachments, setAttachments] = useState<ProjectAttachment[]>([]);
-  const [isAttachOpen, setAttachOpen] = useState(false);
+  // FEATURE (Modo Pro, panel "Adjuntar archivos"): adjuntos con nombre (ver
+  // PieceAttachmentsPanel.tsx/PortfolioPiece.attachments) — solo editable en
+  // modo Pro (en Asistido la media entra por bloques), pero el valor
+  // precargado sobrevive un cambio de modo hasta que el usuario guarde.
+  const [attachments, setAttachments] = useState<PieceAttachmentDraft[]>([]);
   const [isConfirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingPiece, setLoadingPiece] = useState(false);
@@ -796,8 +786,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setBlocks([]);
     setMode("assisted");
     setProMarkdown("");
-    proMarkdownSeedRef.current = "";
-    setModeDowngradeConfirmOpen(false);
+    setPendingModeChange(null);
+    setModeChangeAckChecked(false);
     setTags([]);
     setCollaborators([]);
     setReleaseDate(undefined);
@@ -858,24 +848,26 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         if (piece.contentBlocks.length === 0 && piece.markdownContent.trim()) {
           setMode("pro");
           setProMarkdown(piece.markdownContent);
-          proMarkdownSeedRef.current = piece.markdownContent;
           setBlocks([]);
         } else {
           setMode("assisted");
           setProMarkdown("");
-          proMarkdownSeedRef.current = "";
           setBlocks(piece.contentBlocks);
         }
-        setModeDowngradeConfirmOpen(false);
+        setPendingModeChange(null);
+        setModeChangeAckChecked(false);
         setTags(piece.tags);
         setCollaborators(piece.collaborators);
         setReleaseDate(piece.releaseDate ? new Date(piece.releaseDate) : undefined);
+        // `id` es puro estado de UI (key estable del panel, ver
+        // PieceAttachmentsPanel.tsx) — nunca viaja al server, se regenera en
+        // cada carga a partir del `name` ya persistido.
         setAttachments(
-          piece.gallery.map((url, index) => ({
-            id: `${pieceId}-${index}`,
-            name: `Archivo ${index + 1}`,
-            url,
-            kind: inferAttachmentKind(url),
+          piece.attachments.map((attachment) => ({
+            id: crypto.randomUUID(),
+            name: attachment.name,
+            url: attachment.url,
+            type: attachment.type,
           })),
         );
         setOriginalIsPublic(piece.isPublic);
@@ -945,37 +937,39 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     }
   };
 
-  // FEATURE (Modo Pro): único punto de entrada para cambiar de modo —
-  // "assisted" → "pro" siempre siembra el Textarea con el Markdown que el
-  // Canvas produciría ahora mismo (blocksToMarkdown, misma serialización que
-  // usa el guardado) y guarda esa siembra en `proMarkdownSeedRef` para poder
-  // comparar después. "pro" → "assisted" es gratis SI el usuario no tocó el
-  // texto desde que entró (compara contra el ref); si lo tocó, no cambia de
-  // modo todavía — abre el Dialog de advertencia (`isModeDowngradeConfirmOpen`)
-  // y `confirmModeDowngrade` es quien de verdad aplica el cambio.
-  // `blocks` NUNCA se toca acá: blocksToMarkdown no tiene inversa (no se
-  // puede reconstruir el Canvas desde markdown editado a mano), así que
-  // volver a "assisted" simplemente vuelve a mostrar los bloques tal como
-  // estaban antes de entrar a pro.
+  // SEGURIDAD (reportada por el usuario): sembrar el Textarea de Pro con
+  // blocksToMarkdown(blocks) —el comportamiento anterior— exponía las URLs
+  // crudas de Storage de las imágenes subidas desde el Canvas. Único punto
+  // de entrada para cambiar de modo, en CUALQUIER dirección: sin contenido
+  // existente (ni bloques ni Markdown Pro) el cambio es directo y gratis; con
+  // contenido, abre el Dialog de confirmación con checkbox
+  // (`pendingModeChange`/`modeChangeAckChecked`) — `confirmModeChange` es
+  // quien de verdad aplica el cambio, BORRANDO el contenido de ambos modos y
+  // aterrizando en el modo destino vacío (nunca siembra un modo con el
+  // contenido del otro).
   const handleModeChange = (nextMode: EditorMode) => {
     if (nextMode === mode) return;
-    if (nextMode === "pro") {
-      const seeded = blocksToMarkdown(blocks);
-      proMarkdownSeedRef.current = seeded;
-      setProMarkdown(seeded);
-      setMode("pro");
+    const hasContent = blocks.length > 0 || proMarkdown.trim().length > 0;
+    if (!hasContent) {
+      setMode(nextMode);
       return;
     }
-    if (proMarkdown !== proMarkdownSeedRef.current) {
-      setModeDowngradeConfirmOpen(true);
-      return;
-    }
-    setMode("assisted");
+    setModeChangeAckChecked(false);
+    setPendingModeChange(nextMode);
   };
 
-  const confirmModeDowngrade = () => {
-    setModeDowngradeConfirmOpen(false);
-    setMode("assisted");
+  const confirmModeChange = () => {
+    if (!pendingModeChange) return;
+    setBlocks([]);
+    setProMarkdown("");
+    setMode(pendingModeChange);
+    setPendingModeChange(null);
+    setModeChangeAckChecked(false);
+  };
+
+  const cancelModeChange = () => {
+    setPendingModeChange(null);
+    setModeChangeAckChecked(false);
   };
 
   // Ver el comentario junto al `onClick` de los tiles del panel derecho
@@ -1246,7 +1240,11 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         software,
         coverUrl: finalCoverUrl,
         isPublic: publish,
-        gallery: attachments.map((attachment) => attachment.url),
+        // FEATURE (Modo Pro): adjuntos con nombre (ver
+        // PieceAttachmentsPanel.tsx) — `id` es puro estado de UI, se
+        // descarta antes de armar el payload real (PieceAttachment no lo
+        // tiene, ver actions/portfolioPieces.ts).
+        attachments: attachments.map(({ id: _id, ...attachment }) => attachment),
         // LEGACY: passthrough sin editar (ver comentario junto al estado
         // `tags`) — nunca lo toca el usuario desde este panel.
         tags,
@@ -1404,8 +1402,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                           variant="info"
                           description={
                             mode === "pro"
-                              ? "Modo Pro: escribe Markdown/MDX directo. Cambia a «Asistido» para volver al Canvas por bloques (perderás lo que hayas escrito aquí)."
-                              : "Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
+                              ? "Modo Pro: escribe Markdown/MDX directo y adjunta archivos abajo para referenciarlos por nombre. Cambiar a «Asistido» borrará este contenido (te lo confirmamos antes)."
+                              : "Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación. Cambiar a «Pro» borrará este contenido (te lo confirmamos antes)."
                           }
                         />
                       </Column>
@@ -1815,24 +1813,22 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                   </Card>
                   )}
 
-                  {ATTACH_FILES_ENABLED && (
+                  {/* FEATURE (Modo Pro): solo tiene sentido en Pro — en
+                      Asistido la media entra por bloques (cada bloque ya
+                      guarda su propia URL de Storage). Los adjuntos se
+                      referencian por NOMBRE desde el Markdown/MDX (ver
+                      PieceAttachmentsPanel.tsx/resolveAttachmentSrc en
+                      mdx.tsx). */}
+                  {mode === "pro" && (
                     <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                       <Text variant="label-strong-s" onBackground="neutral-weak">
                         Adjuntar archivos
                       </Text>
-                      <Button
-                        fillWidth
-                        variant="secondary"
-                        prefixIcon="attach"
-                        onClick={() => setAttachOpen(true)}
+                      <PieceAttachmentsPanel
+                        value={attachments}
+                        onChange={setAttachments}
                         disabled={disabled}
-                      >
-                        Adjuntar archivo
-                      </Button>
-                      <Line background="neutral-alpha-weak" />
-                      <Text variant="body-default-xs" onBackground="neutral-weak">
-                        Añade archivos de fuentes, ilustraciones, fotos, o links para compartir.
-                      </Text>
+                      />
                     </Card>
                   )}
 
@@ -1900,13 +1896,6 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         )}
       </WideDialog>
 
-      <AttachFilesModal
-        isOpen={isAttachOpen}
-        onClose={() => setAttachOpen(false)}
-        initialAttachments={attachments}
-        onConfirm={setAttachments}
-      />
-
       {/* Intercepta los 3 caminos de cierre de WideDialog (click afuera, X,
           Escape — todos pasan por `handleAttemptClose`) cuando hay cambios
           sin guardar (`isDirty`). Tres salidas, de menos a más destructiva. */}
@@ -1956,29 +1945,43 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
         )}
       </Dialog>
 
-      {/* FEATURE (Modo Pro): `blocksToMarkdown` no tiene inversa — volver a
-          Asistido tras editar el Textarea a mano SIEMPRE descarta ese texto
-          (el Canvas vuelve a mostrar los bloques tal como estaban antes de
-          entrar a Pro, ver `handleModeChange`). Solo se pregunta si el texto
-          realmente cambió desde que se sembró (comparado contra
-          `proMarkdownSeedRef`); si no se tocó nada, el cambio es gratis y
-          este Dialog ni se abre. */}
+      {/* SEGURIDAD (reportada por el usuario, ver `handleModeChange`):
+          cambiar de modo en CUALQUIER dirección con contenido existente
+          exige consentimiento EXPRESO (checkbox) antes de borrar — nunca se
+          siembra un modo con el contenido del otro (eso exponía URLs crudas
+          de Storage). El botón de confirmar queda deshabilitado hasta
+          marcar la checkbox; "Volver a la edición" cancela sin tocar nada. */}
       <Dialog
-        isOpen={isModeDowngradeConfirmOpen}
-        onClose={() => setModeDowngradeConfirmOpen(false)}
-        title="¿Volver al modo Asistido?"
-        description="No se puede reconstruir el Canvas de bloques a partir del Markdown editado. Si continúas, volverás a los bloques que tenías antes de entrar a Pro y perderás los cambios de texto que hiciste aquí."
+        isOpen={pendingModeChange !== null}
+        onClose={cancelModeChange}
+        title="Cambiar de modo borrará todo el contenido del proyecto"
+        description={
+          pendingModeChange === "pro"
+            ? "No se puede reconstruir Markdown/MDX a partir del Canvas de bloques. Si continúas, se borran las secciones del modo Asistido y el modo Pro arranca en blanco."
+            : "No se puede reconstruir el Canvas de bloques a partir del Markdown editado. Si continúas, se borra el Markdown del modo Pro y el modo Asistido arranca en blanco."
+        }
         footer={
           <Row fillWidth gap="8" horizontal="end" wrap>
-            <Button variant="tertiary" size="m" onClick={() => setModeDowngradeConfirmOpen(false)}>
-              Cancelar
+            <Button variant="tertiary" size="m" onClick={cancelModeChange}>
+              Volver a la edición
             </Button>
-            <Button variant="danger" size="m" onClick={confirmModeDowngrade}>
-              Continuar y descartar
+            <Button
+              variant="danger"
+              size="m"
+              onClick={confirmModeChange}
+              disabled={!modeChangeAckChecked}
+            >
+              Cambiar de modo y borrar
             </Button>
           </Row>
         }
-      />
+      >
+        <Checkbox
+          isChecked={modeChangeAckChecked}
+          onToggle={() => setModeChangeAckChecked((current) => !current)}
+          label="Entiendo que se borrará todo el contenido"
+        />
+      </Dialog>
     </>
   );
 }

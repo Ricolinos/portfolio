@@ -2,6 +2,7 @@ import { compileMDX, MDXRemoteProps } from "next-mdx-remote/rsc";
 import React, { ReactNode } from "react";
 import { slugify as transliterate } from "transliteration";
 
+import type { PieceAttachment } from "@/app/actions/portfolioPieces";
 import { ptToPx, resolveFontStack } from "@/lib/fontLibrary";
 // Bloque "Carousel" del editor (ver ContentBlocks.tsx, type "mediaCarousel"):
 // wrapper sobre el `Carousel` nativo de Once UI — ver comentarios extensos
@@ -226,7 +227,53 @@ interface MediaMdxProps extends Omit<React.ComponentProps<typeof Media>, "width"
   height?: string | number;
 }
 
-function createMediaElement({ width, height, aspectRatio, objectFit, ...rest }: MediaMdxProps) {
+// FEATURE (Modo Pro, adjuntos con nombre): un `src` que NO sea una URL real
+// (http/https/data:) se interpreta como el NOMBRE de un adjunto de la pieza
+// (ver PortfolioPiece.attachments/PieceAttachment) — el modo Pro sube sus
+// archivos aparte (panel "Adjuntar archivos") y el Markdown/MDX los
+// referencia por nombre en vez de pegar la URL cruda de Storage (evita
+// exponerla y sobrevive a un re-upload/renombrado del archivo). Búsqueda
+// case-insensitive, igual que la unicidad que valida el server
+// (normalizeAttachments en actions/portfolioPieces.ts). `Media` (Once UI)
+// ya autodetecta video vs imagen por la extensión real de la URL resuelta
+// (ver dist/components/Media.js, isVideoUrl) — no hace falta un componente
+// `Video` aparte ni distinguir `type` aquí, `<Media src="nombre" />` sirve
+// para ambos casos.
+function isExternalMediaSrc(src: string): boolean {
+  return /^(https?:)?\/\//i.test(src) || src.startsWith("data:");
+}
+
+function resolveAttachmentSrc(
+  src: string | undefined,
+  attachments: PieceAttachment[],
+): { resolvedSrc: string | undefined; notFoundName?: string } {
+  if (!src) return { resolvedSrc: src };
+  if (isExternalMediaSrc(src)) return { resolvedSrc: src };
+  const key = src.trim().toLowerCase();
+  const found = attachments.find((attachment) => attachment.name.toLowerCase() === key);
+  if (found) return { resolvedSrc: found.url };
+  return { resolvedSrc: undefined, notFoundName: src };
+}
+
+// Placeholder sobrio (no rompe la página, ver CustomMDX/compileMDX try-catch
+// más abajo) cuando el Markdown referencia por nombre un adjunto que ya no
+// existe (renombrado o eliminado desde el panel sin actualizar el texto).
+function AttachmentNotFound({ name }: { name: string }) {
+  return (
+    <Feedback
+      variant="warning"
+      marginTop="8"
+      marginBottom="16"
+      title="Archivo no encontrado"
+      description={`No se encontró un adjunto llamado "${name}" en este proyecto.`}
+    />
+  );
+}
+
+function createMediaElement(
+  { width, height, aspectRatio, objectFit, src, ...rest }: MediaMdxProps,
+  attachments: PieceAttachment[],
+) {
   const resolvedWidth = resolveMediaWidth(width);
   const resolvedHeight = resolveMediaHeight(height);
 
@@ -249,12 +296,21 @@ function createMediaElement({ width, height, aspectRatio, objectFit, ...rest }: 
   // salvo que el propio Markdown ya pida un `objectFit` explícito.
   const resolvedObjectFit = objectFit ?? (derivedFixedTile ? "contain" : undefined);
 
+  const { resolvedSrc, notFoundName } = resolveAttachmentSrc(src, attachments);
+  if (notFoundName) return <AttachmentNotFound name={notFoundName} />;
+
   return (
     <Media
       width={resolvedWidth}
       height={resolvedHeight}
       aspectRatio={resolvedAspectRatio}
       objectFit={resolvedObjectFit}
+      // `resolvedSrc` es `string | undefined` en el tipo (contempla el caso
+      // "sin adjunto" → placeholder, ya devuelto arriba); si llega hasta acá
+      // es porque `notFoundName` no se disparó, así que o bien es la URL/
+      // nombre resuelto real, o el `src` original ya venía vacío (mismo
+      // comportamiento silencioso que el código anterior a esta feature).
+      src={resolvedSrc as string}
       {...rest}
     />
   );
@@ -387,11 +443,19 @@ function CustomLink({ href, children, ...props }: CustomLinkProps) {
   );
 }
 
-function createImage({ alt, src, ...props }: MediaProps & { src: string }) {
+function createImage(
+  { alt, src, ...props }: MediaProps & { src: string },
+  attachments: PieceAttachment[],
+) {
   if (!src) {
     console.error("Media requires a valid 'src' property.");
     return null;
   }
+
+  // Markdown `![alt](nombre)` puede referenciar un adjunto por nombre igual
+  // que `<Media src="nombre" />` (ver resolveAttachmentSrc).
+  const { resolvedSrc, notFoundName } = resolveAttachmentSrc(src, attachments);
+  if (notFoundName) return <AttachmentNotFound name={notFoundName} />;
 
   return (
     <Media
@@ -402,7 +466,9 @@ function createImage({ alt, src, ...props }: MediaProps & { src: string }) {
       border="neutral-alpha-medium"
       sizes="(max-width: 960px) 100vw, 960px"
       alt={alt}
-      src={src}
+      // `src` truthy-checked arriba: si `notFoundName` no se disparó,
+      // `resolvedSrc` siempre es la URL/nombre resuelto real.
+      src={resolvedSrc as string}
       {...props}
     />
   );
@@ -559,8 +625,19 @@ function createCodeBlock(props: any) {
   return <pre {...props} />;
 }
 
-function createList({ children }: { children: ReactNode }) {
-  return <List>{children}</List>;
+// GOTCHA (auditoría "listas en la herramienta de texto"): `ul`/`ol` estaban
+// registrados con la MISMA función, que nunca pasaba `as` a `List` — `List`
+// por defecto renderiza `as="ul"` (ver dist/components/List.js), así que
+// toda lista numerada ya guardada en Markdown (`1. item`) perdía su
+// numeración y se veía como viñetas. Dos wrappers separados (uno por tag
+// real que el AST de remark ya distingue) en vez de inferir el tipo desde
+// `children`, que no trae esa información.
+function createUnorderedList({ children }: { children: ReactNode }) {
+  return <List as="ul">{children}</List>;
+}
+
+function createOrderedList({ children }: { children: ReactNode }) {
+  return <List as="ol">{children}</List>;
 }
 
 function createListItem({ children }: { children: ReactNode }) {
@@ -592,7 +669,16 @@ function createHR() {
   return <Line fillWidth marginTop="20" marginBottom="20" />;
 }
 
-const components = {
+// FEATURE (Modo Pro, adjuntos con nombre): `img`/`Media` necesitan la lista
+// de adjuntos de la pieza para resolver nombre→URL (ver
+// resolveAttachmentSrc), así que el mapa de `components` pasó de objeto
+// estático a fábrica — `CustomMDX` la invoca en cada render con los
+// `attachments` que le llegan por prop (piezas sin Modo Pro/adjuntos pasan
+// `[]`, ver default más abajo, y ambos wrappers se comportan IDÉNTICO al
+// código anterior: cualquier `src` sigue siendo una URL real que nunca
+// hace match contra `[]`).
+function buildComponents(attachments: PieceAttachment[]) {
+  return {
   p: createParagraph as any,
   h1: createHeading("h1") as any,
   h2: createHeading("h2") as any,
@@ -600,12 +686,12 @@ const components = {
   h4: createHeading("h4") as any,
   h5: createHeading("h5") as any,
   h6: createHeading("h6") as any,
-  img: createImage as any,
+  img: ((props: MediaProps & { src: string }) => createImage(props, attachments)) as any,
   a: CustomLink as any,
   code: createInlineCode as any,
   pre: createCodeBlock as any,
-  ol: createList as any,
-  ul: createList as any,
+  ol: createOrderedList as any,
+  ul: createUnorderedList as any,
   li: createListItem as any,
   hr: createHR as any,
   Heading,
@@ -629,10 +715,10 @@ const components = {
   Icon,
   // `Media`, `Row` y `MasonryGrid` crudos (los mismos imports de arriba) se
   // reemplazan por los wrappers que corrigen los GOTCHAs de tamaño/layout
-  // documentados arriba; `createImage`/`LegacyCompareImage` siguen usando el
-  // `Media`/`Row` crudos importados (no pasan por el mapa de components de
-  // MDX, y ya proveen aspectRatio/tokens válidos o fillWidth explícito).
-  Media: createMediaElement as any,
+  // documentados arriba; `LegacyCompareImage` sigue usando el `Media`/`Row`
+  // crudos importados (no pasa por el mapa de components de MDX, y ya
+  // provee aspectRatio/tokens válidos o fillWidth explícito).
+  Media: ((props: MediaMdxProps) => createMediaElement(props, attachments)) as any,
   Row: createRowElement as any,
   SmartLink,
   Carousel,
@@ -653,7 +739,8 @@ const components = {
   MasonryGrid: createMasonryGridElement as any,
   MdxCarousel,
   CarouselVideoSlide,
-};
+  };
+}
 
 // GOTCHA (case study de "3 negocios ideas" 2026-07-10): el bloque "text" del
 // editor (ver ContentBlocks.tsx) guarda el `innerHTML` crudo del
@@ -701,7 +788,11 @@ function stripInlineStyleAttrs(source: string): string {
 }
 
 type CustomMDXProps = MDXRemoteProps & {
-  components?: typeof components;
+  components?: ReturnType<typeof buildComponents>;
+  // FEATURE (Modo Pro): adjuntos con nombre del proyecto (ver
+  // PortfolioPiece.attachments) — `img`/`Media` los resuelven por nombre
+  // (ver resolveAttachmentSrc/buildComponents más arriba).
+  attachments?: PieceAttachment[];
 };
 
 // FEATURE (Modo Pro, markdown/MDX nativo): a diferencia del constructor
@@ -715,10 +806,10 @@ type CustomMDXProps = MDXRemoteProps & {
 // ver next-mdx-remote/dist/rsc.js) en un try/catch propio: si falla, la
 // página sigue respondiendo 200 con un aviso (`Feedback`, ya registrado en
 // el mapa de `components` de más abajo) en vez de tronar.
-export async function CustomMDX({ source, ...props }: CustomMDXProps) {
+export async function CustomMDX({ source, attachments = [], ...props }: CustomMDXProps) {
   const normalizedSource =
     typeof source === "string" ? selfCloseVoidHtmlTags(stripInlineStyleAttrs(source)) : source;
-  const mergedComponents = { ...components, ...(props.components || {}) };
+  const mergedComponents = { ...buildComponents(attachments), ...(props.components || {}) };
 
   try {
     const { content } = await compileMDX({

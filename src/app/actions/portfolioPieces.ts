@@ -6,6 +6,17 @@ import type { ContentBlock } from "@/components/profile/ContentBlocks";
 import { Prisma } from "@/generated/prisma/client";
 import { isValidPieceCategory } from "@/lib/pieceCategories";
 import { prisma } from "@/lib/prisma";
+import { isPortfolioMediaUrl } from "@/lib/storageConfig";
+
+// Adjunto con nombre del modo Pro del editor MDX (ver PortfolioPiece.attachments
+// en el schema): el MDX referencia el archivo por `name`, nunca por `url`
+// directamente. `url` siempre debe apuntar al bucket portfolio-media de
+// Supabase Storage (ver isPortfolioMediaUrl), nunca a un origen arbitrario.
+export interface PieceAttachment {
+  name: string;
+  url: string;
+  type: "image" | "video";
+}
 
 export interface CreatePortfolioPieceInput {
   title: string;
@@ -38,6 +49,11 @@ export interface CreatePortfolioPieceInput {
   // Usernames de colaboradores, sin validar contra la tabla User todavía
   collaborators?: string[];
   releaseDate?: Date;
+  // FEATURE (Modo Pro): adjuntos con nombre subidos a Supabase Storage que el
+  // MDX referencia por `name` (máx. MAX_ATTACHMENTS, validado abajo).
+  // `undefined` = no tocar (update); array (incluso vacío) = reemplaza el
+  // set completo, igual que `gallery`.
+  attachments?: PieceAttachment[];
 }
 
 export interface UpdatePortfolioPieceInput extends CreatePortfolioPieceInput {}
@@ -62,6 +78,7 @@ export interface PortfolioPieceForEdit {
   gallery: string[];
   downloadUrl: string;
   resourcePassword: string;
+  attachments: PieceAttachment[];
 }
 
 const MAX_TAGS = 5;
@@ -90,6 +107,54 @@ function toContentBlocksData(
   if (contentBlocks === null) return Prisma.DbNull;
   return contentBlocks as unknown as Prisma.InputJsonValue;
 }
+
+// FEATURE (Modo Pro): adjuntos con nombre — máx. 30, nombre 1-80 caracteres
+// (trim, sin duplicados case-insensitive) y `url` debe pertenecer al bucket
+// portfolio-media (ver isPortfolioMediaUrl en lib/storageConfig.ts), nunca un
+// origen arbitrario pegado a mano.
+const MAX_ATTACHMENTS = 30;
+const MAX_ATTACHMENT_NAME_LENGTH = 80;
+
+function normalizeAttachments(attachments: PieceAttachment[]): PieceAttachment[] {
+  if (attachments.length > MAX_ATTACHMENTS) {
+    throw new Error(`Máximo ${MAX_ATTACHMENTS} archivos adjuntos por proyecto`);
+  }
+
+  const seen = new Set<string>();
+  const result: PieceAttachment[] = [];
+  for (const raw of attachments) {
+    const name = raw.name?.trim();
+    if (!name || name.length > MAX_ATTACHMENT_NAME_LENGTH) {
+      throw new Error(`Nombre de adjunto inválido: "${raw.name ?? ""}"`);
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`Nombre de adjunto duplicado: "${name}"`);
+    }
+    if (raw.type !== "image" && raw.type !== "video") {
+      throw new Error(`Tipo de adjunto inválido para "${name}"`);
+    }
+    if (typeof raw.url !== "string" || !isPortfolioMediaUrl(raw.url)) {
+      throw new Error(`URL de adjunto no permitida para "${name}"`);
+    }
+    seen.add(key);
+    result.push({ name, url: raw.url, type: raw.type });
+  }
+  return result;
+}
+
+// Mismo patrón que toContentBlocksData: `undefined` (no enviado) deja el
+// campo intacto en `update`; un array (incluso vacío) reemplaza el set
+// completo — vacío se persiste como `Prisma.DbNull`, no como `[]`.
+function toAttachmentsData(
+  attachments: PieceAttachment[] | undefined,
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+  if (attachments === undefined) return undefined;
+  const normalized = normalizeAttachments(attachments);
+  if (normalized.length === 0) return Prisma.DbNull;
+  return normalized as unknown as Prisma.InputJsonValue;
+}
+
 const MAX_PARTNER_RESULTS = 24;
 const MAX_SUBCATEGORY_SUGGESTIONS = 8;
 // Piezas públicas escaneadas para armar sugerencias de autocompletado
@@ -254,6 +319,7 @@ export async function createPortfolioPiece(
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,
       gallery: input.gallery && input.gallery.length > 0 ? input.gallery : undefined,
+      attachments: toAttachmentsData(input.attachments),
       tags: (input.tags ?? []).slice(0, MAX_TAGS),
       subcategories,
       software,
@@ -295,6 +361,7 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
       releaseDate: true,
       isPublic: true,
       gallery: true,
+      attachments: true,
       downloadUrl: true,
       resourcePassword: true,
       userId: true,
@@ -319,6 +386,9 @@ export async function getPortfolioPieceForEdit(pieceId: string): Promise<Portfol
     releaseDate: piece.releaseDate ? piece.releaseDate.toISOString() : null,
     isPublic: piece.isPublic,
     gallery: Array.isArray(piece.gallery) ? (piece.gallery as unknown as string[]) : [],
+    attachments: Array.isArray(piece.attachments)
+      ? (piece.attachments as unknown as PieceAttachment[])
+      : [],
     downloadUrl: piece.downloadUrl ?? "",
     resourcePassword: piece.resourcePassword ?? "",
   };
@@ -361,6 +431,7 @@ export async function updatePortfolioPiece(
       resourcePassword: input.resourcePassword?.trim() || null,
       isPublic: input.isPublic,
       gallery: input.gallery && input.gallery.length > 0 ? input.gallery : undefined,
+      attachments: toAttachmentsData(input.attachments),
       tags: (input.tags ?? []).slice(0, MAX_TAGS),
       subcategories,
       software,

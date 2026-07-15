@@ -111,6 +111,12 @@ model PortfolioPiece {
   // desde el editor de Markdown, que no requieren portada
   coverUrl         String?
   gallery          Json?
+  // Adjuntos con nombre del modo Pro del editor MDX: lista de
+  // `[{ name, url, type: "image" | "video" }]` subidos a Supabase Storage
+  // (bucket portfolio-media). `name` es el identificador que el MDX usa para
+  // referenciar el archivo sin exponer su URL en el texto. Distinto de
+  // `gallery` (legacy, string[] de data URLs sin nombre).
+  attachments      Json?
   location         String?
   views            Int       @default(0)
   likes            Int       @default(0)
