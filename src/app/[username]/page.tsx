@@ -17,6 +17,12 @@ import { baseURL } from "@/resources";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
+  // ?editar=1 abre automáticamente el modal de edición del dueño al montar
+  // (ver ProfileView/ClientProfileView, openEditOnMount) — usado por el
+  // menú del avatar del Header ("Editar Perfil"). Se lee aquí (server
+  // component) y NO con useSearchParams en un client component: eso rompió
+  // el prerender de producción una vez (ver commit del modal de /mensajes).
+  searchParams: Promise<{ editar?: string }>;
 }
 
 type ClerkViewer = Awaited<ReturnType<typeof currentUser>>;
@@ -50,8 +56,10 @@ export async function generateMetadata({ params }: UserProfilePageProps): Promis
   });
 }
 
-export default async function UserProfilePage({ params }: UserProfilePageProps) {
+export default async function UserProfilePage({ params, searchParams }: UserProfilePageProps) {
   const { username } = await params;
+  const { editar } = await searchParams;
+  const openEditOnMount = editar === "1";
   await getOrCreateUser();
   const viewer = await currentUser();
 
@@ -92,6 +100,7 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
         profileUser={profileUser}
         isOwnProfile={isOwnProfile}
         role={role}
+        openEditOnMount={openEditOnMount}
       />
     </Suspense>
   );
@@ -103,6 +112,7 @@ interface ProfileContentProps {
   profileUser: ProfileUserRecord;
   isOwnProfile: boolean;
   role: string;
+  openEditOnMount: boolean;
 }
 
 // Todo el fetch pesado (piezas de portafolio, cotizaciones, colaboración con
@@ -115,6 +125,7 @@ async function ProfileContent({
   profileUser,
   isOwnProfile,
   role,
+  openEditOnMount,
 }: ProfileContentProps) {
   const displayName = isOwnProfile
     ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
@@ -231,6 +242,7 @@ async function ProfileContent({
         sharedResources={partnerCollabData?.sharedResources}
         viewerCanContact={viewerCanContact}
         viewerConnectionStatus={viewerConnectionStatus}
+        openEditOnMount={openEditOnMount}
       />
     );
   }
@@ -284,6 +296,7 @@ async function ProfileContent({
       collabProjects={clientCollabData?.projects}
       resources={clientCollabData?.resources}
       discoverablePartners={discoverablePartners}
+      openEditOnMount={openEditOnMount}
     />
   );
 }

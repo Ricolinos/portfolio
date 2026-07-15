@@ -4,16 +4,19 @@ import { Button, Column, Row, Scroller, Text } from "@once-ui-system/core";
 import classNames from "classnames";
 import styles from "./AppearancePanel.module.scss";
 
-// Editor de la apariencia DEL PERFIL de un Partner (marca, acento, neutro y
-// forma de bordes), persistida en BD vía updateProfileAppearance — NO toca
-// el estilo global del sitio (fijo en once-ui.config.ts, ver Header.tsx). Un
-// valor `null` en cualquier campo significa "sin override": el perfil hereda
-// la marca Hub-Nerds. La fila "Tema" del viejo StylePanel se quitó de aquí:
-// el tema claro/oscuro/sistema es preferencia del VISITANTE, no del dueño
-// del perfil, y ahora vive en el modal "Ajustes" del Header.
+// Editor de la apariencia DEL PERFIL de un Partner (marca, acento y neutro),
+// persistida en BD vía updateProfileAppearance — NO toca el estilo global
+// del sitio (fijo en once-ui.config.ts, ver Header.tsx). Un valor `null` en
+// cualquier campo significa "sin override": el perfil hereda la marca
+// Hub-Nerds. El control de "Forma" (border) se quitó a propósito: los
+// bordes de /explorar/designerds no se personalizan, para mantener
+// consistencia visual entre tarjetas (el campo profileBorder queda inerte
+// en BD). La fila "Tema" del viejo StylePanel se quitó de aquí: el tema
+// claro/oscuro/sistema es preferencia del VISITANTE, no del dueño del
+// perfil, y ahora vive en el menú del avatar del Header.
 
-// Whitelist idéntica a PROFILE_BRAND_COLORS/PROFILE_NEUTRAL_COLORS/
-// PROFILE_BORDER_STYLES en src/app/actions/updateProfile.ts.
+// Whitelist idéntica a PROFILE_BRAND_COLORS/PROFILE_NEUTRAL_COLORS en
+// src/app/actions/updateProfile.ts.
 const SCHEMES = [
   "blue",
   "indigo",
@@ -30,20 +33,17 @@ const SCHEMES = [
   "cyan",
 ] as const;
 const NEUTRALS = ["gray", "sand", "slate", "dusk", "mint", "rose"] as const;
-const SHAPES = ["sharp", "conservative", "playful", "rounded"] as const;
 
 export interface ProfileAppearanceValue {
   brand: string | null;
   accent: string | null;
   neutral: string | null;
-  border: string | null;
 }
 
 const EMPTY_APPEARANCE: ProfileAppearanceValue = {
   brand: null,
   accent: null,
   neutral: null,
-  border: null,
 };
 
 function ColorRow({
@@ -100,7 +100,7 @@ export function AppearancePanel({
   value: ProfileAppearanceValue;
   onChange: (next: ProfileAppearanceValue) => void;
 }) {
-  const hasOverride = Boolean(value.brand || value.accent || value.neutral || value.border);
+  const hasOverride = Boolean(value.brand || value.accent || value.neutral);
 
   return (
     <Column fillWidth gap="16">
@@ -118,34 +118,6 @@ export function AppearancePanel({
           Restablecer a la marca Hub-Nerds
         </Button>
       </Row>
-
-      <Column fillWidth gap="4" paddingTop="8">
-        <Text variant="label-strong-s">Forma</Text>
-        <Text variant="body-default-s" onBackground="neutral-weak">
-          Bordes de tu tarjeta y de los componentes de tu perfil.
-        </Text>
-      </Column>
-      <Column fillWidth border="neutral-alpha-medium" radius="l">
-        <Row fillWidth horizontal="between" vertical="center" paddingX="20" paddingY="12">
-          <Text variant="label-default-s" onBackground="neutral-strong">
-            Forma
-          </Text>
-          <Row gap="4">
-            {SHAPES.map((radius) => (
-              <span key={radius} data-border={radius}>
-                <button
-                  type="button"
-                  aria-label={`Forma: ${radius}`}
-                  className={classNames(styles.select, value.border === radius && styles.selected)}
-                  onClick={() => onChange({ ...value, border: radius })}
-                >
-                  <div className={classNames(styles.swatch, styles.neutralSwatch)} />
-                </button>
-              </span>
-            ))}
-          </Row>
-        </Row>
-      </Column>
 
       <Column fillWidth gap="4" paddingTop="8">
         <Text variant="label-strong-s">Color</Text>

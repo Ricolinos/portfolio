@@ -30,8 +30,6 @@ import {
   Tag,
   Text,
   TiltFx,
-  useStyle,
-  useTheme,
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
@@ -44,6 +42,7 @@ import {
   PartnerEditInfoDialog,
 } from "./PartnerProfileEditDialogs";
 import type { ProfileAppearanceValue } from "./AppearancePanel";
+import { AppearanceScope } from "./AppearanceScope";
 import { NewCollabProjectDialog, type ConnectionOption } from "./ClientCollabDialogs";
 import { ContactPartnerDialog } from "./PartnerCollabDialogs";
 import styles from "./ProfileView.module.scss";
@@ -112,6 +111,10 @@ interface ProfileViewProps {
   // Perfil ajeno visto por un cliente logueado.
   viewerCanContact?: boolean;
   viewerConnectionStatus?: "PENDING" | "ACCEPTED" | "REJECTED" | null;
+  // ?editar=1 en la URL (ver [username]/page.tsx): abre automáticamente el
+  // modal "Editar información de perfil" al montar — usado por el menú del
+  // avatar del Header ("Editar Perfil").
+  openEditOnMount?: boolean;
 }
 
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
@@ -691,6 +694,7 @@ export function ProfileView({
   sharedResources = [],
   viewerCanContact = false,
   viewerConnectionStatus = null,
+  openEditOnMount = false,
 }: ProfileViewProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
@@ -698,6 +702,19 @@ export function ProfileView({
   const [openDialog, setOpenDialog] = useState<
     "avatar" | "info" | "featured" | null
   >(null);
+
+  // Apertura automática del modal de edición al llegar con ?editar=1 (menú
+  // del avatar del Header → "Editar Perfil"). Solo al montar: un cambio
+  // posterior de la prop (no debería ocurrir, la página no revalida sola)
+  // no debe reabrir el modal si el dueño ya lo cerró.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe correr al montar.
+  useEffect(() => {
+    if (isOwnProfile && openEditOnMount) {
+      setOpenDialog("info");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<PartnerPiece | null>(null);
@@ -706,68 +723,24 @@ export function ProfileView({
   const [contactDialogOpen, setContactDialogOpen] = useState(false);
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
 
-  // Apariencia del DUEÑO del perfil (marca/acento/neutro/forma). Arranca en
-  // los valores guardados en BD (props) y, cuando isOwnProfile, se sobre-
-  // escribe en vivo con el preview del AppearancePanel mientras el Partner
-  // edita (ver onPreviewAppearanceChange más abajo) — sin esperar a guardar.
-  // El efecto re-sincroniza con las props cada vez que cambian (tras
+  // Apariencia del DUEÑO del perfil (marca/acento/neutro). Arranca en los
+  // valores guardados en BD (props) y, cuando isOwnProfile, se sobre-escribe
+  // en vivo con el preview del AppearancePanel mientras el Partner edita
+  // (ver onPreviewAppearanceChange más abajo) — sin esperar a guardar. El
+  // efecto re-sincroniza con las props cada vez que cambian (tras
   // router.refresh() al guardar, o al abrir el perfil de otro Partner).
+  // profileBorder queda inerte a propósito (ver AppearancePanel.tsx): los
+  // bordes de /explorar/designerds no se personalizan.
   const savedAppearance: ProfileAppearanceValue = {
     brand: profileBrand ?? null,
     accent: profileAccent ?? null,
     neutral: profileNeutral ?? null,
-    border: profileBorder ?? null,
   };
   const [appearance, setAppearance] = useState<ProfileAppearanceValue>(savedAppearance);
   useEffect(() => {
     setAppearance(savedAppearance);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileBrand, profileAccent, profileNeutral, profileBorder]);
-
-  // Solo los campos con override (no-null) del dueño llegan al DOM: el resto
-  // hereda la marca Hub-Nerds fija (once-ui.config.ts) por ausencia de
-  // atributo.
-  //
-  // HALLAZGO (verificado en navegador real + dist/css/tokens.css): las
-  // variables de bajo nivel (--function-brand-500 etc, definidas por
-  // selectores de atributo simples como [data-brand=violet]) SÍ cascadean
-  // con normalidad a cualquier descendiente. PERO los tokens semánticos que
-  // de verdad consumen los componentes (--brand-alpha-weak, --neutral-
-  // solid-strong, --brand-solid-strong, etc.) se definen en UN SOLO bloque
-  // grande por tema, con selector `[data-theme=dark]` / `[data-theme=light]`
-  // (y, para los *-solid-* de brand, además compuesto con `[data-solid=...]`)
-  // — y esos selectores SOLO calzan en <html> porque es el único elemento
-  // con data-theme/data-solid en todo el documento. Una custom property
-  // inherited computa su valor UNA VEZ en el elemento donde su regla hace
-  // match (aquí: resuelve var(--function-brand-500) con el brand de <html>,
-  // "cyan") y ese valor YA RESUELTO es lo que cascadea hacia abajo — un
-  // [data-brand=violet] en un wrapper descendiente cambia --function-brand-*
-  // localmente, pero NO revierte la resolución de --brand-alpha-weak que ya
-  // quedó fija en cyan desde <html>. Confirmado con getComputedStyle en
-  // Edge: --function-brand-500 sí daba el hex de violeta dentro del wrapper,
-  // pero --brand-solid-strong seguía dando el hex de cyan.
-  // FIX: repetir data-theme (+ data-solid/data-solid-style, fijos de marca)
-  // en el propio wrapper cuando hay algún override — así el bloque semántico
-  // completo vuelve a hacer match AQUÍ, usando ya el brand/accent/neutral
-  // locales, y todo lo de abajo hereda los tokens correctos.
-  const { resolvedTheme } = useTheme();
-  const { solid, solidStyle } = useStyle();
-  const hasAppearanceOverride = Boolean(
-    appearance.brand || appearance.accent || appearance.neutral || appearance.border,
-  );
-  const appearanceDataAttrs: Record<string, string> = {
-    ...(appearance.brand ? { "data-brand": appearance.brand } : {}),
-    ...(appearance.accent ? { "data-accent": appearance.accent } : {}),
-    ...(appearance.neutral ? { "data-neutral": appearance.neutral } : {}),
-    ...(appearance.border ? { "data-border": appearance.border } : {}),
-    ...(hasAppearanceOverride
-      ? {
-          "data-theme": resolvedTheme,
-          "data-solid": solid,
-          "data-solid-style": solidStyle,
-        }
-      : {}),
-  };
+  }, [profileBrand, profileAccent, profileNeutral]);
 
   const collabProjectOptions: ConnectionOption[] = partnerConnections.map((connection) => ({
     value: connection.id,
@@ -823,13 +796,13 @@ export function ProfileView({
   ];
 
   return (
+    <AppearanceScope appearance={appearance}>
     <RevealFx fillWidth horizontal="center" revealedByDefault>
       <Column
         fillWidth
         maxWidth="l"
         horizontal="center"
         paddingBottom="80"
-        {...appearanceDataAttrs}
       >
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
@@ -1265,5 +1238,6 @@ export function ProfileView({
         </>
       )}
     </RevealFx>
+    </AppearanceScope>
   );
 }

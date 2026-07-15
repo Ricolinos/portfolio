@@ -541,14 +541,16 @@ function DesignerCard({
   // Verificado con getComputedStyle en Edge real (ver informe de la tarea).
   const { resolvedTheme } = useTheme();
   const { solid, solidStyle } = useStyle();
+  // profileBorder se ignora a propósito: los bordes de las tarjetas
+  // Designerd NO se personalizan (consistencia visual del grid), aunque el
+  // usuario tenga un valor legado guardado en BD.
   const hasDesignerOverride = Boolean(
-    designer.profileBrand || designer.profileAccent || designer.profileNeutral || designer.profileBorder,
+    designer.profileBrand || designer.profileAccent || designer.profileNeutral,
   );
   const cardDataAttrs: Record<string, string> = {
     ...(designer.profileBrand ? { "data-brand": designer.profileBrand } : {}),
     ...(designer.profileAccent ? { "data-accent": designer.profileAccent } : {}),
     ...(designer.profileNeutral ? { "data-neutral": designer.profileNeutral } : {}),
-    ...(designer.profileBorder ? { "data-border": designer.profileBorder } : {}),
     ...(hasDesignerOverride
       ? {
           "data-theme": resolvedTheme,
