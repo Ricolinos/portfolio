@@ -1899,6 +1899,31 @@ function ToolbarDropdownTrigger({
   );
 }
 
+// HOTFIX (piezas nuevas guardando `<!--StartFragment-->`/`<!--EndFragment-->`
+// en `markdownContent`, ver GOTCHA de fix de render en mdx.tsx —
+// `stripHtmlComments`): al pegar contenido copiado de Word/Google Docs en
+// este `contentEditable`, el navegador inserta esos comentarios de Word/Docs
+// como nodos `Comment` reales del DOM (delimitan internamente el rango
+// copiado) ANTES de que `onInput`/`emit` lean `innerHTML`. No hay un handler
+// de `onPaste` propio en este editor (el pegado usa la ruta nativa del
+// navegador, ver comentario de arquitectura junto a `stripInlineStyleAttrs`
+// en mdx.tsx) — el único punto en común entre pegar y teclear es `emit`, así
+// que ahí se limpia el DOM antes de serializar, mismo criterio que
+// `ensureBlockWrapping` (normaliza el DOM vivo, no el string ya serializado).
+// El fix de render en mdx.tsx sana lo YA guardado; este evita que se siga
+// guardando en piezas nuevas — mismo patrón de "dos capas" que documenta la
+// tarea.
+function stripCommentNodes(el: HTMLElement): boolean {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_COMMENT);
+  const comments: Comment[] = [];
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    comments.push(node as Comment);
+  }
+  comments.forEach((comment) => comment.parentNode?.removeChild(comment));
+  return comments.length > 0;
+}
+
 function RichTextEditor({
   html,
   align,
@@ -2101,6 +2126,11 @@ function RichTextEditor({
 
   const emit = () => {
     if (!ref.current) return;
+    // Ver `stripCommentNodes`: limpia nodos `Comment` (ej. `<!--StartFragment
+    // -->` de Word/Docs) del DOM vivo ANTES de serializar a `innerHTML`, para
+    // que `markdownContent` nunca guarde un comentario HTML que rompa la
+    // compilación MDX del visor público.
+    stripCommentNodes(ref.current);
     lastEmitted.current = ref.current.innerHTML;
     onChange(lastEmitted.current);
   };
