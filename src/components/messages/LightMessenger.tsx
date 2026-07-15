@@ -279,6 +279,17 @@ export function LightMessenger({
     const conversation = active;
     if (!trimmed || !conversation || sending) return;
     setSending(true);
+    // Limpieza optimista: el input ya no se deshabilita durante el envío, así
+    // que el usuario puede seguir escribiendo mientras el server action viaja.
+    // Si esperáramos al await para vaciar el texto, borraríamos lo que el
+    // usuario ya tecleó de más para el siguiente mensaje.
+    setText("");
+    // Regresamos el foco al input ya desde aquí (no al terminar el envío):
+    // cubre tanto el click en el IconButton (que se lleva el foco) como el
+    // caso de error más abajo, sin duplicar la llamada en cada rama.
+    requestAnimationFrame(() => {
+      document.getElementById("light-messenger-composer")?.focus();
+    });
     const result =
       conversation.kind === "direct" && conversation.threadId
         ? await sendDirectMessage(conversation.threadId, trimmed)
@@ -287,10 +298,13 @@ export function LightMessenger({
           : { ok: false as const, error: "Conversación inválida." };
     setSending(false);
     if (!result.ok) {
+      // Restauramos el mensaje fallido solo si el input sigue vacío: si el
+      // usuario ya empezó a escribir uno nuevo mientras esperaba, no se lo
+      // pisamos con el que falló.
+      setText((current) => (current ? current : trimmed));
       setMessagesError(result.error);
       return;
     }
-    setText("");
     await loadMessages(conversation);
   };
 
@@ -442,7 +456,6 @@ export function LightMessenger({
                     handleSend();
                   }
                 }}
-                disabled={sending}
               />
             </Column>
             <IconButton

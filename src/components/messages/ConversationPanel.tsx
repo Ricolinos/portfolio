@@ -67,6 +67,13 @@ export function ConversationPanel({
     if (!trimmed || sending) return;
     onSend(trimmed);
     setText("");
+    // Con Enter el foco ya está en el input; con click en el IconButton de
+    // enviar, el navegador se lo lleva al botón. Lo regresamos en el próximo
+    // frame para ganarle a ese robo de foco (el input ya no se deshabilita
+    // durante el envío, así que no hay pérdida de foco propia que reparar).
+    requestAnimationFrame(() => {
+      document.getElementById("conversation-composer")?.focus();
+    });
   };
 
   const isGroup = conversation?.kind === "group";
@@ -229,7 +236,6 @@ export function ConversationPanel({
                     handleSend();
                   }
                 }}
-                disabled={sending}
               />
             </Column>
             <IconButton
