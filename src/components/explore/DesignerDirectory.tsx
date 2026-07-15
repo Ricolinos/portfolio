@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import type { DragEvent, MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -182,6 +182,9 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
             fillHeight
             objectFit="cover"
             sizes="(max-width: 1024px) 100vw, 33vw"
+            draggable={false}
+            onDragStart={(event: DragEvent) => event.preventDefault()}
+            onContextMenu={(event: MouseEvent) => event.preventDefault()}
           />
 
           {/* Duplicado blurreado de la MISMA imagen (mismo src) para simular
