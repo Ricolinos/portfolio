@@ -5,23 +5,32 @@ const withMDX = mdx({
   options: {},
 });
 
+// Media subida al bucket `portfolio-media` de Supabase Storage (portada +
+// bloques del Canvas, ver src/lib/storageUpload.ts) sirve URLs públicas
+// bajo este host — sin esto, next/image (Media/Image de Once UI) tira el
+// render completo de cualquier página con una de estas URLs. Se deriva de
+// NEXT_PUBLIC_SUPABASE_URL (misma instancia dev/prod); en este proyecto
+// resuelve a "wlvisgdcoiidlygobepk.supabase.co".
+const supabaseHostname = process.env.NEXT_PUBLIC_SUPABASE_URL
+  ? new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname
+  : undefined;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   transpilePackages: ["next-mdx-remote"],
   experimental: {
     serverActions: {
-      // Las imágenes/GIFs/videos del editor viajan como data URLs dentro del
-      // body de la server action (sin bucket de Storage): el default de 1 MB
-      // se queda corto con un par de fotos comprimidas. 15mb (no 10mb) por
-      // el video: la spec de portada/bloque "video" acepta .mp4 de hasta
-      // 10MB, pero base64 (data URL) infla el tamaño real ~4/3 (~33%) — 10MB
-      // de archivo ⇒ ~13.4MB de data URL, así que el límite del body debe
-      // cubrir eso con margen. AVISO DE PRODUCCIÓN: Vercel capa el body de
-      // las funciones serverless a ~4.5MB SIN IMPORTAR este valor —en
-      // producción, subir un video de más de ~3MB fallará hasta que exista
-      // un bucket de Storage real; este límite de 15mb solo habilita el
-      // flujo completo en desarrollo local.
+      // Media NUEVA del editor (portada + bloques) ya sube directo a
+      // Supabase Storage (lib/storageUpload.ts) y NO pasa por el body de
+      // ninguna server action — el archivo nunca toca este límite. Se
+      // mantiene alto (NO bajarlo) por las piezas VIEJAS con data URLs
+      // (antes de esta migración, ver lib/coverMedia.ts/lib/files.ts): al
+      // reabrirlas para editar, `handleSave` reenvía su `coverUrl`/
+      // `contentBlocks`/`gallery` COMPLETOS —con la data URL legacy
+      // adentro— aunque el usuario no toque la portada ni los bloques
+      // viejos. 15mb cubre un GIF/video legacy grande con margen (base64
+      // infla el tamaño real ~4/3, ~33%).
       bodySizeLimit: "15mb",
     },
   },
@@ -37,6 +46,15 @@ const nextConfig = {
         hostname: "img.clerk.com",
         pathname: "**",
       },
+      ...(supabaseHostname
+        ? [
+            {
+              protocol: "https",
+              hostname: supabaseHostname,
+              pathname: "**",
+            },
+          ]
+        : []),
     ],
   },
   sassOptions: {
