@@ -27,7 +27,6 @@ import { setPresenceStatus } from "@/app/actions/presence";
 import { ProjectLogoControl } from "@/components/collab/ProjectLogoControl";
 import { RolesSection } from "./DetailsPanel";
 import { formatShortTime, presenceColor, presenceOf, type RailScope } from "./messengerUtils";
-import { NewConversationModal } from "./NewConversationModal";
 
 /* ══ Panel izquierdo: bandeja de conversaciones (2.1) ═══════════════════ */
 
@@ -457,7 +456,6 @@ export function ConversationList({
 }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<SegmentFilter>("all");
-  const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // "Proyectos" solo existe en modo directos: si se cambia de scope con ese
@@ -512,14 +510,6 @@ export function ConversationList({
             tooltipPosition="bottom"
             onClick={() => setSettingsOpen(true)}
           />
-          <IconButton
-            icon="plus"
-            size="s"
-            variant="secondary"
-            tooltip="Nueva conversación"
-            tooltipPosition="bottom"
-            onClick={() => setNewConversationOpen(true)}
-          />
         </Row>
       </Row>
 
@@ -543,19 +533,9 @@ export function ConversationList({
             <Icon name="email" size="l" onBackground="neutral-weak" />
             <Text variant="body-default-s" onBackground="neutral-weak" align="center">
               {conversations.length === 0
-                ? "Aún no tienes conversaciones. Inicia una nueva para contactar a un partner."
+                ? "Aún no tienes conversaciones. Usa el botón + del riel para iniciar una."
                 : "Ninguna conversación coincide con el filtro."}
             </Text>
-            {conversations.length === 0 && (
-              <Button
-                variant="secondary"
-                size="s"
-                prefixIcon="plus"
-                onClick={() => setNewConversationOpen(true)}
-              >
-                Nuevo mensaje
-              </Button>
-            )}
           </Column>
         ) : (
           filtered.map((conversation) => (
@@ -568,15 +548,6 @@ export function ConversationList({
           ))
         )}
       </Column>
-
-      <NewConversationModal
-        isOpen={newConversationOpen}
-        onClose={() => setNewConversationOpen(false)}
-        onCreated={(threadId) => {
-          setNewConversationOpen(false);
-          onCreated(threadId);
-        }}
-      />
 
       {settingsOpen && (
         <SettingsOverlay

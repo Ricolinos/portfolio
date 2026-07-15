@@ -1,7 +1,12 @@
 "use client";
 
 import { Avatar, Column, HoverCard, IconButton, Line, Row, Tooltip } from "@once-ui-system/core";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { getEligibleRecipients } from "@/app/actions/directMessages";
+import {
+  CollaboratorSearchModal,
+  type CollaboratorSearchPerson,
+} from "@/components/collab/CollaboratorSearchModal";
 import { presenceColor, presenceOf, type RailScope, sameScope } from "./messengerUtils";
 import { NewConversationModal } from "./NewConversationModal";
 
@@ -14,8 +19,12 @@ import { NewConversationModal } from "./NewConversationModal";
    components/IconButton.js) en vez del atributo nativo `title`, que tiene
    demasiado delay en el browser para servir de confirmación visual rápida.
    Seleccionar un avatar cambia el scope de MessengerView y, para usuarios,
-   además abre directamente ese hilo. El botón "+" de la sección Usuarios
-   abre un buscador de colaboradores elegibles y arranca un hilo nuevo. ══ */
+   además abre directamente ese hilo. El botón "+" de la sección Usuarios es
+   el único punto de entrada para arrancar un chat nuevo (antes había uno
+   duplicado en el header de ConversationList): usa CollaboratorSearchModal,
+   el mismo command-palette Kbar del gestor de proyectos, para no reinventar
+   un buscador propio — al elegir persona, se abre NewConversationModal con
+   initialRecipientId ya fijo (solo falta escribir el primer mensaje). ══ */
 
 export interface RailProject {
   id: string;
@@ -71,7 +80,39 @@ export function ProjectRail({
   onConversationCreated: (threadId: string) => void;
   mobileView: "list" | "conversation" | "info";
 }) {
+  const [recipients, setRecipients] = useState<CollaboratorSearchPerson[]>([]);
+  const [pendingRecipientId, setPendingRecipientId] = useState<string | null>(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
+
+  // El buscador (Kbar compartido con el gestor de proyectos) necesita la
+  // lista completa de destinatarios elegibles de una vez — a diferencia de
+  // NewConversationModal (que la recarga cada vez que abre), aquí se pide
+  // una sola vez al montar el riel; si falla queda en [] y
+  // CollaboratorSearchModal deshabilita el trigger automáticamente.
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await getEligibleRecipients();
+        if (result.ok) {
+          setRecipients(
+            result.recipients.map((recipient) => ({
+              id: recipient.id,
+              name: recipient.name,
+              username: recipient.username,
+              headline: recipient.headline,
+            })),
+          );
+        }
+      } catch {
+        // Silencioso: el trigger queda deshabilitado con people=[].
+      }
+    })();
+  }, []);
+
+  const handleRecipientSelected = (personId: string) => {
+    setPendingRecipientId(personId);
+    setNewChatOpen(true);
+  };
 
   return (
     <Column
@@ -115,13 +156,18 @@ export function ProjectRail({
         );
       })}
 
-      <IconButton
-        icon="plus"
-        size="s"
-        variant="tertiary"
-        tooltip="Nuevo chat"
-        tooltipPosition="right"
-        onClick={() => setNewChatOpen(true)}
+      <CollaboratorSearchModal
+        people={recipients}
+        onSelect={handleRecipientSelected}
+        trigger={
+          <IconButton
+            icon="plus"
+            size="s"
+            variant="tertiary"
+            tooltip="Nuevo chat"
+            tooltipPosition="right"
+          />
+        }
       />
 
       <Line background="neutral-alpha-weak" style={{ width: 32 }} />
@@ -154,9 +200,14 @@ export function ProjectRail({
 
       <NewConversationModal
         isOpen={newChatOpen}
-        onClose={() => setNewChatOpen(false)}
+        initialRecipientId={pendingRecipientId}
+        onClose={() => {
+          setNewChatOpen(false);
+          setPendingRecipientId(null);
+        }}
         onCreated={(threadId) => {
           setNewChatOpen(false);
+          setPendingRecipientId(null);
           onConversationCreated(threadId);
         }}
       />
