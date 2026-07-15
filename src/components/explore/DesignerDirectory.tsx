@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import type { DragEvent, MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -45,6 +45,7 @@ export type PlatformDesigner = {
 type Designer = {
   id: string;
   name: string;
+  username: string | null;
   specialty: string;
   role: string;
   avatar: string;
@@ -65,6 +66,10 @@ type Designer = {
 function DesignerFront({ designer, seed }: { designer: Designer; seed: number }) {
   const imageSrc = designer.featuredImageUrl || designer.avatar || null;
   const initial = (designer.name[0] ?? "D").toUpperCase();
+  // Username corto en vez del nombre completo; si no hay username (cuenta
+  // vieja sin username asignado) cae al nombre para no dejar el renglón vacío.
+  const displayName = designer.username || designer.name;
+  const cornerAvatarProps = designer.avatar ? { src: designer.avatar } : { value: initial };
 
   // Fade (tinte) + textos: se reutilizan tal cual dentro o fuera del HoloFx
   // según haya imagen, para no duplicar el JSX.
@@ -88,14 +93,35 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         style={{ height: "50%" }}
       />
 
-      <Column position="absolute" bottom="0" left="0" fillWidth padding="16" gap="4" zIndex={3}>
-        <Heading variant="display-strong-xs" onBackground="neutral-strong" wrap="balance">
-          {designer.name}
-        </Heading>
-        <Text variant="label-default-l" onBackground="neutral-medium">
-          {designer.headline}
-        </Text>
-      </Column>
+      {/* Avatar chico junto al bloque de texto, misma fila: ambos anclados
+          esquina inferior izquierda del frente. vertical="center" alinea el
+          avatar contra el centro vertical de las dos líneas de texto (en vez
+          de contra su tope), que es lo que se ve ordenado con un avatar
+          circular al lado de un heading+label. Tamaño 150% del "m" original
+          (32px): Avatar acepta `size` numérico en rem (ver sizeInRem en
+          dist/components/Avatar.js), así que size={3} = 3rem = 48px sin
+          recurrir a `style`. gap subido de 8 a 12 para que el aire entre el
+          avatar más grande y el bloque de texto quede proporcionado. */}
+      <Row
+        position="absolute"
+        bottom="0"
+        left="0"
+        fillWidth
+        padding="16"
+        gap="12"
+        vertical="center"
+        zIndex={3}
+      >
+        <Avatar {...cornerAvatarProps} size={3} />
+        <Column gap="4">
+          <Heading variant="display-strong-xs" onBackground="neutral-strong" wrap="balance">
+            {displayName}
+          </Heading>
+          <Text variant="label-default-l" onBackground="neutral-medium">
+            {designer.headline}
+          </Text>
+        </Column>
+      </Row>
     </>
   );
 
@@ -113,10 +139,42 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
         // capas overlay arrancan en `opacity: 0` y solo se revelan en
         // `.holoFx:hover` (más `m: { hide: true }` hardcodeado, sin prop para
         // desactivarlo): es un efecto de HOVER por diseño del componente, no
-        // se ve en una captura estática ni en viewport "m" (tablet); subimos
-        // `shine`/`burn` por encima de su opacity default (30) para que el
-        // brillo se note más al pasar el mouse.
-        <HoloFx fill radius="l" shine={{ opacity: 50 }} burn={{ opacity: 45 }}>
+        // se ve en una captura estática ni en viewport "m" (tablet). Defaults
+        // reales del componente (dist/components/HoloFx.js): shine
+        // opacity 30 blending "color-dodge", burn opacity 30
+        // filter "brightness(0.2) contrast(2)" blending "color-dodge",
+        // texture opacity 10 blending "color-dodge" image
+        // "repeating-linear-gradient(...)" (patrón de rayas diagonales, no
+        // vacío). Config final pedida por el usuario (copiada tal cual de la
+        // documentación oficial): shine/burn opacity 10, texture opacity 5,
+        // los tres con blending "soft-light": color-dodge aclara dividiendo
+        // por el inverso del blend, así que "quema" a blanco casi sin
+        // importar la opacity sobre zonas claras de la imagen; soft-light da
+        // un brillo mucho más contenido (equivalente a una luz suave
+        // encima), que es lo que se buscaba con un HoloFx discreto. Nombre
+        // real de prop confirmado en HoloFx.json: `blending`, no
+        // `mixBlendMode` (el componente lo mapea internamente en el style).
+        // texture.image="" es un string válido (no rompe tipos ni runtime):
+        // React omite un style con valor "" al aplicarlo al DOM, así que en
+        // la práctica equivale a no tener textura visible en vez del patrón
+        // de rayas por default.
+        <HoloFx
+          fill
+          radius="l"
+          shine={{
+            opacity: 30,
+            blending: "screen",
+          }}
+          burn={{
+            opacity: 30,
+            blending: "screen",
+          }}
+          texture={{
+            opacity: 10,
+            image: "",
+            blending: "screen",
+          }}
+        >
           <Media
             src={imageSrc}
             alt={designer.name}
@@ -124,6 +182,9 @@ function DesignerFront({ designer, seed }: { designer: Designer; seed: number })
             fillHeight
             objectFit="cover"
             sizes="(max-width: 1024px) 100vw, 33vw"
+            draggable={false}
+            onDragStart={(event: DragEvent) => event.preventDefault()}
+            onContextMenu={(event: MouseEvent) => event.preventDefault()}
           />
 
           {/* Duplicado blurreado de la MISMA imagen (mismo src) para simular
@@ -243,6 +304,8 @@ function DesignerBack({
   const avatarProps = designer.avatar
     ? { src: designer.avatar }
     : { value: (designer.name[0] ?? "D").toUpperCase() };
+  // Mismo fallback username→name que el frente, nunca deja el renglón vacío.
+  const displayName = designer.username || designer.name;
 
   return (
     <Column
@@ -255,6 +318,31 @@ function DesignerBack({
       cursor="interactive"
       onClick={goToProfile}
     >
+      {/* Capa base sólida anti-bleedthrough (WebKit/iOS Safari): backface-
+          visibility:hidden de FlipFx no siempre es 100% opaco en Safari
+          dentro de un contexto 3D (perspective + preserve-3d), dejando
+          "espejear" el frente (texto invertido) detrás del reverso al
+          voltear. `background="page"` resuelve a la clase `.page-background`
+          → `background-color: var(--page-background)`, que en tokens.css
+          encadena a `--neutral-background-weak` y de ahí a un hex sólido de
+          la escala de grises del tema (sin alpha en ningún eslabón) — a
+          diferencia de `neutral-alpha-weak` (usado en el resto de esta
+          tarjeta), que SÍ lleva alpha y dejaría pasar el bleed-through. Se
+          refuerza con `backgroundColor` inline al mismo var para que ninguna
+          regla de especificidad mayor (ni el motor de compositing de Safari)
+          la deje traslúcida. zIndex -1: por debajo de TODO lo demás del
+          reverso (Background glow en 0, Mask+BlobFx en 1, contenido en 2). */}
+      <Column
+        position="absolute"
+        top="0"
+        left="0"
+        fill
+        pointerEvents="none"
+        zIndex={-1}
+        background="page"
+        style={{ backgroundColor: "var(--page-background)" }}
+      />
+
       {/* Capa base: solo el glow radial suave detrás del centro (sin patrón
           de puntos). Tokens globales, mismo esquema de color que HomeHero,
           respeta light/dark. */}
@@ -293,24 +381,37 @@ function DesignerBack({
       <Column fillWidth fillHeight zIndex={2}>
         {/* MatrixFx anidado DENTRO de este mismo Column (en vez de sibling
             suelto): así comparte el MISMO containing block que el Avatar de
-            abajo (top/left 50%), en lugar de calcular su centro contra un
-            ancestro distinto. Elimina cualquier posibilidad de desfase entre
-            el punto donde arranca la onda y el centro real del avatar — la
-            onda queda literalmente detrás de él. Va primero en el DOM (sin
-            zIndex propio) para pintarse debajo del avatar y del bloque de
-            nombre/rol dentro de este mismo grupo. Corre de fondo mientras la
-            tarjeta está volteada (trigger="manual",
-            active=matrixActive viene del `flipped` de DesignerCard, no del
-            click). pointerEvents="none" para no interceptar clicks. bulge
-            tipo ripple con repeat:true cicla continuamente mientras
+            abajo (top/left 50%). Ya no depende de quedar centrado contra el
+            avatar: el bulge "wave" (a diferencia de "ripple", que es un
+            círculo concéntrico desde revealFrom) viaja en diagonal en forma
+            de S de esquina a esquina del canvas (ver dist/components/
+            MatrixFx.js, bulgeType==="wave" usa distancia a lo largo de la
+            diagonal del canvas, no distancia radial a un punto), así que el
+            desfase de centrado ripple-en-desktop-vs-mobile deja de aplicar.
+            Va primero en el DOM (sin zIndex propio) para pintarse debajo del
+            avatar y del bloque de nombre/rol. Corre de fondo mientras la
+            tarjeta está volteada (trigger="manual", active=matrixActive
+            viene del `flipped` de DesignerCard, no del click). pointerEvents
+            ="none" para no interceptar clicks (el click de navegación sigue
+            resolviéndose en el Column contenedor, sin relación con el tipo
+            de bulge). repeat:true cicla continuamente mientras
             `matrixActive` esté encendido. fps más bajo (30) porque puede
-            haber 8+ tarjetas con el canvas corriendo en simultáneo. */}
+            haber 8+ tarjetas con el canvas corriendo en simultáneo.
+            colors: "success-solid-strong" era un verde fijo ajeno al tema;
+            "brand-solid-strong" es EL token de marca configurable por el
+            usuario (mismo esquema "brand" que el glow radial de arriba en
+            este archivo y que Header.tsx/HomeHero.tsx usan para acentos),
+            así que el ripple ahora respeta el tema activo en vez de
+            imponer un color fijo. Default del componente es
+            "brand-solid-medium" (ver dist/components/MatrixFx.js); usamos
+            el escalón "strong" para que el trazo del ripple siga
+            destacando sobre el fondo de la tarjeta. */}
         <MatrixFx
           trigger="manual"
           active={matrixActive}
           revealFrom="center"
-          colors={["accent-solid-strong"]}
-          bulge={{ type: "ripple", duration: 1.2, intensity: 15, repeat: true }}
+          colors={["brand-solid-strong"]}
+          bulge={{ type: "wave", duration: 3, intensity: 20, repeat: true }}
           fps={30}
           position="absolute"
           top="0"
@@ -363,7 +464,7 @@ function DesignerBack({
           style={{ top: "calc(50% + 12.5% + 16px)" }}
         >
           <Heading variant="display-strong-xs" onBackground="neutral-strong" align="center" wrap="balance">
-            {designer.name}
+            {displayName}
           </Heading>
           {designer.primaryRole && (
             <Row horizontal="center">
@@ -444,6 +545,7 @@ export function DesignerDirectory({ platformDesigners = [] }: { platformDesigner
     return platformDesigners.map((user) => ({
       id: user.id,
       name: user.name ?? user.username ?? "Colaborador",
+      username: user.username,
       specialty: "Diseñador de Marca",
       role: user.headline ?? "Colaborador de la plataforma Designerds",
       avatar: user.imageUrl ?? "",

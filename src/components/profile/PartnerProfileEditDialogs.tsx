@@ -4,7 +4,6 @@ import { useClerk } from "@clerk/nextjs";
 import {
   Avatar,
   Button,
-  Chip,
   Column,
   Feedback,
   Heading,
@@ -12,8 +11,8 @@ import {
   Input,
   Line,
   Modal,
+  Option,
   Row,
-  Select,
   Switch,
   Text,
   Textarea,
@@ -33,7 +32,6 @@ import {
 import { BrandModalBackdrop } from "@/components/BrandModalBackdrop";
 import { ImageCropper } from "@/components/shared/ImageCropper";
 import { MAX_SECONDARY_ROLES, PARTNER_ROLES } from "@/lib/partnerRoles";
-import { AppearancePanel } from "./AppearancePanel";
 
 const MAX_FEATURED_BYTES = 4 * 1024 * 1024;
 // Salida final de la imagen destacada, misma proporción vertical 3:4 de la
@@ -194,6 +192,115 @@ const PARTNER_EDIT_SECTIONS = [
 
 type PartnerEditSectionKey = (typeof PARTNER_EDIT_SECTIONS)[number]["key"];
 
+// ── Selector de roles (single/multiple) sin portal de Once-UI ───────────────
+// El `Select` nativo de Once-UI monta su dropdown en un portal a
+// document.body con z-index fijo en 9, más bajo que el z-index 10 del propio
+// Modal: dentro de un modal el dropdown queda oculto detrás del overlay y sus
+// opciones no reciben clicks. Este selector reutiliza los mismos primitivos
+// (Input de solo lectura + Option), pero expande el menú EN FLUJO NORMAL del
+// documento (como un acordeón) justo debajo del Input, en vez de portalizarlo:
+// así hereda el scroll interno y el click-outside del propio `contentRef` del
+// Modal sin depender de ningún cálculo de posición ni de ningún detalle
+// interno de Modal/ScrollLock. En modo `multiple` muestra las etiquetas en
+// español en vez del "N options selected" hardcodeado en inglés de Select.js.
+const ROLE_MENU_MAX_HEIGHT = 320;
+
+function RoleSelect({
+  id,
+  label,
+  placeholder,
+  options,
+  value,
+  onSelect,
+  multiple = false,
+}: {
+  id: string;
+  label: string;
+  placeholder: string;
+  options: { value: string; label: string }[];
+  value: string | string[];
+  onSelect: (value: string | string[]) => void;
+  multiple?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selectedValues = Array.isArray(value) ? value : [];
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [open]);
+
+  const displayText = multiple
+    ? selectedValues.map((v) => options.find((o) => o.value === v)?.label ?? v).join(", ")
+    : (options.find((o) => o.value === value)?.label ?? "");
+
+  const handleOptionClick = (optionValue: string) => {
+    if (multiple) {
+      const next = selectedValues.includes(optionValue)
+        ? selectedValues.filter((v) => v !== optionValue)
+        : [...selectedValues, optionValue];
+      onSelect(next);
+    } else {
+      onSelect(optionValue);
+      setOpen(false);
+    }
+  };
+
+  return (
+    <Column ref={containerRef} gap="4" fillWidth>
+      <Input
+        id={id}
+        label={label}
+        placeholder={placeholder}
+        value={displayText}
+        readOnly
+        cursor="interactive"
+        onClick={() => setOpen((v) => !v)}
+      />
+      {open && (
+        <Column
+          radius="l"
+          border="neutral-alpha-medium"
+          background="surface"
+          shadow="l"
+          padding="4"
+          gap="2"
+          fillWidth
+          overflowY="auto"
+          style={{ maxHeight: ROLE_MENU_MAX_HEIGHT }}
+        >
+          {options.map((option) => {
+            const selected = multiple ? selectedValues.includes(option.value) : option.value === value;
+            return (
+              <Option
+                key={option.value}
+                label={option.label}
+                value={option.value}
+                selected={selected}
+                onClick={() => handleOptionClick(option.value)}
+                hasPrefix={
+                  multiple && selected ? (
+                    <Icon name="check" size="xs" onBackground="neutral-weak" />
+                  ) : undefined
+                }
+              />
+            );
+          })}
+        </Column>
+      )}
+    </Column>
+  );
+}
+
 export function PartnerEditInfoDialog({
   isOpen,
   onClose,
@@ -234,6 +341,8 @@ export function PartnerEditInfoDialog({
   const [secondaryRoles, setSecondaryRoles] = useState<string[]>(initialSecondaryRoles ?? []);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingExit, setConfirmingExit] = useState(false);
+  const initialSnapshotRef = useRef("");
 
   // Reabrir el modal debe partir del valor guardado, no de un borrador previo sin guardar.
   // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe reiniciar el formulario al abrir, no en cada cambio de props mientras el modal está abierto.
@@ -246,9 +355,30 @@ export function PartnerEditInfoDialog({
       setPrimaryRole(initialPrimaryRole ?? "");
       setSecondaryRoles(initialSecondaryRoles ?? []);
       setError(null);
+      setConfirmingExit(false);
+      initialSnapshotRef.current = JSON.stringify({
+        isPublic: initialIsPublic,
+        shareWhatsapp: initialShareWhatsapp,
+        form: initial,
+        primaryRole: initialPrimaryRole ?? "",
+        secondaryRoles: initialSecondaryRoles ?? [],
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  const isDirty =
+    isOpen &&
+    initialSnapshotRef.current !==
+      JSON.stringify({ isPublic, shareWhatsapp, form, primaryRole, secondaryRoles });
+
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingExit(true);
+    } else {
+      onClose();
+    }
+  };
 
   const tooLong =
     form.cardQuote.length > MAX_CARD_QUOTE_CHARS ||
@@ -259,14 +389,6 @@ export function PartnerEditInfoDialog({
   const handlePrimaryRoleChange = (value: string) => {
     setPrimaryRole(value);
     setSecondaryRoles((current) => current.filter((role) => role !== value));
-  };
-
-  const toggleSecondaryRole = (role: string) => {
-    setSecondaryRoles((current) => {
-      if (current.includes(role)) return current.filter((r) => r !== role);
-      if (current.length >= MAX_SECONDARY_ROLES) return current;
-      return [...current, role];
-    });
   };
 
   const handleSave = async () => {
@@ -292,11 +414,32 @@ export function PartnerEditInfoDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={requestClose}
       title="Editar información de perfil"
       backdrop={modalBackdrop}
     >
       <Column gap="16" fillWidth paddingTop="12">
+        {confirmingExit ? (
+          <Column gap="16" fillWidth paddingTop="12">
+            <Feedback
+              variant="warning"
+              title="Tienes cambios sin guardar"
+              description="Si sales ahora, perderás los ajustes que hiciste en este formulario."
+            />
+            <Row fillWidth gap="8" horizontal="end" wrap>
+              <Button variant="tertiary" size="m" onClick={() => setConfirmingExit(false)}>
+                Seguir editando
+              </Button>
+              <Button variant="secondary" size="m" onClick={onClose}>
+                Salir de todos modos
+              </Button>
+              <Button variant="primary" size="m" onClick={handleSave} loading={saving}>
+                Guardar y salir
+              </Button>
+            </Row>
+          </Column>
+        ) : (
+          <>
         <Row fillWidth gap="24" vertical="start" s={{ direction: "column" }}>
           {/* ── Navegación lateral (escritorio): máx. 30% del ancho ── */}
           <Column
@@ -379,7 +522,7 @@ export function PartnerEditInfoDialog({
                     </Text>
                   </Column>
 
-                  <Select
+                  <RoleSelect
                     id="partner-primary-role"
                     label="Rol principal"
                     placeholder="Elige tu especialidad principal"
@@ -388,29 +531,22 @@ export function PartnerEditInfoDialog({
                     options={PARTNER_ROLES.map((role) => ({ value: role, label: role }))}
                   />
 
-                  <Column gap="8" fillWidth>
-                    <Text variant="label-default-s" onBackground="neutral-weak">
-                      Roles secundarios ({secondaryRoles.length}/{MAX_SECONDARY_ROLES})
-                    </Text>
-                    <Row gap="8" wrap>
-                      {PARTNER_ROLES.filter((role) => role !== primaryRole).map((role) => {
-                        const selected = secondaryRoles.includes(role);
-                        const disabled = !selected && secondaryRoles.length >= MAX_SECONDARY_ROLES;
-                        return (
-                          <Chip
-                            key={role}
-                            label={role}
-                            selected={selected}
-                            onClick={() => {
-                              if (disabled) return;
-                              toggleSecondaryRole(role);
-                            }}
-                            style={disabled ? { opacity: 0.4, cursor: "not-allowed" } : undefined}
-                          />
-                        );
-                      })}
-                    </Row>
-                  </Column>
+                  <RoleSelect
+                    id="partner-secondary-roles"
+                    label={`Roles secundarios (máx. ${MAX_SECONDARY_ROLES})`}
+                    placeholder="Elige tus especialidades secundarias"
+                    multiple
+                    value={secondaryRoles}
+                    onSelect={(values) => {
+                      const next = values as string[];
+                      if (next.length > MAX_SECONDARY_ROLES) return;
+                      setSecondaryRoles(next);
+                    }}
+                    options={PARTNER_ROLES.filter((role) => role !== primaryRole).map((role) => ({
+                      value: role,
+                      label: role,
+                    }))}
+                  />
                 </Column>
               </Column>
             )}
@@ -465,7 +601,7 @@ export function PartnerEditInfoDialog({
                   id="designer-bio"
                   label="Descripción breve"
                   placeholder="Cuéntanos brevemente quién eres y qué haces"
-                  lines={4}
+                  lines={3}
                   value={form.bio}
                   maxLength={MAX_BIO_CHARS}
                   characterCount
@@ -550,10 +686,6 @@ export function PartnerEditInfoDialog({
           </Column>
         </Row>
 
-        {/* Personalización de apariencia en el espacio inferior del modal */}
-        <Line background="neutral-alpha-weak" />
-        <AppearancePanel />
-
         {error && <Feedback variant="danger" description={error} />}
 
         <Line background="neutral-alpha-weak" />
@@ -566,6 +698,8 @@ export function PartnerEditInfoDialog({
             Guardar cambios
           </Button>
         </Row>
+          </>
+        )}
       </Column>
     </Modal>
   );

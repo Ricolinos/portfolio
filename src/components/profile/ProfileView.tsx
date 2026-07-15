@@ -793,7 +793,6 @@ export function ProfileView({
                   {displayName}
                 </Heading>
                 <Row fillWidth gap="8" vertical="center" horizontal="center">
-                  <Tag size="s" variant="brand" label="Partner" />
                   <Text variant="body-default-m" onBackground="neutral-weak">
                     @{username}
                   </Text>

@@ -1,5 +1,6 @@
 "use client";
 
+import type { DragEvent, MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Avatar,
@@ -75,6 +76,9 @@ function ShoutCard({ shout }: { shout: Shout }) {
                 radius="m"
                 aspectRatio="16 / 9"
                 sizes="(max-width: 768px) 100vw, 33vw"
+                draggable={false}
+                onDragStart={(event: DragEvent) => event.preventDefault()}
+                onContextMenu={(event: MouseEvent) => event.preventDefault()}
               />
             </SmartLink>
           ) : (
@@ -84,6 +88,9 @@ function ShoutCard({ shout }: { shout: Shout }) {
               radius="m"
               aspectRatio="16 / 9"
               sizes="(max-width: 768px) 100vw, 33vw"
+              draggable={false}
+              onDragStart={(event: DragEvent) => event.preventDefault()}
+              onContextMenu={(event: MouseEvent) => event.preventDefault()}
             />
           )}
         </Column>
