@@ -3,6 +3,7 @@
 import {
   Avatar,
   Column,
+  EmojiPickerDropdown,
   Heading,
   Icon,
   IconButton,
@@ -49,6 +50,7 @@ export function ConversationPanel({
   onTaskChanged: () => void;
 }) {
   const [text, setText] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [taskMessage, setTaskMessage] = useState<StreamMessage | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -218,15 +220,46 @@ export function ConversationPanel({
           <Row fillWidth gap="8" vertical="center" padding="16">
             <IconButton
               icon="attach"
-              size="m"
+              size="s"
               variant="tertiary"
               tooltip="Próximamente"
               tooltipPosition="top"
               disabled
             />
+            <EmojiPickerDropdown
+              placement="top-start"
+              isOpen={emojiOpen}
+              onOpenChange={setEmojiOpen}
+              trigger={
+                <IconButton
+                  icon="emoji"
+                  size="s"
+                  variant="tertiary"
+                  tooltip="Insertar emoji"
+                  tooltipPosition="top"
+                />
+              }
+              onSelect={(emoji) => {
+                setText((prev) => prev + emoji);
+                // Modo controlado (isOpen/onOpenChange): sin esto, closeAfterClick
+                // solo dispara el onOpenChange del consumidor sin tocar el estado
+                // interno del DropdownWrapper, así que el picker nunca se cerraba
+                // y su focus trap seguía re-robando el foco de la celda elegida.
+                // Cerramos explícitamente antes de focar. El DropdownWrapper
+                // re-foca su trigger (el IconButton de la carita) al cerrarse,
+                // DESPUÉS de este callback — un requestAnimationFrame pierde esa
+                // carrera; con un timeout corto le ganamos a esa restauración de
+                // foco y el foco queda en el input, no en el botón.
+                setEmojiOpen(false);
+                window.setTimeout(() => {
+                  document.getElementById("conversation-composer")?.focus();
+                }, 150);
+              }}
+            />
             <Column style={{ flex: 1, minWidth: 0 }}>
               <Input
                 id="conversation-composer"
+                height="s"
                 placeholder="Escribe un mensaje..."
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -240,7 +273,7 @@ export function ConversationPanel({
             </Column>
             <IconButton
               icon="arrowUpRight"
-              size="m"
+              size="s"
               variant="primary"
               tooltip="Enviar"
               tooltipPosition="top"
