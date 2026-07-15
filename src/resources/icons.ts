@@ -57,6 +57,7 @@ import {
   HiOutlineQuestionMarkCircle,
   HiOutlineRocketLaunch,
   HiOutlineSparkles,
+  HiOutlineSquare2Stack,
   HiOutlineSquares2X2,
   HiOutlineTrash,
   HiOutlineUserGroup,
@@ -89,6 +90,13 @@ import {
   PiUserCircleDuotone,
 } from "react-icons/pi";
 import { SiFigma, SiJavascript, SiNextdotjs, SiSupabase } from "react-icons/si";
+// Iconos de tipos de bloque del editor de contenido (ver ContentBlocks.tsx,
+// BLOCK_TYPES/ALL_BLOCK_META): Tabler (Tb) para representar el RESULTADO
+// visual real de cada bloque, no un objeto literal relacionado (ver
+// auditoría "iconos coherentes"). `carouselSlides` = Carousel nativo de
+// Once UI (un slide con flechas/indicador, ver mdx-carousel.tsx).
+// `swipeStrip` = tira horizontal deslizable de chips (bloque "scroller").
+import { TbCarouselHorizontal, TbSwipe } from "react-icons/tb";
 
 export const iconLibrary: Record<string, IconType> = {
   arrowUpRight: HiArrowUpRight,
@@ -150,6 +158,18 @@ export const iconLibrary: Record<string, IconType> = {
   warning: HiOutlineExclamationTriangle,
   xCircle: HiOutlineXCircle,
   divider: HiOutlineMinus,
+  // Bloque "Carousel" (mediaCarousel, Carousel nativo Once UI: un slide a la
+  // vez con flechas + indicador).
+  carouselSlides: TbCarouselHorizontal,
+  // Bloque "Cuadrícula de fotos" (masonry, MasonryGrid real): grid 2x2, no
+  // una sola foto (ver auditoría de iconos).
+  photoGrid: HiOutlineSquares2X2,
+  // Bloque "Tira de fotos" (carousel legacy, Scroller de imágenes apiladas
+  // una tras otra): dos cuadros superpuestos = pila de fotos deslizable.
+  photoStack: HiOutlineSquare2Stack,
+  // Bloque "Tira deslizable" (scroller, chips en Scroller horizontal):
+  // gesto de deslizar/swipe, no una sola flecha.
+  swipeStrip: TbSwipe,
   bold: PiTextBDuotone,
   italic: PiTextItalicDuotone,
   underline: PiTextUnderlineDuotone,

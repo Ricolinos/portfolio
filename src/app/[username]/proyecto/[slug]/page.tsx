@@ -62,6 +62,7 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
       portfolio: {
         select: {
           title: true,
+          description: true,
           category: true,
           subcategories: true,
           software: true,
@@ -100,7 +101,12 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
       metadata: {
         title: piece.title,
         publishedAt: (piece.releaseDate ?? piece.createdAt).toISOString(),
-        summary: "",
+        // Descripción breve opcional (PortfolioPiece.description, máx. 140
+        // caracteres): dobla como `summary` para el header del visor (ver
+        // JSX abajo), el fallback de OG/description (generateMetadata) y
+        // `Schema.description` — mismo campo que ya usan los .mdx legado en
+        // su frontmatter (ver lib/caseStudies.ts/getPosts).
+        summary: piece.description ?? "",
         image: coverSrc,
         images: coverSrc ? [coverSrc, ...gallery] : gallery,
         tag: piece.category,
@@ -126,10 +132,10 @@ export async function generateMetadata({ params }: CaseStudyPageProps): Promise<
   const { post, author } = result;
   const authorName = author.name ?? username;
 
-  // Piezas creadas desde el editor propio siempre traen summary vacío (ver
-  // loadCaseStudy): sin este fallback el og:description queda vacío y
-  // muchos clientes de link preview (WhatsApp, Twitter/X) directamente
-  // omiten la tarjeta si no hay descripción.
+  // Piezas creadas desde el editor propio sin descripción breve traen
+  // summary vacío (ver loadCaseStudy): sin este fallback el og:description
+  // queda vacío y muchos clientes de link preview (WhatsApp, Twitter/X)
+  // directamente omiten la tarjeta si no hay descripción.
   const description = post.metadata.summary?.trim()
     ? post.metadata.summary
     : `Proyecto de ${authorName} (@${username}) en Hub-Nerds`;
@@ -226,6 +232,16 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
           </Row>
         )}
         <Heading variant="display-strong-m">{post.metadata.title}</Heading>
+        {post.metadata.summary?.trim() && (
+          <Text
+            variant="body-default-m"
+            onBackground="neutral-weak"
+            align="center"
+            wrap="balance"
+          >
+            {post.metadata.summary}
+          </Text>
+        )}
       </Column>
       <Row marginBottom="32" horizontal="center">
         <Row gap="12" vertical="center">

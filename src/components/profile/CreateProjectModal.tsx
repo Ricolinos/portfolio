@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Accordion,
   Button,
   Card,
   Chip,
@@ -24,6 +25,7 @@ import {
   Spinner,
   TagInput,
   Text,
+  Textarea,
 } from "@once-ui-system/core";
 import { MediaUpload } from "@once-ui-system/core/modules";
 import { useRouter } from "next/navigation";
@@ -92,6 +94,9 @@ const SPLIT_MAX = 0.8;
 const MAX_SUBCATEGORIES = 10;
 const MAX_SOFTWARE = 15;
 const SUBCATEGORY_SUGGESTION_LIMIT = 8;
+// Mismo tope que valida el server (ver MAX_DESCRIPTION_LENGTH en
+// actions/portfolioPieces.ts): límite duro de la descripción breve opcional.
+const MAX_DESCRIPTION_LENGTH = 140;
 
 // La portada sube directo a Supabase Storage (lib/storageUpload.ts), no por
 // el body de la server action — el único tope real es el de
@@ -109,6 +114,38 @@ const COVER_KIND_OPTIONS: { value: CoverKind; label: string; prefixIcon: "galler
   { value: "gif", label: "GIF animado", prefixIcon: "sparkles" },
   { value: "video", label: "Video", prefixIcon: "video" },
 ];
+
+// FEATURE (Modo Pro): toggle entre el constructor asistido (Canvas de
+// bloques, de siempre) y escribir Markdown/MDX nativo a mano. Ver
+// `handleModeChange` para el flujo de siembra/advertencia entre ambos.
+type EditorMode = "assisted" | "pro";
+
+const EDITOR_MODE_OPTIONS: { value: EditorMode; label: string; prefixIcon: "shapes" | "codeBracket" }[] = [
+  { value: "assisted", label: "Asistido", prefixIcon: "shapes" },
+  { value: "pro", label: "Pro", prefixIcon: "codeBracket" },
+];
+
+const PRO_MARKDOWN_PLACEHOLDER = `Escribe tu proyecto en Markdown estándar: # Títulos, listas, **negritas**, [links](https://...).
+
+También puedes usar los componentes registrados del visor, por ejemplo:
+<Media src="https://..." alt="Descripción" aspectRatio="16 / 9" radius="m" />
+<Carousel indicator="thumbnail">
+  <Media src="https://.../uno.jpg" alt="Slide 1" />
+  <Media src="https://.../dos.jpg" alt="Slide 2" />
+</Carousel>
+
+Revisa la nota "Componentes soportados" de arriba para ver la lista completa.`;
+
+// Nota de ayuda del Modo Pro (Accordion colapsable, ver JSX): mismos
+// componentes que expone `components` en mdx.tsx, resumidos en texto plano
+// — no un catálogo exhaustivo de props, solo para orientar qué etiquetas
+// existen. GOTCHA (ver `escapeAttr`/comentario extenso en ContentBlocks.tsx):
+// next-mdx-remote/rsc elimina TODO atributo escrito con llaves `prop={...}`
+// —blockJS, protección contra JS embebido—, así que Carousel se arma con
+// hijos `<Media src="" alt="" />` (nunca un `items={[...]}` con llaves) y el
+// resto de props siempre van entre comillas planas.
+const PRO_SUPPORTED_COMPONENTS_HELP =
+  'Markdown estándar (# títulos, listas, **negritas**, _cursivas_, [links](url), `código`, > citas) más los componentes ya registrados del visor: <Media src="" alt="" />, <Carousel indicator="thumbnail">...</Carousel> con hijos <Media src="" alt="" />, <Tag label="" variant="" />, <Badge title="" href="" />, <StatusIndicator color="" />, <ProgressBar value="" />, <Scroller>...</Scroller>, <MasonryGrid columns="">...</MasonryGrid>, <Feedback variant="" title="" description="" />, <Accordion title="">...</Accordion> y <Heading as="h2" align="">...</Heading>. Los atributos siempre van entre comillas planas (sin llaves {}).';
 
 // FEATURE FUTURA (oculta a pedido, sin borrar código): el panel/botón
 // "Adjuntar archivo" del panel de herramientas se gatea con esta constante
@@ -666,6 +703,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [title, setTitle] = useState("");
   const [titleFocused, setTitleFocused] = useState(false);
   const [titleTouched, setTitleTouched] = useState(false);
+  const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
   const [subcategories, setSubcategories] = useState<string[]>([]);
   const [software, setSoftware] = useState<string[]>([]);
@@ -689,6 +727,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const [coverCollapsed, setCoverCollapsed] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const markdown = useMemo(() => blocksToMarkdown(blocks), [blocks]);
+  // FEATURE (Modo Pro): "assisted" es el Canvas de bloques de siempre; "pro"
+  // reemplaza el Canvas por un Textarea de Markdown/MDX crudo. `blocks`
+  // sigue siendo la fuente de verdad del Canvas incluso en modo pro (no se
+  // toca mientras se escribe a mano) — solo cambia qué se guarda como
+  // `content`/`contentBlocks` (ver `handleSave`) y qué se muestra en el
+  // lienzo (ver JSX). `proMarkdownSeedRef` guarda el texto con el que se
+  // sembró el Textarea al entrar a pro (blocksToMarkdown de ese momento):
+  // `handleModeChange` lo compara contra el valor actual para saber si hay
+  // que advertir antes de volver a "assisted" (si no se tocó nada, el
+  // regreso es gratis).
+  const [mode, setMode] = useState<EditorMode>("assisted");
+  const [proMarkdown, setProMarkdown] = useState("");
+  const proMarkdownSeedRef = useRef("");
+  const [isModeDowngradeConfirmOpen, setModeDowngradeConfirmOpen] = useState(false);
+  // Contenido efectivo que se valida/guarda según el modo activo — el resto
+  // del componente (handleSave, dirty-tracking) lee esto, nunca `markdown`
+  // directo, para no depender de qué modo está activo.
+  const effectiveContent = mode === "pro" ? proMarkdown : markdown;
   // LEGACY: ya no se edita desde este panel (ver "Software implementado"),
   // pero se conserva el valor precargado y se reenvía tal cual al guardar —
   // omitirlo del payload haría que el server lo pisara con `[]` en cada
@@ -729,6 +785,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setTitle("");
     setTitleFocused(false);
     setTitleTouched(false);
+    setDescription("");
     setCategory("");
     setSubcategories([]);
     setSoftware([]);
@@ -737,6 +794,10 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setCoverSizeWarning(null);
     setVideoUrl("");
     setBlocks([]);
+    setMode("assisted");
+    setProMarkdown("");
+    proMarkdownSeedRef.current = "";
+    setModeDowngradeConfirmOpen(false);
     setTags([]);
     setCollaborators([]);
     setReleaseDate(undefined);
@@ -769,6 +830,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       .then((piece) => {
         if (cancelled) return;
         setTitle(piece.title);
+        setDescription(piece.description ?? "");
         setCategory(piece.category === "Documento" ? "" : piece.category);
         setSubcategories(piece.subcategories);
         setSoftware(piece.software);
@@ -787,7 +849,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
           setCoverUrl(piece.coverUrl);
           setVideoUrl("");
         }
-        setBlocks(piece.contentBlocks);
+        // FEATURE (Modo Pro): una pieza guardada en pro trae
+        // `contentBlocks: null` (ver actions/portfolioPieces.ts), que este
+        // fetch normaliza a `[]` — inequívoco frente a asistido porque
+        // publicar/guardar en asistido siempre exige al menos 1 bloque (ver
+        // validación de `handleSave`), así que un array vacío CON
+        // markdownContent solo puede venir de pro.
+        if (piece.contentBlocks.length === 0 && piece.markdownContent.trim()) {
+          setMode("pro");
+          setProMarkdown(piece.markdownContent);
+          proMarkdownSeedRef.current = piece.markdownContent;
+          setBlocks([]);
+        } else {
+          setMode("assisted");
+          setProMarkdown("");
+          proMarkdownSeedRef.current = "";
+          setBlocks(piece.contentBlocks);
+        }
+        setModeDowngradeConfirmOpen(false);
         setTags(piece.tags);
         setCollaborators(piece.collaborators);
         setReleaseDate(piece.releaseDate ? new Date(piece.releaseDate) : undefined);
@@ -829,6 +908,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     setIsDirty(true);
   }, [
     title,
+    description,
     category,
     subcategories,
     software,
@@ -836,6 +916,8 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     coverUrl,
     videoUrl,
     blocks,
+    mode,
+    proMarkdown,
     releaseDate,
     attachments,
   ]);
@@ -861,6 +943,39 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
     } finally {
       setCoverUploading(false);
     }
+  };
+
+  // FEATURE (Modo Pro): único punto de entrada para cambiar de modo —
+  // "assisted" → "pro" siempre siembra el Textarea con el Markdown que el
+  // Canvas produciría ahora mismo (blocksToMarkdown, misma serialización que
+  // usa el guardado) y guarda esa siembra en `proMarkdownSeedRef` para poder
+  // comparar después. "pro" → "assisted" es gratis SI el usuario no tocó el
+  // texto desde que entró (compara contra el ref); si lo tocó, no cambia de
+  // modo todavía — abre el Dialog de advertencia (`isModeDowngradeConfirmOpen`)
+  // y `confirmModeDowngrade` es quien de verdad aplica el cambio.
+  // `blocks` NUNCA se toca acá: blocksToMarkdown no tiene inversa (no se
+  // puede reconstruir el Canvas desde markdown editado a mano), así que
+  // volver a "assisted" simplemente vuelve a mostrar los bloques tal como
+  // estaban antes de entrar a pro.
+  const handleModeChange = (nextMode: EditorMode) => {
+    if (nextMode === mode) return;
+    if (nextMode === "pro") {
+      const seeded = blocksToMarkdown(blocks);
+      proMarkdownSeedRef.current = seeded;
+      setProMarkdown(seeded);
+      setMode("pro");
+      return;
+    }
+    if (proMarkdown !== proMarkdownSeedRef.current) {
+      setModeDowngradeConfirmOpen(true);
+      return;
+    }
+    setMode("assisted");
+  };
+
+  const confirmModeDowngrade = () => {
+    setModeDowngradeConfirmOpen(false);
+    setMode("assisted");
   };
 
   // Ver el comentario junto al `onClick` de los tiles del panel derecho
@@ -1053,8 +1168,12 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   };
 
   const handleSave = async (publish: boolean) => {
-    if (!title.trim() || !markdown.trim()) {
-      setError("El título y al menos una sección de contenido son obligatorios.");
+    if (!title.trim() || !effectiveContent.trim()) {
+      setError(
+        mode === "pro"
+          ? "El título y el contenido en Markdown son obligatorios."
+          : "El título y al menos una sección de contenido son obligatorios.",
+      );
       return;
     }
     // Categoría/subcategorías solo son obligatorias para PUBLICAR (mismo
@@ -1114,8 +1233,14 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
       );
       const payload = {
         title,
-        content: markdown,
-        contentBlocks: blocks,
+        description: description.trim() || undefined,
+        content: effectiveContent,
+        // Modo Pro: `contentBlocks` se guarda explícitamente en `null` (no
+        // `undefined`) para BORRAR los bloques del Canvas en el server —
+        // ver actions/portfolioPieces.ts, que distingue "no enviado" de
+        // "enviado null" (Prisma.DbNull) para no dejar bloques huérfanos de
+        // una edición asistida previa.
+        contentBlocks: mode === "pro" ? null : blocks,
         category: category || undefined,
         subcategories,
         software,
@@ -1235,6 +1360,21 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
             </Row>
           )}
         </Row>
+        <Row fillWidth paddingTop="8">
+          <Textarea
+            id="project-description"
+            label="Descripción breve (opcional)"
+            placeholder="Resume el proyecto en una frase corta"
+            lines={2}
+            value={description}
+            onChange={(e) => {
+              if (e.target.value.length <= MAX_DESCRIPTION_LENGTH) setDescription(e.target.value);
+            }}
+            maxLength={MAX_DESCRIPTION_LENGTH}
+            characterCount
+            disabled={disabled}
+          />
+        </Row>
         {loadingPiece ? (
           <Row fill horizontal="center" vertical="center" paddingY="80">
             <Spinner size="l" ariaLabel="Cargando proyecto" />
@@ -1258,10 +1398,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                     border="neutral-alpha-weak"
                     style={{ minHeight: "100%" }}
                   >
-                    <Feedback
-                      variant="info"
-                      description="Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
-                    />
+                    <Row fillWidth gap="12" vertical="center" s={{ direction: "column" }}>
+                      <Column flex={1}>
+                        <Feedback
+                          variant="info"
+                          description={
+                            mode === "pro"
+                              ? "Modo Pro: escribe Markdown/MDX directo. Cambia a «Asistido» para volver al Canvas por bloques (perderás lo que hayas escrito aquí)."
+                              : "Arma tu caso de estudio con los íconos de «Añadir sección» en el panel de la derecha; el orden en que las acomodes será el orden final de la publicación."
+                          }
+                        />
+                      </Column>
+                      <SegmentedControl
+                        selected={mode}
+                        onToggle={(value) => handleModeChange(value as EditorMode)}
+                        buttons={EDITOR_MODE_OPTIONS.map((option) => ({ ...option, disabled }))}
+                        fillWidth={false}
+                      />
+                    </Row>
 
                     <Row fillWidth gap="12" s={{ direction: "column" }}>
                       <Column flex={1} style={{ minWidth: 0 }}>
@@ -1434,23 +1588,53 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       )}
                     </Column>
 
-                    <Column
-                      fillWidth
-                      gap="16"
-                      radius="m"
-                      padding="8"
-                      // Feedback del canvas como dropzone: mientras hay un drag
-                      // activo (bloque existente O herramienta del panel), el
-                      // lienzo completo marca su borde/fondo para comunicar
-                      // "puedes soltar aquí"; `transition` (token nativo) anima
-                      // el cambio de color sin CSS manual.
-                      border={dragPayload ? "brand-alpha-medium" : "transparent"}
-                      background={dragPayload ? "brand-alpha-weak" : "transparent"}
-                      transition="micro-medium"
-                      onDragOver={handleCanvasDragOver}
-                      onDrop={handleCanvasDrop}
-                    >
-                      {blocks.length === 0 ? (
+                    {mode === "pro" ? (
+                      // FEATURE (Modo Pro): reemplaza el Canvas de bloques
+                      // por un Textarea de Markdown/MDX crudo. La nota
+                      // colapsable de arriba lista los componentes
+                      // soportados (mismo registro que components de
+                      // mdx.tsx) sin ser un catálogo exhaustivo de props.
+                      <Column fillWidth gap="12">
+                        <Accordion
+                          title="Componentes soportados"
+                          size="s"
+                          radius="m"
+                        >
+                          <Text variant="body-default-s" onBackground="neutral-weak">
+                            {PRO_SUPPORTED_COMPONENTS_HELP}
+                          </Text>
+                        </Accordion>
+                        <Textarea
+                          id="project-pro-markdown"
+                          label="Markdown / MDX"
+                          placeholder={PRO_MARKDOWN_PLACEHOLDER}
+                          value={proMarkdown}
+                          onChange={(e) => setProMarkdown(e.target.value)}
+                          lines={22}
+                          resize="vertical"
+                          disabled={disabled}
+                          style={{ minHeight: "30rem", fontFamily: "var(--font-code)" }}
+                        />
+                      </Column>
+                    ) : (
+                      <>
+                        <Column
+                          fillWidth
+                          gap="16"
+                          radius="m"
+                          padding="8"
+                          // Feedback del canvas como dropzone: mientras hay un drag
+                          // activo (bloque existente O herramienta del panel), el
+                          // lienzo completo marca su borde/fondo para comunicar
+                          // "puedes soltar aquí"; `transition` (token nativo) anima
+                          // el cambio de color sin CSS manual.
+                          border={dragPayload ? "brand-alpha-medium" : "transparent"}
+                          background={dragPayload ? "brand-alpha-weak" : "transparent"}
+                          transition="micro-medium"
+                          onDragOver={handleCanvasDragOver}
+                          onDrop={handleCanvasDrop}
+                        >
+                          {blocks.length === 0 ? (
                         <Column
                           fillWidth
                           horizontal="center"
@@ -1531,15 +1715,24 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       )}
                     </Column>
 
-                    <Row horizontal="center" paddingTop="8">
-                      <BlockTypePicker disabled={disabled} onSelect={(type) => insertBlock(type)} />
-                    </Row>
+                        <Row horizontal="center" paddingTop="8">
+                          <BlockTypePicker
+                            disabled={disabled}
+                            onSelect={(type) => insertBlock(type)}
+                          />
+                        </Row>
+                      </>
+                    )}
                   </Card>
                 </Column>
               }
               rightPanel={
                 // El scroll y el ancho los reparte ResizableSplit (ver leftPanel).
                 <Column gap="16">
+                  {/* En Modo Pro no hay Canvas donde soltar/instanciar
+                      bloques — el picker de "Añadir sección" solo tiene
+                      sentido en Asistido. */}
+                  {mode === "assisted" && (
                   <Card fillWidth padding="16" radius="l" direction="column" gap="12">
                     <Text variant="label-strong-s" onBackground="neutral-weak">
                       Añadir sección
@@ -1620,6 +1813,7 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                       })}
                     </Grid>
                   </Card>
+                  )}
 
                   {ATTACH_FILES_ENABLED && (
                     <Card fillWidth padding="16" radius="l" direction="column" gap="12">
@@ -1761,6 +1955,30 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
           />
         )}
       </Dialog>
+
+      {/* FEATURE (Modo Pro): `blocksToMarkdown` no tiene inversa — volver a
+          Asistido tras editar el Textarea a mano SIEMPRE descarta ese texto
+          (el Canvas vuelve a mostrar los bloques tal como estaban antes de
+          entrar a Pro, ver `handleModeChange`). Solo se pregunta si el texto
+          realmente cambió desde que se sembró (comparado contra
+          `proMarkdownSeedRef`); si no se tocó nada, el cambio es gratis y
+          este Dialog ni se abre. */}
+      <Dialog
+        isOpen={isModeDowngradeConfirmOpen}
+        onClose={() => setModeDowngradeConfirmOpen(false)}
+        title="¿Volver al modo Asistido?"
+        description="No se puede reconstruir el Canvas de bloques a partir del Markdown editado. Si continúas, volverás a los bloques que tenías antes de entrar a Pro y perderás los cambios de texto que hiciste aquí."
+        footer={
+          <Row fillWidth gap="8" horizontal="end" wrap>
+            <Button variant="tertiary" size="m" onClick={() => setModeDowngradeConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="danger" size="m" onClick={confirmModeDowngrade}>
+              Continuar y descartar
+            </Button>
+          </Row>
+        }
+      />
     </>
   );
 }

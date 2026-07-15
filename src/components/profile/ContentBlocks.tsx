@@ -245,15 +245,15 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
   // "carousel") — solo cambia el label para dejarle el nombre "Carousel" al
   // bloque nuevo de abajo. Las piezas ya guardadas con este tipo no
   // cambian: solo es texto de la UI del editor.
-  { type: "carousel", label: "Tira de fotos", icon: "carousel" },
-  { type: "mediaCarousel", label: "Carousel", icon: "camera" },
+  { type: "carousel", label: "Tira de fotos", icon: "photoStack" },
+  { type: "mediaCarousel", label: "Carousel", icon: "carouselSlides" },
   { type: "embed", label: "Código", icon: "codeBracket" },
   { type: "video", label: "Video", icon: "film" },
   { type: "divider", label: "Divisor", icon: "divider" },
   { type: "avatarGroup", label: "Colaboradores", icon: "userGroup" },
   { type: "logoCloud", label: "Nube de logos", icon: "grid" },
-  { type: "scroller", label: "Tira deslizable", icon: "arrowRight" },
-  { type: "masonry", label: "Cuadrícula de fotos", icon: "gallery" },
+  { type: "scroller", label: "Tira deslizable", icon: "swipeStrip" },
+  { type: "masonry", label: "Cuadrícula de fotos", icon: "photoGrid" },
 ];
 
 // Mapa COMPLETO de label/icon por tipo (a diferencia de `BLOCK_TYPES`, que
@@ -265,8 +265,8 @@ export const BLOCK_TYPES: { type: ContentBlockType; label: string; icon: string 
 const ALL_BLOCK_META: Record<ContentBlockType, { label: string; icon: string }> = {
   image: { label: "Imagen", icon: "images" },
   text: { label: "Texto", icon: "document" },
-  carousel: { label: "Tira de fotos", icon: "carousel" },
-  mediaCarousel: { label: "Carousel", icon: "camera" },
+  carousel: { label: "Tira de fotos", icon: "photoStack" },
+  mediaCarousel: { label: "Carousel", icon: "carouselSlides" },
   embed: { label: "Código", icon: "codeBracket" },
   link: { label: "Links", icon: "openLink" },
   video: { label: "Video", icon: "film" },
@@ -278,8 +278,8 @@ const ALL_BLOCK_META: Record<ContentBlockType, { label: string; icon: string }> 
   progress: { label: "Barra de progreso", icon: "refreshCw" },
   avatarGroup: { label: "Colaboradores", icon: "userGroup" },
   logoCloud: { label: "Nube de logos", icon: "grid" },
-  scroller: { label: "Tira deslizable", icon: "arrowRight" },
-  masonry: { label: "Cuadrícula de fotos", icon: "gallery" },
+  scroller: { label: "Tira deslizable", icon: "swipeStrip" },
+  masonry: { label: "Cuadrícula de fotos", icon: "photoGrid" },
 };
 
 const BLOCK_LABEL: Record<ContentBlockType, string> = Object.fromEntries(

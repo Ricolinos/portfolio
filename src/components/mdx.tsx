@@ -1,4 +1,4 @@
-import { MDXRemote, MDXRemoteProps } from "next-mdx-remote/rsc";
+import { compileMDX, MDXRemoteProps } from "next-mdx-remote/rsc";
 import React, { ReactNode } from "react";
 import { slugify as transliterate } from "transliteration";
 
@@ -704,14 +704,37 @@ type CustomMDXProps = MDXRemoteProps & {
   components?: typeof components;
 };
 
-export function CustomMDX({ source, ...props }: CustomMDXProps) {
+// FEATURE (Modo Pro, markdown/MDX nativo): a diferencia del constructor
+// asistido —que solo produce Markdown/JSX que el propio editor generó y por
+// lo tanto siempre es válido—, el modo Pro deja al usuario escribir MDX a
+// mano. `<MDXRemote>` (RSC) compila y lanza la excepción DENTRO del árbol de
+// Server Components de forma asíncrona: sin capturarla, un MDX inválido
+// tumba la página completa (Next.js cae al error boundary más cercano →
+// 500), incluso para piezas que nunca pasaron por el modo Pro. Por eso acá
+// se compila con `compileMDX` (misma función que usa `MDXRemote` por dentro,
+// ver next-mdx-remote/dist/rsc.js) en un try/catch propio: si falla, la
+// página sigue respondiendo 200 con un aviso (`Feedback`, ya registrado en
+// el mapa de `components` de más abajo) en vez de tronar.
+export async function CustomMDX({ source, ...props }: CustomMDXProps) {
   const normalizedSource =
     typeof source === "string" ? selfCloseVoidHtmlTags(stripInlineStyleAttrs(source)) : source;
-  return (
-    <MDXRemote
-      {...props}
-      source={normalizedSource}
-      components={{ ...components, ...(props.components || {}) }}
-    />
-  );
+  const mergedComponents = { ...components, ...(props.components || {}) };
+
+  try {
+    const { content } = await compileMDX({
+      source: normalizedSource,
+      options: props.options,
+      components: mergedComponents,
+    });
+    return content;
+  } catch (error) {
+    console.error("[CustomMDX] error al compilar MDX/markdown", error);
+    return (
+      <Feedback
+        variant="danger"
+        title="El contenido tiene un error de sintaxis"
+        description="Este proyecto se escribió en modo Pro y el Markdown/MDX no se pudo interpretar. Revisa desde el editor que las etiquetas de componentes (Media, Carousel, etc.) estén bien cerradas."
+      />
+    );
+  }
 }
