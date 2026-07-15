@@ -700,13 +700,117 @@ function stripInlineStyleAttrs(source: string): string {
   return source.replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*')/gi, "");
 }
 
+// HOTFIX (digest 2687567694, ruta pública /[username]/proyecto/[slug], 500 en
+// producción): `next-mdx-remote` compila con micromark, que NO reconoce
+// comentarios HTML (`<!-- ... -->`) como construcción válida de Markdown/MDX
+// — truena con "Unexpected character '!' before name" apenas los ve. El HTML
+// que Word/Google Docs insertan al pegar en el contentEditable del bloque
+// "text" (ver ContentBlocks.tsx) casi siempre trae el artefacto
+// `<!--StartFragment-->`/`<!--EndFragment-->` que esos editores usan para
+// delimitar internamente el rango copiado — antes de este fix, ese
+// `innerHTML` crudo se guardaba tal cual en `markdownContent` (mismo defecto
+// de origen que ya arreglan `selfCloseVoidHtmlTags`/`stripInlineStyleAttrs`
+// arriba para otros artefactos de Word/Docs) y tronaba el server component
+// completo al renderizar. Igual que esos dos sanitizadores, este corre en
+// CADA render: sana también piezas YA guardadas en BD con el comentario, sin
+// requerir reeditar/reguardar.
+//
+// CUIDADO CON FENCES: a diferencia de `stripInlineStyleAttrs`/
+// `selfCloseVoidHtmlTags` (que operan sobre el string completo sin distinguir
+// fences — no se toca ese comportamiento preexistente aquí), este sanitizador
+// SÍ debe ser consciente de bloques de código: un fence documentando
+// `<!-- comentario -->` como CONTENIDO literal (ej. un demo de HTML) debe
+// seguir mostrándose tal cual, no vaciarse. `splitByFences` separa el string
+// en segmentos "fence" (el fence completo, delimitadores + contenido, INTACTO)
+// y "text" (todo lo demás, donde sí aplica el strip) antes de procesar.
+const FENCE_LINE_RE = /^ {0,3}(`{3,}|~{3,})/;
+
+function splitByFences(source: string): { type: "text" | "fence"; content: string }[] {
+  const lines = source.split("\n");
+  const segments: { type: "text" | "fence"; content: string }[] = [];
+  let current: string[] = [];
+  let currentType: "text" | "fence" = "text";
+  let fenceMarker: string | null = null;
+
+  const flush = () => {
+    if (current.length > 0) {
+      segments.push({ type: currentType, content: current.join("\n") });
+      current = [];
+    }
+  };
+
+  for (const line of lines) {
+    if (fenceMarker === null) {
+      const open = FENCE_LINE_RE.exec(line);
+      if (open) {
+        flush();
+        fenceMarker = open[1];
+        currentType = "fence";
+      } else {
+        currentType = "text";
+      }
+      current.push(line);
+    } else {
+      current.push(line);
+      const close = FENCE_LINE_RE.exec(line);
+      // CommonMark exige que el fence de cierre use el mismo carácter
+      // (backtick/virgulilla) y al menos la misma longitud que el de
+      // apertura, y que la línea no tenga más que espacios después.
+      if (
+        close &&
+        close[1][0] === fenceMarker[0] &&
+        close[1].length >= fenceMarker.length &&
+        line.trim() === close[1]
+      ) {
+        flush();
+        fenceMarker = null;
+        currentType = "text";
+      }
+    }
+  }
+  flush();
+  return segments;
+}
+
+// Elimina comentarios HTML completos (incluyendo multilínea) de un segmento
+// de texto. Un comentario SIN cierre (ej. contenido truncado, o el caso
+// límite de un `<!--StartFragment-->` cuyo cierre real quedó fuera del
+// fragmento pegado) se recorta desde ahí hasta el final del documento
+// completo: el propio `truncated` en `stripHtmlComments` propaga ese corte a
+// los segmentos siguientes (texto o fence) en vez de dejar un `<!--` colgante
+// que seguiría rompiendo la compilación.
+function stripHtmlComments(source: string): string {
+  const segments = splitByFences(source);
+  let truncated = false;
+  const result: string[] = [];
+
+  for (const segment of segments) {
+    if (truncated) continue;
+    if (segment.type === "fence") {
+      result.push(segment.content);
+      continue;
+    }
+    let text = segment.content.replace(/<!--[\s\S]*?-->/g, "");
+    const unterminatedIndex = text.indexOf("<!--");
+    if (unterminatedIndex !== -1) {
+      text = text.slice(0, unterminatedIndex);
+      truncated = true;
+    }
+    result.push(text);
+  }
+
+  return result.join("\n");
+}
+
 type CustomMDXProps = MDXRemoteProps & {
   components?: typeof components;
 };
 
 export function CustomMDX({ source, ...props }: CustomMDXProps) {
   const normalizedSource =
-    typeof source === "string" ? selfCloseVoidHtmlTags(stripInlineStyleAttrs(source)) : source;
+    typeof source === "string"
+      ? selfCloseVoidHtmlTags(stripInlineStyleAttrs(stripHtmlComments(source)))
+      : source;
   return (
     <MDXRemote
       {...props}
