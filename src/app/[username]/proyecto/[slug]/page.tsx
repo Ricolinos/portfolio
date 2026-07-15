@@ -17,6 +17,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { CustomMDX, ScrollToHash } from "@/components";
+import { AppearanceScope } from "@/components/profile/AppearanceScope";
 import { getCaseStudy, slugifyTitle } from "@/lib/caseStudies";
 import { categoryExploreHref, softwareTagVariant } from "@/lib/pieceCategories";
 import { prisma } from "@/lib/prisma";
@@ -51,6 +52,12 @@ const loadCaseStudy = cache(async (username: string, slug: string) => {
       id: true,
       name: true,
       imageUrl: true,
+      // Apariencia del perfil del dueño (marca/acento/neutro): el visor de
+      // proyecto también repinta su fondo con la paleta guardada, mismo
+      // patrón que /[username] (ver ProfileView.tsx / AppearanceScope.tsx).
+      profileBrand: true,
+      profileAccent: true,
+      profileNeutral: true,
       portfolio: {
         select: {
           title: true,
@@ -151,6 +158,13 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
   const hiddenSubcategoriesCount = subcategories.length - visibleSubcategories.length;
 
   return (
+    <AppearanceScope
+      appearance={{
+        brand: author.profileBrand,
+        accent: author.profileAccent,
+        neutral: author.profileNeutral,
+      }}
+    >
     <Column as="section" maxWidth="m" horizontal="center" gap="l">
       <Schema
         as="blogPosting"
@@ -237,5 +251,6 @@ export default async function PartnerCaseStudy({ params }: CaseStudyPageProps) {
       </Column>
       <ScrollToHash />
     </Column>
+    </AppearanceScope>
   );
 }

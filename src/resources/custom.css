@@ -52,3 +52,22 @@
   --scheme-neutral-600-50: rgba(137,152,159,0.5);
   /*
 }*/
+
+/* Transición de color al entrar/salir de un perfil (o caso de estudio) con
+   paleta propia (brand/accent/neutral distintos de la marca Hub-Nerds). Ver
+   src/components/profile/appearanceOverrideController.ts: agrega
+   `data-appearance-transition` en <html> justo antes de tocar esos data-*, y
+   lo quita solo, con un timeout, cuando la transición terminó — así el
+   fondo/header FUNDEN el nuevo color en vez de saltar de golpe, sin dejar
+   `transition` permanente en el resto del sitio ni interferir con las
+   transiciones propias de Once UI (hover, macro-medium, etc).
+   Acotado a body/header: son las superficies grandes que realmente pintan
+   el cambio de marca; el resto del contenido (tarjetas, botones) ya entra
+   con su color correcto vía RevealFx/Suspense, no hace falta fundirlo. */
+html[data-appearance-transition] body,
+html[data-appearance-transition] header {
+  transition:
+    background-color 0.4s ease,
+    border-color 0.4s ease,
+    color 0.4s ease;
+}

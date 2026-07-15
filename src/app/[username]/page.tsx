@@ -3,6 +3,8 @@ import { Meta } from "@once-ui-system/core";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { AppearanceScope } from "@/components/profile/AppearanceScope";
+import type { ProfileAppearanceValue } from "@/components/profile/AppearancePanel";
 import { ClientProfileView } from "@/components/profile/ClientProfileView";
 import {
   ClientProfileSkeleton,
@@ -17,6 +19,12 @@ import { baseURL } from "@/resources";
 
 interface UserProfilePageProps {
   params: Promise<{ username: string }>;
+  // ?editar=1 abre automáticamente el modal de edición del dueño al montar
+  // (ver ProfileView/ClientProfileView, openEditOnMount) — usado por el
+  // menú del avatar del Header ("Editar Perfil"). Se lee aquí (server
+  // component) y NO con useSearchParams en un client component: eso rompió
+  // el prerender de producción una vez (ver commit del modal de /mensajes).
+  searchParams: Promise<{ editar?: string }>;
 }
 
 type ClerkViewer = Awaited<ReturnType<typeof currentUser>>;
@@ -50,16 +58,21 @@ export async function generateMetadata({ params }: UserProfilePageProps): Promis
   });
 }
 
-export default async function UserProfilePage({ params }: UserProfilePageProps) {
+export default async function UserProfilePage({ params, searchParams }: UserProfilePageProps) {
   const { username } = await params;
+  const { editar } = await searchParams;
+  const openEditOnMount = editar === "1";
   await getOrCreateUser();
   const viewer = await currentUser();
 
   const isOwnProfile = viewer?.username === username;
-  // Query ligera (lookup indexado por username) que resuelve el 404 temprano
-  // y decide el rol para elegir el fallback de Suspense correcto. Todo el
-  // fetch pesado (piezas, cotizaciones, colaboración, discoverablePartners)
-  // vive en ProfileContent, dentro del boundary.
+  // Query ligera (lookup indexado por username) que resuelve el 404 temprano,
+  // decide el rol para elegir el fallback de Suspense correcto, Y (al no
+  // llevar `select`) ya trae profileBrand/profileAccent/profileNeutral: se
+  // reutilizan abajo para el AppearanceScope EXTERIOR, sin duplicar el
+  // select ni pagar una segunda consulta. Todo el fetch pesado (piezas,
+  // cotizaciones, colaboración, discoverablePartners) vive en ProfileContent,
+  // dentro del boundary.
   const profileUser = await prisma.user.findUnique({ where: { username } });
 
   // Username sin usuario en BD y que tampoco es el perfil propio del viewer → 404
@@ -82,18 +95,38 @@ export default async function UserProfilePage({ params }: UserProfilePageProps) 
     notFound();
   }
 
+  // Paleta GUARDADA del dueño del perfil (null en cualquier campo = sin
+  // override, hereda la marca Hub-Nerds). Se aplica en un AppearanceScope
+  // EXTERIOR al <Suspense> —no dentro de ProfileView, que solo resuelve tras
+  // el fetch pesado— para que el <html> ya quede teñido ANTES de que se
+  // pinte siquiera el fallback: la secuencia visual queda color → skeleton ya
+  // teñido → elementos, en vez de skeleton en cyan del sitio seguido de un
+  // salto brusco de color + contenido a la vez. ProfileView monta su PROPIO
+  // AppearanceScope interior (misma paleta guardada por defecto, se desvía
+  // en vivo con el preview del dueño mientras edita) — ambas instancias
+  // conviven sin pelearse vía el stack de prioridad de
+  // appearanceOverrideController (ver AppearanceScope.tsx).
+  const savedAppearance: ProfileAppearanceValue = {
+    brand: profileUser?.profileBrand ?? null,
+    accent: profileUser?.profileAccent ?? null,
+    neutral: profileUser?.profileNeutral ?? null,
+  };
+
   return (
-    <Suspense
-      fallback={role === "collaborator" ? <PartnerProfileSkeleton /> : <ClientProfileSkeleton />}
-    >
-      <ProfileContent
-        username={username}
-        viewer={viewer}
-        profileUser={profileUser}
-        isOwnProfile={isOwnProfile}
-        role={role}
-      />
-    </Suspense>
+    <AppearanceScope appearance={savedAppearance}>
+      <Suspense
+        fallback={role === "collaborator" ? <PartnerProfileSkeleton /> : <ClientProfileSkeleton />}
+      >
+        <ProfileContent
+          username={username}
+          viewer={viewer}
+          profileUser={profileUser}
+          isOwnProfile={isOwnProfile}
+          role={role}
+          openEditOnMount={openEditOnMount}
+        />
+      </Suspense>
+    </AppearanceScope>
   );
 }
 
@@ -103,6 +136,7 @@ interface ProfileContentProps {
   profileUser: ProfileUserRecord;
   isOwnProfile: boolean;
   role: string;
+  openEditOnMount: boolean;
 }
 
 // Todo el fetch pesado (piezas de portafolio, cotizaciones, colaboración con
@@ -115,6 +149,7 @@ async function ProfileContent({
   profileUser,
   isOwnProfile,
   role,
+  openEditOnMount,
 }: ProfileContentProps) {
   const displayName = isOwnProfile
     ? [viewer?.firstName, viewer?.lastName].filter(Boolean).join(" ") || username
@@ -218,6 +253,10 @@ async function ProfileContent({
         bio={profileUser?.bio}
         primaryRole={profileUser?.primaryRole}
         secondaryRoles={profileUser?.secondaryRoles ?? []}
+        profileBrand={profileUser?.profileBrand}
+        profileAccent={profileUser?.profileAccent}
+        profileNeutral={profileUser?.profileNeutral}
+        profileBorder={profileUser?.profileBorder}
         projects={projects}
         pieces={pieces}
         partnerId={ownerId}
@@ -227,6 +266,7 @@ async function ProfileContent({
         sharedResources={partnerCollabData?.sharedResources}
         viewerCanContact={viewerCanContact}
         viewerConnectionStatus={viewerConnectionStatus}
+        openEditOnMount={openEditOnMount}
       />
     );
   }
@@ -280,6 +320,7 @@ async function ProfileContent({
       collabProjects={clientCollabData?.projects}
       resources={clientCollabData?.resources}
       discoverablePartners={discoverablePartners}
+      openEditOnMount={openEditOnMount}
     />
   );
 }

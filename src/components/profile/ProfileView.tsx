@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Arrow,
   Avatar,
@@ -41,6 +41,8 @@ import {
   FeaturedImageUploadDialog,
   PartnerEditInfoDialog,
 } from "./PartnerProfileEditDialogs";
+import type { ProfileAppearanceValue } from "./AppearancePanel";
+import { AppearanceScope } from "./AppearanceScope";
 import { NewCollabProjectDialog, type ConnectionOption } from "./ClientCollabDialogs";
 import { ContactPartnerDialog } from "./PartnerCollabDialogs";
 import styles from "./ProfileView.module.scss";
@@ -90,6 +92,12 @@ interface ProfileViewProps {
   // Matriz de roles (Fase 4): rol principal destacado + hasta 2 secundarios.
   primaryRole?: string | null;
   secondaryRoles?: string[];
+  // Personalización de apariencia del perfil (editable por el propio Partner
+  // vía updateProfileAppearance); null = default de la marca del sitio.
+  profileBrand?: string | null;
+  profileAccent?: string | null;
+  profileNeutral?: string | null;
+  profileBorder?: string | null;
   projects: PartnerProject[];
   pieces: PartnerPiece[];
   // Id de usuario del dueño del perfil (el partner); usado para que un
@@ -103,6 +111,10 @@ interface ProfileViewProps {
   // Perfil ajeno visto por un cliente logueado.
   viewerCanContact?: boolean;
   viewerConnectionStatus?: "PENDING" | "ACCEPTED" | "REJECTED" | null;
+  // ?editar=1 en la URL (ver [username]/page.tsx): abre automáticamente el
+  // modal "Editar información de perfil" al montar — usado por el menú del
+  // avatar del Header ("Editar Perfil").
+  openEditOnMount?: boolean;
 }
 
 const IN_PROGRESS: ProjectStatus[] = ["draft", "sent", "active"];
@@ -669,6 +681,10 @@ export function ProfileView({
   bio,
   primaryRole,
   secondaryRoles = [],
+  profileBrand,
+  profileAccent,
+  profileNeutral,
+  profileBorder,
   projects,
   pieces,
   partnerId,
@@ -678,6 +694,7 @@ export function ProfileView({
   sharedResources = [],
   viewerCanContact = false,
   viewerConnectionStatus = null,
+  openEditOnMount = false,
 }: ProfileViewProps) {
   const router = useRouter();
   const [filter, setFilter] = useState<string>(ALL_CATEGORIES);
@@ -685,6 +702,19 @@ export function ProfileView({
   const [openDialog, setOpenDialog] = useState<
     "avatar" | "info" | "featured" | null
   >(null);
+
+  // Apertura automática del modal de edición al llegar con ?editar=1 (menú
+  // del avatar del Header → "Editar Perfil"). Solo al montar: un cambio
+  // posterior de la prop (no debería ocurrir, la página no revalida sola)
+  // no debe reabrir el modal si el dueño ya lo cerró.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: solo debe correr al montar.
+  useEffect(() => {
+    if (isOwnProfile && openEditOnMount) {
+      setOpenDialog("info");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editPieceId, setEditPieceId] = useState<string | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<PartnerPiece | null>(null);
@@ -692,6 +722,25 @@ export function ProfileView({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [contactDialogOpen, setContactDialogOpen] = useState(false);
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
+
+  // Apariencia del DUEÑO del perfil (marca/acento/neutro). Arranca en los
+  // valores guardados en BD (props) y, cuando isOwnProfile, se sobre-escribe
+  // en vivo con el preview del AppearancePanel mientras el Partner edita
+  // (ver onPreviewAppearanceChange más abajo) — sin esperar a guardar. El
+  // efecto re-sincroniza con las props cada vez que cambian (tras
+  // router.refresh() al guardar, o al abrir el perfil de otro Partner).
+  // profileBorder queda inerte a propósito (ver AppearancePanel.tsx): los
+  // bordes de /explorar/designerds no se personalizan.
+  const savedAppearance: ProfileAppearanceValue = {
+    brand: profileBrand ?? null,
+    accent: profileAccent ?? null,
+    neutral: profileNeutral ?? null,
+  };
+  const [appearance, setAppearance] = useState<ProfileAppearanceValue>(savedAppearance);
+  useEffect(() => {
+    setAppearance(savedAppearance);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileBrand, profileAccent, profileNeutral]);
 
   const collabProjectOptions: ConnectionOption[] = partnerConnections.map((connection) => ({
     value: connection.id,
@@ -747,8 +796,14 @@ export function ProfileView({
   ];
 
   return (
+    <AppearanceScope appearance={appearance}>
     <RevealFx fillWidth horizontal="center" revealedByDefault>
-      <Column fillWidth maxWidth="l" horizontal="center" paddingBottom="80">
+      <Column
+        fillWidth
+        maxWidth="l"
+        horizontal="center"
+        paddingBottom="80"
+      >
         <Column fillWidth paddingX="32" paddingTop="24" gap="0">
 
           {/* ── Layout de grilla: identidad + proyectos comparten el mismo track ── */}
@@ -1105,6 +1160,8 @@ export function ProfileView({
               }}
               initialPrimaryRole={primaryRole}
               initialSecondaryRoles={secondaryRoles}
+              initialAppearance={savedAppearance}
+              onPreviewAppearanceChange={setAppearance}
               avatarUrl={avatarUrl}
               displayName={displayName}
               username={username}
@@ -1181,5 +1238,6 @@ export function ProfileView({
         </>
       )}
     </RevealFx>
+    </AppearanceScope>
   );
 }
