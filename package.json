@@ -11,6 +11,7 @@
     "lint": "next lint",
     "agents": "tsx scripts/agent-studio.ts",
     "seed:demo": "tsx scripts/seed-demo-users.ts",
+    "setup:storage": "tsx scripts/setup-storage.ts",
     "agent:supervisor": "claude \"Lee las instrucciones en .claude/roles/supervisor.md y ejecuta de forma estricta: \"",
     "agent:ui": "claude \"Lee las instrucciones en .claude/roles/ui.md y ejecuta de forma estricta: \"",
     "agent:data": "claude \"Lee las instrucciones en .claude/roles/data.md y ejecuta de forma estricta: \""

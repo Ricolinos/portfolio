@@ -51,8 +51,9 @@ import {
   resolveCoverSrc,
   toVideoCoverUrl,
 } from "@/lib/coverMedia";
-import { readFileAsDataUrl } from "@/lib/files";
 import { PIECE_CATEGORIES } from "@/lib/pieceCategories";
+import { isPortfolioMediaUrl } from "@/lib/storageConfig";
+import { uploadMediaFile } from "@/lib/storageUpload";
 import { AttachFilesModal, type AttachmentKind, type ProjectAttachment } from "./AttachFilesModal";
 import {
   BLOCK_TYPES,
@@ -92,12 +93,13 @@ const MAX_SUBCATEGORIES = 10;
 const MAX_SOFTWARE = 15;
 const SUBCATEGORY_SUGGESTION_LIMIT = 8;
 
-// Sin bucket de Storage, la portada viaja como data URL dentro del body de
-// la server action: 10MB es el límite configurado en next.config.mjs para
-// desarrollo, pero Vercel capa las funciones serverless a ~4.5MB en
-// producción. Un GIF sin recomprimir (ver comentario de `coverKind` más
-// abajo) puede pesar varios MB fácilmente — este umbral es solo un AVISO no
-// bloqueante para que el usuario sepa que puede fallar al publicar.
+// La portada sube directo a Supabase Storage (lib/storageUpload.ts), no por
+// el body de la server action — el único tope real es el de
+// createSignedUpload (actions/media.ts, 10MB). Un GIF sin recomprimir (ver
+// comentario de `coverKind` más abajo) puede acercarse a ese límite
+// fácilmente: este umbral es un AVISO temprano (antes de intentar subir),
+// no bloqueante, para que el usuario no espere la subida completa solo para
+// enterarse al final.
 const GIF_SIZE_WARNING_BYTES = 3 * 1024 * 1024;
 
 type CoverKind = "image" | "gif" | "video";
@@ -675,6 +677,12 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   // — el prefijo se agrega recién al guardar (handleSave), así el input del
   // usuario es la URL real y no un valor con prefijo confuso.
   const [videoUrl, setVideoUrl] = useState("");
+  // "Subido" cubre las dos formas posibles de `videoUrl` que NO son una URL
+  // externa pegada a mano: data URL legacy (piezas de antes de Storage) o
+  // URL pública real del bucket `portfolio-media` (ver
+  // lib/storageConfig.ts) — gatea qué mitad del SegmentedControl "video" se
+  // muestra (VideoFileDropzone vs. Input de URL externa).
+  const isUploadedVideo = isVideoDataUrl(videoUrl) || isPortfolioMediaUrl(videoUrl);
   // Colapso puramente de UI (mismo criterio que ContentBlockCard): la
   // portada sigue siendo obligatoria, esto solo minimiza su sección en el
   // lienzo cuando ya se subió la imagen.
@@ -835,19 +843,21 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
   const handleCoverUpload = async (file: File) => {
     setCoverUploading(true);
     setCoverSizeWarning(null);
+    setError(null);
     try {
-      const url = await readFileAsDataUrl(file);
+      // El blob que llega aquí ya viene comprimido por MediaUpload cuando
+      // coverKind es "image" (compress=true, ver Compressor.js en el
+      // harness); el GIF llega SIN recomprimir (compress=false, mismo
+      // criterio de siempre) — en ambos casos se sube tal cual a Storage.
+      const url = await uploadMediaFile(file);
       setCoverUrl(url);
-      // GIF sin recomprimir (ver MediaUpload compress={false} más abajo):
-      // avisa si pesa mucho, sin bloquear — el límite real de producción
-      // (Vercel, ~4.5MB) solo se confirma al intentar guardar.
       if (coverKind === "gif" && file.size > GIF_SIZE_WARNING_BYTES) {
         setCoverSizeWarning(
-          `Este GIF pesa ${(file.size / (1024 * 1024)).toFixed(1)} MB. Los archivos pesados pueden fallar al publicar en producción — si el guardado falla, usa un GIF más liviano.`,
+          `Este GIF pesa ${(file.size / (1024 * 1024)).toFixed(1)} MB. El máximo permitido es 10MB.`,
         );
       }
-    } catch {
-      setError("No se pudo subir la portada. Intenta de nuevo.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo subir la portada. Intenta de nuevo.");
     } finally {
       setCoverUploading(false);
     }
@@ -1346,14 +1356,22 @@ export function CreateProjectModal({ isOpen, onClose, pieceId = null }: CreatePr
                             // código ya la soportaba y sigue siendo razonable
                             // para no duplicar un archivo que ya vive en otro
                             // hosting), oculta mientras haya un video subido.
+                            // `isUploadedVideo` cubre las DOS formas de "video
+                            // subido": data URL legacy (piezas de antes de
+                            // Storage) o URL pública real de nuestro bucket
+                            // (isPortfolioMediaUrl) — sin esto último, un
+                            // video recién subido (URL https que también
+                            // "parece" externa por terminar en .mp4) se
+                            // trataría como pegado a mano y desaparecería del
+                            // dropzone tras subirlo.
                             <Column fillWidth gap="12">
                               <VideoFileDropzone
-                                value={isVideoDataUrl(videoUrl) ? videoUrl : ""}
+                                value={isUploadedVideo ? videoUrl : ""}
                                 onChange={setVideoUrl}
                                 disabled={disabled}
                                 aspectRatio="16 / 9"
                               />
-                              {!isVideoDataUrl(videoUrl) && (
+                              {!isUploadedVideo && (
                                 <Column fillWidth gap="8">
                                   <Input
                                     id="project-cover-video-url"

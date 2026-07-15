@@ -38,7 +38,7 @@ import { MediaUpload } from "@once-ui-system/core/modules";
 import { type DragEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type PublicPartnerResult, searchPublicPartners } from "@/app/actions/portfolioPieces";
 import { CarouselVideoSlide, MdxCarousel } from "@/components/mdx-carousel";
-import { readFileAsDataUrl } from "@/lib/files";
+import { uploadMediaFile } from "@/lib/storageUpload";
 import {
   DEFAULT_TEXT_PT,
   FONT_LIBRARY,
@@ -2213,6 +2213,11 @@ interface MediaCarouselBlockEditorProps {
 // logoCloud más abajo.
 function MediaCarouselBlockEditor({ block, onChange, disabled }: MediaCarouselBlockEditorProps) {
   const updateSlides = (slides: CarouselSlide[]) => onChange({ ...block, slides });
+  // Error de subida a Supabase Storage (lib/storageUpload.ts) de cualquier
+  // slide de imagen — mismo criterio de un solo mensaje compartido que
+  // ContentBlockCard.uploadError (ver ahí). Los slides "file" (video) usan
+  // VideoFileDropzone, que ya maneja su propio error inline.
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const addSlide = (kind: CarouselSlide["kind"]) => {
     const slide: CarouselSlide =
@@ -2267,6 +2272,8 @@ function MediaCarouselBlockEditor({ block, onChange, disabled }: MediaCarouselBl
         />
       </Row>
 
+      {uploadError && <Feedback variant="danger" description={uploadError} />}
+
       {block.slides.length > 0 && (
         <Column gap="12">
           {block.slides.map((slide, index) => (
@@ -2317,10 +2324,17 @@ function MediaCarouselBlockEditor({ block, onChange, disabled }: MediaCarouselBl
                     emptyState="Subir imagen"
                     radius="m"
                     onFileUpload={async (file) => {
-                      const url = await readFileAsDataUrl(file);
-                      updateSlides(
-                        block.slides.map((s) => (s.id === slide.id ? { ...s, url } : s)),
-                      );
+                      try {
+                        setUploadError(null);
+                        const url = await uploadMediaFile(file);
+                        updateSlides(
+                          block.slides.map((s) => (s.id === slide.id ? { ...s, url } : s)),
+                        );
+                      } catch (err) {
+                        setUploadError(
+                          err instanceof Error ? err.message : "No se pudo subir la imagen.",
+                        );
+                      }
                     }}
                   />
                 </Column>
@@ -2450,6 +2464,14 @@ export function ContentBlockCard({
   // blocksToMarkdown/blockToMarkdown.
   const [collapsed, setCollapsed] = useState(false);
 
+  // Error de subida a Supabase Storage (lib/storageUpload.ts), compartido
+  // por TODOS los puntos de subida de esta tarjeta (imagen, tira de fotos,
+  // nube de logos, cuadrícula, carousel): una tarjeta solo edita un tipo de
+  // bloque a la vez, así que un mensaje único basta sin necesitar un estado
+  // por tile individual. VideoFileDropzone maneja su propio error inline,
+  // no pasa por aquí.
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   // El bloque "divisor" (tarea 7, auditoría de herramientas) es el único
   // sin nada que colapsar (una sola línea, sin campos de edición): se le
   // quita el chevron de colapso y se le da un fondo de contraste
@@ -2523,6 +2545,8 @@ export function ContentBlockCard({
         </Row>
       </Row>
 
+      {uploadError && <Feedback variant="danger" description={uploadError} />}
+
       {!collapsed && block.type === "text" && (
         <RichTextEditor
           html={block.html}
@@ -2563,9 +2587,14 @@ export function ContentBlockCard({
             resizeMaxHeight={1600}
             initialPreviewImage={block.url || null}
             emptyState="Subir imagen"
-            onFileUpload={async (file) =>
-              onChange({ ...block, url: await readFileAsDataUrl(file) })
-            }
+            onFileUpload={async (file) => {
+              try {
+                setUploadError(null);
+                onChange({ ...block, url: await uploadMediaFile(file) });
+              } catch (err) {
+                setUploadError(err instanceof Error ? err.message : "No se pudo subir la imagen.");
+              }
+            }}
           />
         </Column>
       )}
@@ -2594,11 +2623,18 @@ export function ContentBlockCard({
                 emptyState=""
                 radius="m"
                 onFileUpload={async (file) => {
-                  const url = await readFileAsDataUrl(file);
-                  onChange({
-                    ...block,
-                    images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
-                  });
+                  try {
+                    setUploadError(null);
+                    const url = await uploadMediaFile(file);
+                    onChange({
+                      ...block,
+                      images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
+                    });
+                  } catch (err) {
+                    setUploadError(
+                      err instanceof Error ? err.message : "No se pudo subir la imagen.",
+                    );
+                  }
                 }}
               />
               <IconButton
@@ -2627,11 +2663,16 @@ export function ContentBlockCard({
               emptyState="Agregar"
               radius="m"
               onFileUpload={async (file) => {
-                const url = await readFileAsDataUrl(file);
-                onChange({
-                  ...block,
-                  images: [...block.images, { id: newId(), url, alt: "" }],
-                });
+                try {
+                  setUploadError(null);
+                  const url = await uploadMediaFile(file);
+                  onChange({
+                    ...block,
+                    images: [...block.images, { id: newId(), url, alt: "" }],
+                  });
+                } catch (err) {
+                  setUploadError(err instanceof Error ? err.message : "No se pudo subir la imagen.");
+                }
               }}
             />
           </Column>
@@ -3030,11 +3071,18 @@ export function ContentBlockCard({
                   initialPreviewImage={logo.url || null}
                   emptyState="Logo"
                   onFileUpload={async (file) => {
-                    const url = await readFileAsDataUrl(file);
-                    onChange({
-                      ...block,
-                      logos: block.logos.map((l) => (l.id === logo.id ? { ...l, url } : l)),
-                    });
+                    try {
+                      setUploadError(null);
+                      const url = await uploadMediaFile(file);
+                      onChange({
+                        ...block,
+                        logos: block.logos.map((l) => (l.id === logo.id ? { ...l, url } : l)),
+                      });
+                    } catch (err) {
+                      setUploadError(
+                        err instanceof Error ? err.message : "No se pudo subir el logo.",
+                      );
+                    }
                   }}
                 />
                 <IconButton
@@ -3063,8 +3111,13 @@ export function ContentBlockCard({
                 resizeMaxHeight={800}
                 emptyState="Agregar"
                 onFileUpload={async (file) => {
-                  const url = await readFileAsDataUrl(file);
-                  onChange({ ...block, logos: [...block.logos, { id: newId(), url }] });
+                  try {
+                    setUploadError(null);
+                    const url = await uploadMediaFile(file);
+                    onChange({ ...block, logos: [...block.logos, { id: newId(), url }] });
+                  } catch (err) {
+                    setUploadError(err instanceof Error ? err.message : "No se pudo subir el logo.");
+                  }
                 }}
               />
             </Column>
@@ -3164,11 +3217,18 @@ export function ContentBlockCard({
                   emptyState="Foto"
                   radius="m"
                   onFileUpload={async (file) => {
-                    const url = await readFileAsDataUrl(file);
-                    onChange({
-                      ...block,
-                      images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
-                    });
+                    try {
+                      setUploadError(null);
+                      const url = await uploadMediaFile(file);
+                      onChange({
+                        ...block,
+                        images: block.images.map((i) => (i.id === image.id ? { ...i, url } : i)),
+                      });
+                    } catch (err) {
+                      setUploadError(
+                        err instanceof Error ? err.message : "No se pudo subir la imagen.",
+                      );
+                    }
                   }}
                 />
                 <IconButton
@@ -3200,11 +3260,18 @@ export function ContentBlockCard({
                 emptyState="Agregar"
                 radius="m"
                 onFileUpload={async (file) => {
-                  const url = await readFileAsDataUrl(file);
-                  onChange({
-                    ...block,
-                    images: [...block.images, { id: newId(), url, alt: "" }],
-                  });
+                  try {
+                    setUploadError(null);
+                    const url = await uploadMediaFile(file);
+                    onChange({
+                      ...block,
+                      images: [...block.images, { id: newId(), url, alt: "" }],
+                    });
+                  } catch (err) {
+                    setUploadError(
+                      err instanceof Error ? err.message : "No se pudo subir la imagen.",
+                    );
+                  }
                 }}
               />
             </Column>

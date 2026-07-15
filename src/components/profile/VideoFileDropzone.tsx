@@ -3,14 +3,17 @@
 import { Column, Icon, IconButton, Row, Spinner, Text } from "@once-ui-system/core";
 import type React from "react";
 import { useRef, useState } from "react";
-import { readFileAsDataUrl } from "@/lib/files";
+import { uploadMediaFile } from "@/lib/storageUpload";
 import { MAX_VIDEO_FILE_BYTES, VIDEO_UPLOAD_HELP_TEXT, validateVideoFile } from "@/lib/videoUpload";
 
 interface VideoFileDropzoneProps {
-  // data URL del video ya subido ("data:video/mp4;base64,...") o "" si no
-  // hay ninguno todavía.
+  // URL pública del video ya subido a Supabase Storage (o, en piezas
+  // guardadas antes de esta migración, un data URL legacy
+  // "data:video/mp4;base64,..." — ambos formatos se distinguen por prefijo
+  // en isVideoDataUrl/lib/coverMedia y se renderizan igual con <video>), o
+  // "" si no hay ninguno todavía.
   value: string;
-  onChange: (dataUrl: string) => void;
+  onChange: (url: string) => void;
   disabled?: boolean;
   aspectRatio?: string;
 }
@@ -25,7 +28,7 @@ interface VideoFileDropzoneProps {
 // portada por video (CreateProjectModal), el bloque "video" del cuerpo y
 // las slides de video del bloque "Carousel" (ambos en ContentBlocks.tsx)—
 // con las reglas de `lib/videoUpload.ts` (solo .mp4, <10MB) aplicadas ANTES
-// de leer el archivo.
+// de subir el archivo a Supabase Storage (lib/storageUpload.ts).
 export function VideoFileDropzone({
   value,
   onChange,
@@ -47,9 +50,9 @@ export function VideoFileDropzone({
     setError(null);
     setUploading(true);
     try {
-      onChange(await readFileAsDataUrl(file));
-    } catch {
-      setError("No se pudo subir el video. Intenta de nuevo.");
+      onChange(await uploadMediaFile(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo subir el video. Intenta de nuevo.");
     } finally {
       setUploading(false);
     }
@@ -96,11 +99,14 @@ export function VideoFileDropzone({
         }}
       >
         {value ? (
-          // GOTCHA (ver lib/coverMedia.ts, isVideoDataUrl): `Media` (once-ui)
-          // no reconoce "data:video/..." como video —su regex exige una
-          // extensión .mp4 al final de la URL—, así que la previsualización
-          // usa <video> nativo directo. `muted` porque `autoPlay` sin mute
-          // lo bloquea el navegador.
+          // <video> nativo directo en vez de `Media` (once-ui) para las dos
+          // formas posibles de `value`: la URL pública de Storage SÍ termina
+          // en ".mp4" (Media la reconocería), pero un data URL legacy
+          // ("data:video/mp4;base64,...", piezas de antes de esta migración)
+          // nunca lo hace —su regex exige una extensión .mp4 al final de la
+          // URL, ver lib/coverMedia.ts isVideoDataUrl— así que se usa
+          // siempre <video> nativo para tratar ambos formatos igual. `muted`
+          // porque `autoPlay` sin mute lo bloquea el navegador.
           <video
             src={value}
             muted
