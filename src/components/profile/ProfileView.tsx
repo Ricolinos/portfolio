@@ -33,10 +33,11 @@ import {
 } from "@once-ui-system/core";
 import type { ProjectStatus } from "@/lib/projectStatus";
 import type { CollabProjectData, PartnerConnectionData, SharedResourceData } from "@/lib/collab";
-import { coverKindOf, extractYouTubeId, resolveCoverSrc, youtubeThumbnailUrl } from "@/lib/coverMedia";
+import { coverKindOf, extractYouTubeId, resolveCoverSrc } from "@/lib/coverMedia";
 import type { IconName } from "@/resources/icons";
 import { respondContactRequest } from "@/app/actions/collab";
 import { RoleTag } from "@/components/RoleTag";
+import { VideoCover } from "@/components/shared/VideoCover";
 import { AvatarUploadDialog } from "./ClientProfileEditDialogs";
 import {
   FeaturedImageUploadDialog,
@@ -277,41 +278,21 @@ function PieceCard({
   };
 
   // Portada de video (link de YouTube o archivo .mp4/data URL, ver
-  // lib/coverMedia): igual que en ExploreFeed/HomeShowcase, sin Storage no
-  // hay forma de extraer un primer frame propio, así que esta grilla usa una
-  // miniatura ESTÁTICA (YouTube: miniatura oficial; .mp4: el propio <video
-  // preload="metadata"> como poster) con un ícono de play sobrepuesto. Sin
-  // portada en absoluto (piezas del editor de Markdown) conserva el
-  // placeholder de documento.
+  // lib/coverMedia): reproduce de verdad, silenciosa y en loop (ver
+  // componente compartido VideoCover). Sin portada en absoluto (piezas del
+  // editor de Markdown) conserva el placeholder de documento.
   const coverKind = coverKindOf(piece.coverUrl);
   const coverSrc = resolveCoverSrc(piece.coverUrl);
   const youtubeId = coverKind === "video" ? extractYouTubeId(coverSrc) : null;
   const cover =
     coverKind === "video" ? (
-      <Column fillWidth radius="m" overflow="hidden" background="neutral-alpha-weak" style={{ aspectRatio: "4 / 3" }}>
-        {youtubeId ? (
-          // eslint-disable-next-line @next/next/no-img-element -- miniatura estática externa (img.youtube.com no está en images.remotePatterns).
-          <img
-            src={youtubeThumbnailUrl(youtubeId)}
-            alt={piece.title}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          // eslint-disable-next-line jsx-a11y/media-has-caption -- poster estático (sin controls/autoplay), no hay audio que subtitular.
-          <video
-            src={coverSrc}
-            muted
-            playsInline
-            preload="metadata"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        )}
-        <Row position="absolute" top="0" left="0" fill horizontal="center" vertical="center" pointerEvents="none">
-          <Row radius="full" background="neutral-alpha-strong" padding="12" horizontal="center" vertical="center">
-            <Icon name="play" size="m" onBackground="neutral-strong" />
-          </Row>
-        </Row>
-      </Column>
+      <VideoCover
+        youtubeId={youtubeId}
+        src={coverSrc}
+        alt={piece.title}
+        aspectRatio="4 / 3"
+        background="neutral-alpha-weak"
+      />
     ) : coverKind ? (
       <Column fillWidth radius="m" overflow="hidden" style={{ aspectRatio: "4 / 3" }}>
         <Media
