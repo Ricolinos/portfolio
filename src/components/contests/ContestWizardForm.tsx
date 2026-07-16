@@ -93,10 +93,11 @@ export function ContestWizardForm() {
     rightsPolicy: rightsPolicy || null,
   });
 
-  // Devuelve el id vigente (recién creado o ya existente) tras guardar, o
-  // null si falló — para encadenar publishContest sin depender del estado
-  // (setState es asíncrono).
-  const saveDraft = async (): Promise<string | null> => {
+  // Devuelve { id, slug } vigentes (recién creados o ya existentes) tras
+  // guardar, o null si falló — para encadenar publishContest sin depender
+  // del estado (setState es asíncrono: en el primer guardado+publicado
+  // dentro del mismo click, el `slug` de React todavía no se repintó).
+  const saveDraft = async (): Promise<{ id: string; slug: string } | null> => {
     setError(null);
     if (!title.trim()) {
       setError("El título es obligatorio.");
@@ -111,31 +112,31 @@ export function ContestWizardForm() {
       }
       setContestId(result.contestId);
       setSlug(result.slug);
-      return result.contestId;
+      return { id: result.contestId, slug: result.slug };
     }
     const result = await updateContest(contestId, input);
     if (!result.ok) {
       setError(result.error);
       return null;
     }
-    return contestId;
+    return { id: contestId, slug: slug ?? "" };
   };
 
   const handleSaveDraft = async () => {
     setSaving(true);
-    const id = await saveDraft();
+    const saved = await saveDraft();
     setSaving(false);
-    if (id) addToast({ variant: "success", message: "Borrador guardado." });
+    if (saved) addToast({ variant: "success", message: "Borrador guardado." });
   };
 
   const handlePublish = async () => {
     setPublishing(true);
-    const id = await saveDraft();
-    if (!id) {
+    const saved = await saveDraft();
+    if (!saved) {
       setPublishing(false);
       return;
     }
-    const result = await publishContest(id);
+    const result = await publishContest(saved.id);
     setPublishing(false);
     if (!result.ok) {
       setError(result.error);
@@ -143,7 +144,7 @@ export function ContestWizardForm() {
       return;
     }
     addToast({ variant: "success", message: "Convocatoria publicada." });
-    if (slug) router.push(`/convocatorias/${slug}`);
+    if (saved.slug) router.push(`/convocatorias/${saved.slug}`);
   };
 
   return (

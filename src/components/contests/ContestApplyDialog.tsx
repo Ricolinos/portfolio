@@ -134,11 +134,6 @@ export function ContestApplyDialog({
           <Column gap="8" fillWidth style={{ maxHeight: 240, overflowY: "auto" }}>
             {pieces.map((piece) => (
               <Row key={piece.id} gap="12" vertical="center" fillWidth>
-                <Checkbox
-                  isChecked={selectedIds.includes(piece.id)}
-                  onToggle={() => togglePiece(piece.id)}
-                  aria-label={`Incluir ${piece.title}`}
-                />
                 {piece.coverUrl ? (
                   <Media
                     src={resolveCoverSrc(piece.coverUrl)}
@@ -153,9 +148,11 @@ export function ContestApplyDialog({
                     style={{ width: 48, height: 32, flexShrink: 0 }}
                   />
                 )}
-                <Text variant="body-default-s" onBackground="neutral-strong" truncate>
-                  {piece.title}
-                </Text>
+                <Checkbox
+                  isChecked={selectedIds.includes(piece.id)}
+                  onToggle={() => togglePiece(piece.id)}
+                  label={piece.title}
+                />
               </Row>
             ))}
           </Column>

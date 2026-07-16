@@ -1,8 +1,14 @@
-import { Column, Heading, Line, Row, Tag, Text } from "@once-ui-system/core";
+import { Button, Column, Heading, Line, Row, Tag, Text } from "@once-ui-system/core";
+import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CustomMDX } from "@/components";
 import { ContestApplicationPanel } from "@/components/contests/ContestApplicationPanel";
+import { ContestEntrySubmitForm } from "@/components/contests/ContestEntrySubmitForm";
+import { ContestEntryView } from "@/components/contests/ContestEntryView";
+import { ContestJudgingPanel } from "@/components/contests/ContestJudgingPanel";
+import { ContestOwnerApplicationsPanel } from "@/components/contests/ContestOwnerApplicationsPanel";
+import { ContestResultsSection } from "@/components/contests/ContestResultsSection";
 import { canApplyToContest, getContestBySlug } from "@/lib/contests";
 import { contestBlocksToMarkdown, toContestBlocks } from "@/lib/contestBrief";
 import { contestPhaseTag, formatContestMoney } from "@/lib/contestPhaseUi";
@@ -56,6 +62,31 @@ export default async function ContestDetailPage({ params }: ContestPageProps) {
   const briefMarkdown = contestBlocksToMarkdown(toContestBlocks(contest.brief));
   const termsMarkdown = contestBlocksToMarkdown(toContestBlocks(contest.terms));
   const clientName = contest.client.name ?? contest.client.username ?? "Cliente";
+
+  // Terna (postulaciones SHORTLISTED, con su ContestEntry ya creada por
+  // selectShortlist): base de las secciones de entrega/fallo/resultados.
+  const shortlisted = contest.applications.filter(
+    (application) => application.status === "SHORTLISTED" && application.entry,
+  );
+  const allSubmitted = shortlisted.every((application) => application.entry?.submittedAt);
+  // Mismo guard que awardContest (src/app/actions/contests.ts): fallo
+  // habilitado en "judging" siempre, o en "production" solo si ya no faltan
+  // entregas — evita ofrecer el botón antes de que la action lo aceptaría.
+  const readyToAward =
+    contest.status === "SHORTLIST" &&
+    (contest.phase === "judging" || (contest.phase === "production" && allSubmitted));
+
+  const entryNodes: Record<string, ReactNode> = {};
+  for (const application of shortlisted) {
+    if (!application.entry) continue;
+    entryNodes[application.id] = (
+      <ContestEntryView
+        partner={application.partner}
+        submittedAt={application.entry.submittedAt}
+        contentBlocks={application.entry.contentBlocks}
+      />
+    );
+  }
 
   return (
     <Column fillWidth maxWidth="m" paddingY="48" paddingX="24" gap="32" horizontal="center">
@@ -139,6 +170,20 @@ export default async function ContestDetailPage({ params }: ContestPageProps) {
         </Text>
       </Column>
 
+      {contest.phase === "awarded" && <ContestResultsSection applications={contest.applications} />}
+
+      {contest.awardedProjectId &&
+        (isOwner || viewerApplication?.entry?.placement === "WINNER") && (
+          <Row fillWidth background="brand-alpha-weak" radius="l" padding="16" horizontal="between" vertical="center" gap="12" wrap>
+            <Text variant="body-default-s" onBackground="neutral-strong">
+              Ya existe un proyecto de colaboración a partir de este fallo.
+            </Text>
+            <Button variant="secondary" size="s" href={`/proyectos/${contest.awardedProjectId}`}>
+              Ver proyecto
+            </Button>
+          </Row>
+        )}
+
       <ContestApplicationPanel
         contestId={contest.id}
         canApply={applyGuard.ok}
@@ -152,6 +197,52 @@ export default async function ContestDetailPage({ params }: ContestPageProps) {
         }
         isLoggedOut={!dbUser}
       />
+
+      {isOwner && contest.phase !== "draft" && contest.phase !== "awarded" && (
+        <ContestOwnerApplicationsPanel
+          contestId={contest.id}
+          phase={contest.phase}
+          shortlistSize={contest.shortlistSize}
+          shortlistFee={contest.shortlistFee}
+          currency={contest.currency}
+          applications={contest.applications}
+        />
+      )}
+
+      {viewerApplication?.status === "SHORTLISTED" && viewerApplication.entry && (
+        <>
+          {viewerApplication.entry.submittedAt ? (
+            <ContestEntryView
+              partner={viewerApplication.partner}
+              submittedAt={viewerApplication.entry.submittedAt}
+              contentBlocks={viewerApplication.entry.contentBlocks}
+            />
+          ) : contest.phase === "production" ? (
+            <ContestEntrySubmitForm
+              applicationId={viewerApplication.id}
+              submitDeadline={contest.submitDeadline}
+              initialContentBlocks={viewerApplication.entry.contentBlocks}
+            />
+          ) : contest.phase === "judging" ? (
+            <Row fillWidth background="danger-alpha-weak" radius="l" padding="16">
+              <Text variant="body-default-s" onBackground="danger-strong">
+                No entregaste a tiempo.
+              </Text>
+            </Row>
+          ) : null}
+        </>
+      )}
+
+      {isOwner && readyToAward && (
+        <ContestJudgingPanel
+          contestId={contest.id}
+          applications={shortlisted.map((application) => ({
+            id: application.id,
+            partnerName: application.partner.name ?? application.partner.username ?? "Partner",
+          }))}
+          entryNodes={entryNodes}
+        />
+      )}
 
       <Line background="neutral-alpha-medium" />
 

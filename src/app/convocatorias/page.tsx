@@ -1,6 +1,7 @@
 import { Button, Column, Grid, Heading, Row, Text } from "@once-ui-system/core";
 import { ContestApplicationCard } from "@/components/contests/ContestApplicationCard";
 import { ContestCard } from "@/components/contests/ContestCard";
+import { ContestRecordSection } from "@/components/contests/ContestRecordSection";
 import { getApplicationsForPartner, getContestsForClient, getPublishedContests } from "@/lib/contests";
 import { getOrCreateUser } from "@/lib/syncUser";
 
@@ -45,7 +46,13 @@ export default async function ContestsPage() {
               <ContestCard
                 key={contest.id}
                 contest={contest}
-                client={{ id: dbUser.id, username: dbUser.username, name: dbUser.name, imageUrl: dbUser.imageUrl }}
+                client={{
+                  id: dbUser.id,
+                  username: dbUser.username,
+                  name: dbUser.name,
+                  imageUrl: dbUser.imageUrl,
+                  headline: dbUser.headline,
+                }}
               />
             ))}
           </Grid>
@@ -77,6 +84,8 @@ export default async function ContestsPage() {
           </Grid>
         )}
       </Column>
+
+      {dbUser && <ContestRecordSection userId={dbUser.id} role={dbUser.role} />}
     </Column>
   );
 }

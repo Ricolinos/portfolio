@@ -111,6 +111,7 @@ export interface ContestUserSummary {
   username: string | null;
   name: string | null;
   imageUrl: string | null;
+  headline: string | null;
 }
 
 export interface ContestEntryDetail {
@@ -125,6 +126,12 @@ export interface ContestEntryDetail {
   updatedAt: string;
 }
 
+export interface ContestPortfolioPieceOption {
+  id: string;
+  title: string;
+  coverUrl: string | null;
+}
+
 export interface ContestApplicationDetail {
   id: string;
   contestId: string;
@@ -132,6 +139,9 @@ export interface ContestApplicationDetail {
   partner: ContestUserSummary;
   pitch: string;
   portfolioPieceIds: string[];
+  // Piezas resueltas (título/portada) en el mismo orden que portfolioPieceIds,
+  // para las miniaturas del panel de postulaciones del cliente dueño.
+  portfolioPieces: ContestPortfolioPieceOption[];
   status: ContestApplicationStatus;
   entry: ContestEntryDetail | null;
   createdAt: string;
@@ -216,8 +226,15 @@ function toUserSummary(user: {
   username: string | null;
   name: string | null;
   imageUrl: string | null;
+  headline?: string | null;
 }): ContestUserSummary {
-  return { id: user.id, username: user.username, name: user.name, imageUrl: user.imageUrl };
+  return {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    imageUrl: user.imageUrl,
+    headline: user.headline ?? null,
+  };
 }
 
 function toEntryDetail(entry: {
@@ -270,11 +287,11 @@ export async function getContestBySlug(slug: string): Promise<ContestDetail | nu
   const contest = await prisma.contest.findUnique({
     where: { slug },
     include: {
-      client: { select: { id: true, username: true, name: true, imageUrl: true } },
+      client: { select: { id: true, username: true, name: true, imageUrl: true, headline: true } },
       applications: {
         orderBy: { createdAt: "asc" },
         include: {
-          partner: { select: { id: true, username: true, name: true, imageUrl: true } },
+          partner: { select: { id: true, username: true, name: true, imageUrl: true, headline: true } },
           entry: true,
         },
       },
@@ -283,6 +300,19 @@ export async function getContestBySlug(slug: string): Promise<ContestDetail | nu
   if (!contest) return null;
 
   const status = await materializeContestStatus(contest);
+
+  // Miniaturas de las piezas adjuntas a cada postulación (panel del cliente
+  // dueño): una sola consulta para todas las piezas referenciadas por
+  // cualquier postulación, en vez de N+1.
+  const allPieceIds = Array.from(new Set(contest.applications.flatMap((a) => a.portfolioPieceIds)));
+  const pieces =
+    allPieceIds.length > 0
+      ? await prisma.portfolioPiece.findMany({
+          where: { id: { in: allPieceIds } },
+          select: { id: true, title: true, coverUrl: true },
+        })
+      : [];
+  const pieceById = new Map(pieces.map((piece) => [piece.id, piece]));
 
   return {
     ...toContestSummary({ ...contest, status }, contest.applications.length),
@@ -298,6 +328,9 @@ export async function getContestBySlug(slug: string): Promise<ContestDetail | nu
       partner: toUserSummary(application.partner),
       pitch: application.pitch,
       portfolioPieceIds: application.portfolioPieceIds,
+      portfolioPieces: application.portfolioPieceIds
+        .map((id) => pieceById.get(id))
+        .filter((piece): piece is { id: string; title: string; coverUrl: string | null } => Boolean(piece)),
       status: application.status,
       entry: application.entry ? toEntryDetail(application.entry) : null,
       createdAt: application.createdAt.toISOString(),
