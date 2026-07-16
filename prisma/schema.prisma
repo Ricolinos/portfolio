@@ -13,18 +13,18 @@ datasource db {
 
 // Sincronizado con Clerk: el id es el userId de Clerk (user_xxx)
 model User {
-  id                String   @id
-  email             String   @unique
-  username          String?  @unique
+  id                String    @id
+  email             String    @unique
+  username          String?   @unique
   name              String?
   imageUrl          String?
-  role              String   @default("client")
+  role              String    @default("client")
   whatsapp          String?
   // Opt-in del colaborador para exponer su WhatsApp en su perfil público.
   // Default false: privado hasta que el propio usuario decida compartirlo, y
   // aun así solo visible a otros usuarios logueados de la plataforma (nunca
   // a visitantes anónimos). Ver src/app/[username]/page.tsx.
-  shareWhatsapp     Boolean  @default(false)
+  shareWhatsapp     Boolean   @default(false)
   // Perfil editable por el cliente desde /[username]
   secondaryEmail    String?
   address           String?
@@ -36,7 +36,7 @@ model User {
   coverImageUrl     String?
   // Visibilidad del Partner en Explorar/designerds; el perfil directo por
   // username sigue siendo accesible aunque sea privado
-  isPublic          Boolean  @default(true)
+  isPublic          Boolean   @default(true)
   // Imagen destacada de la tarjeta Designerd en Explorar (data URL comprimida,
   // mismo patrón que coverImageUrl)
   featuredImageUrl  String?
@@ -56,7 +56,7 @@ model User {
   // Matriz de roles del Partner (Fase 4): rol principal y hasta 2 roles
   // secundarios. Máx. 2 secundarios, validado en la server action, no en el schema.
   primaryRole       String?
-  secondaryRoles    String[] @default([])
+  secondaryRoles    String[]  @default([])
   // Presencia del messenger (heartbeat del cliente cada ~60s vía
   // presenceHeartbeat): null = nunca reportó actividad. La derivación a
   // online/busy/offline vive en src/lib/presence.ts (derivePresence).
@@ -71,8 +71,8 @@ model User {
   profileAccent     String?
   profileNeutral    String?
   profileBorder     String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   quotes       ProjectQuote[]
   mediaFiles   MediaFile[]
@@ -87,17 +87,22 @@ model User {
   sentMessages          Message[]             @relation("sentMessages")
 
   // Subsistema de mensajería/tareas del chat (Fase 1: chat-requirements.md)
-  startedThreads      DirectThread[]          @relation("startedThreads")
-  receivedThreads     DirectThread[]          @relation("receivedThreads")
-  sentDirectMessages  DirectMessage[]         @relation("sentDirectMessages")
-  sentChannelMessages ChannelMessage[]        @relation("sentChannelMessages")
-  projectRoles        ProjectRoleAssignment[] @relation("projectRoles")
-  assignedTasks       ProjectTask[]           @relation("assignedTasks")
-  notifications       Notification[]          @relation("notifications")
+  startedThreads       DirectThread[]          @relation("startedThreads")
+  receivedThreads      DirectThread[]          @relation("receivedThreads")
+  sentDirectMessages   DirectMessage[]         @relation("sentDirectMessages")
+  sentChannelMessages  ChannelMessage[]        @relation("sentChannelMessages")
+  projectRoles         ProjectRoleAssignment[] @relation("projectRoles")
+  assignedTasks        ProjectTask[]           @relation("assignedTasks")
+  notifications        Notification[]          @relation("notifications")
   // Control de acceso por sala (canales restringidos, ver ChannelMember)
-  channelMemberships  ChannelMember[]         @relation("channelMemberships")
+  channelMemberships   ChannelMember[]         @relation("channelMemberships")
   // Responsable asignado a tareas de activos (checklist de ProjectAsset)
-  assetTaskAssignments AssetTaskAssignee[]    @relation("assetTaskAssignments")
+  assetTaskAssignments AssetTaskAssignee[]     @relation("assetTaskAssignments")
+
+  // Brief-hub: convocatorias (concursos creativos) creadas por el cliente y
+  // postulaciones enviadas por el partner (ver Contest/ContestApplication)
+  clientContests      Contest[]            @relation("clientContests")
+  contestApplications ContestApplication[] @relation("contestApplications")
 }
 
 // Pieza de portafolio publicada por un partner. Respalda el showcase del
@@ -377,25 +382,25 @@ model TaskDependency {
 
 // Archivo del proyecto como link externo (la plataforma solo guarda URLs)
 model ProjectLink {
-  id        String        @id @default(cuid())
-  label     String
-  url       String
+  id          String            @id @default(cuid())
+  label       String
+  url         String
   // Detectado del hostname: drive | dropbox | onedrive | wetransfer | other
-  provider  String        @default("other")
+  provider    String            @default("other")
   // brand = assets de marca subidos por el cliente | final = activos finales
   // subidos por cualquier partner/colaborador. Inferido server-side, nunca
   // recibido como input del cliente (ver addProjectLink).
-  type      String        @default("final") // brand | final
+  type        String            @default("final") // brand | final
   // Etiqueta libre de archivo (FILE_SUBTYPES en src/lib/projectTypes.ts):
   // documento | grafico | recurso | video | otro
-  subtype   String?
-  addedById String
-  projectId String
-  project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subtype     String?
+  addedById   String
+  projectId   String
+  project     CollabProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // Adjunto ligado a una tarea de activo puntual (checklist de ProjectAsset)
   assetTaskId String?
   assetTask   ProjectAssetTask? @relation(fields: [assetTaskId], references: [id], onDelete: SetNull)
-  createdAt DateTime      @default(now())
+  createdAt   DateTime          @default(now())
 
   @@index([projectId])
   @@index([assetTaskId])
@@ -454,34 +459,34 @@ model ProjectAsset {
 }
 
 model ProjectAssetTask {
-  id        String       @id @default(cuid())
-  title     String
+  id             String              @id @default(cuid())
+  title          String
   // Booleano legado, conservado por compatibilidad; ahora derivado de status
   // (approved ⇒ true), ver updateAssetTaskDetails/resolveAssetTaskApproval.
-  done      Boolean      @default(false)
+  done           Boolean             @default(false)
   // pending | in_review | approved — mismo vocabulario que ProjectTask.status
-  status    String       @default("pending")
-  dueDate         DateTime?
-  deliverableUrl  String?
-  order     Int          @default(0)
-  assetId   String
-  asset     ProjectAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  assignees   AssetTaskAssignee[]
-  attachments ProjectLink[]
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  status         String              @default("pending")
+  dueDate        DateTime?
+  deliverableUrl String?
+  order          Int                 @default(0)
+  assetId        String
+  asset          ProjectAsset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assignees      AssetTaskAssignee[]
+  attachments    ProjectLink[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([assetId])
 }
 
 // Responsable(s) asignado(s) a una tarea de activo (checklist de ProjectAsset)
 model AssetTaskAssignee {
-  id         String           @id @default(cuid())
+  id          String           @id @default(cuid())
   assetTaskId String
   assetTask   ProjectAssetTask @relation(fields: [assetTaskId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User             @relation("assetTaskAssignments", fields: [userId], references: [id], onDelete: Cascade)
-  createdAt  DateTime         @default(now())
+  userId      String
+  user        User             @relation("assetTaskAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
 
   @@unique([assetTaskId, userId])
   @@index([assetTaskId])
@@ -590,8 +595,8 @@ model ProjectChannel {
   // implícita "tiene filas ChannelMember"): ChannelMember también guarda
   // admins de salas abiertas, así que su sola presencia ya no basta.
   restricted  Boolean       @default(false)
-  projectId String
-  project   CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  project     CollabProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   messages ChannelMessage[]
   // Control de acceso por sala, ver ChannelMember
@@ -670,6 +675,10 @@ enum NotificationType {
   NEW_MESSAGE
   TASK_ASSIGNED
   TASK_STATUS_CHANGED
+  // Brief-hub: el partner entró a la Terna de finalistas de una convocatoria
+  CONTEST_SHORTLISTED
+  // Brief-hub: el partner ganó una convocatoria (fallo emitido)
+  CONTEST_AWARDED
 }
 
 model Notification {
@@ -684,4 +693,118 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, readAt])
+}
+
+// ---------------------------------------------------------------------------
+// Brief-hub: convocatorias (concursos creativos) — modelo de dos fases anti
+// spec-work. Fase 1: el partner se postula SOLO con piezas de portafolio
+// existentes + pitch (ContestApplication), nunca con propuesta nueva. Fase 2:
+// el cliente elige una Terna limitada (selectShortlist) que sí produce
+// propuesta (ContestEntry) y cobra un fee garantizado (shortlistFee),
+// independiente del resultado del fallo.
+// ---------------------------------------------------------------------------
+
+enum ContestStatus {
+  DRAFT
+  PUBLISHED
+  SHORTLIST
+  AWARDED
+  CANCELLED
+  BREACHED
+}
+
+enum ContestApplicationStatus {
+  SUBMITTED
+  SHORTLISTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum EntryPlacement {
+  WINNER
+  FINALIST
+  PARTICIPANT
+}
+
+// Convocatoria pública creada por un cliente.
+model Contest {
+  id             String        @id @default(cuid())
+  slug           String        @unique
+  title          String
+  // Brief estructurado del ContentBlock[] (mismo patrón que
+  // PortfolioPiece.contentBlocks)
+  brief          Json?
+  // Cláusulas/condiciones del concurso (derechos, entregables, etc.)
+  terms          Json?
+  // Categorización, validada contra src/lib/projectTypes.ts
+  projectType    String?
+  projectSubtype String?
+  prizeAmount    Decimal       @db.Decimal(12, 2)
+  currency       String        @default("MXN")
+  // Fee garantizado que cobra cada finalista de la Terna, produzca o no
+  // (independiente del resultado del fallo)
+  shortlistFee   Decimal       @db.Decimal(12, 2)
+  maxApplicants  Int?
+  shortlistSize  Int           @default(5)
+  applyDeadline  DateTime
+  submitDeadline DateTime
+  resultsDate    DateTime
+  rightsPolicy   String?       @db.Text
+  status         ContestStatus @default(DRAFT)
+
+  clientId String
+  client   User   @relation("clientContests", fields: [clientId], references: [id], onDelete: Cascade)
+
+  applications ContestApplication[]
+
+  // Id del CollabProject sembrado al fallo (awardContest); null hasta entonces
+  awardedProjectId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status, applyDeadline])
+}
+
+// Postulación de un partner a una convocatoria: solo pitch + piezas de
+// portafolio YA EXISTENTES (portfolioPieceIds), sin propuesta nueva.
+model ContestApplication {
+  id        String  @id @default(cuid())
+  contestId String
+  contest   Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  partnerId String
+  partner   User    @relation("contestApplications", fields: [partnerId], references: [id], onDelete: Cascade)
+
+  pitch             String                   @db.Text
+  portfolioPieceIds String[]                 @default([])
+  status            ContestApplicationStatus @default(SUBMITTED)
+
+  entry ContestEntry?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contestId, partnerId])
+  @@index([partnerId])
+}
+
+// Propuesta real, producida solo por los finalistas de la Terna
+// (ContestApplication.status = SHORTLISTED) tras selectShortlist.
+model ContestEntry {
+  id            String             @id @default(cuid())
+  applicationId String             @unique
+  application   ContestApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Bloques estructurados del Canvas (mismo patrón que
+  // PortfolioPiece.contentBlocks)
+  contentBlocks Json?
+  coverUrl      String?
+  submittedAt   DateTime?
+  // null hasta el fallo (awardContest)
+  placement     EntryPlacement?
+  feedback      String?         @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
