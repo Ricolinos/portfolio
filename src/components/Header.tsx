@@ -48,6 +48,21 @@ const menuGroups: MenuGroup[] = [
     ],
   },
   {
+    id: "convocatorias",
+    label: "Convocatorias",
+    href: "/convocatorias",
+    suffixIcon: "chevronDown",
+    sections: [
+      {
+        links: [
+          { label: "Convocatorias recientes", href: "/convocatorias",              icon: "sparkles" },
+          { label: "Mis convocatorias",        href: "/convocatorias?vista=mias",    icon: "person"   },
+          { label: "Convocatorias cerradas",   href: "/convocatorias?vista=cerradas", icon: "check"    },
+        ],
+      },
+    ],
+  },
+  {
     id: "servicios",
     label: "Servicios",
     href: "/servicios",

@@ -60,26 +60,6 @@ export function Sidebar() {
               <Icon name="arrowUpRightFromSquare" size="s" onBackground="neutral-weak" />
             </Row>
           </SmartLink>
-          {/* Brief-hub (concursos creativos): igual patrón que el enlace a
-              Designerds arriba — un tab/sección propia fuera del feed de
-              shouts, no una categoría más de FEED_CATEGORY_SLUGS. */}
-          <SmartLink href="/convocatorias" unstyled style={{ width: "100%" }}>
-            <Row
-              fillWidth
-              vertical="center"
-              horizontal="between"
-              paddingY="12"
-              paddingX="16"
-              radius="m"
-              cursor="interactive"
-              transition="macro-medium"
-            >
-              <Row fillWidth textVariant="heading-strong-s">
-                Convocatorias
-              </Row>
-              <Icon name="arrowUpRightFromSquare" size="s" onBackground="neutral-weak" />
-            </Row>
-          </SmartLink>
         </Column>
       </RevealFx>
     </Column>

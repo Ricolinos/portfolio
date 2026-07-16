@@ -388,6 +388,26 @@ export async function getApplicationsForPartner(partnerId: string): Promise<Part
   return results;
 }
 
+// Vista "Convocatorias cerradas" (MegaMenu): terminadas con fallo (AWARDED),
+// canceladas (CANCELLED) o incumplidas (BREACHED), más recientes primero por
+// resultsDate. No incluye PUBLISHED/SHORTLIST aún no materializadas a
+// BREACHED (ver materializeContestStatus, se resuelve de forma perezosa en
+// las otras queries de lectura).
+export async function getClosedContests(): Promise<ContestSummary[]> {
+  const contests = await prisma.contest.findMany({
+    where: { status: { in: ["AWARDED", "CANCELLED", "BREACHED"] } },
+    orderBy: { resultsDate: "desc" },
+    include: { _count: { select: { applications: true } } },
+  });
+
+  const results: ContestSummary[] = [];
+  for (const contest of contests) {
+    const status = await materializeContestStatus(contest);
+    results.push(toContestSummary({ ...contest, status }, contest._count.applications));
+  }
+  return results;
+}
+
 /* ══ Guard de postulación ══════════════════════════════════════════════
    Función pura: el caller (server action) resuelve rol/postulación previa
    con sus propias queries (idealmente dentro de una transacción, para no

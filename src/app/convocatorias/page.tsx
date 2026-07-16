@@ -1,8 +1,14 @@
 import { Button, Column, Grid, Heading, Row, Text } from "@once-ui-system/core";
+import type { User } from "@/generated/prisma/client";
 import { ContestApplicationCard } from "@/components/contests/ContestApplicationCard";
 import { ContestCard } from "@/components/contests/ContestCard";
 import { ContestRecordSection } from "@/components/contests/ContestRecordSection";
-import { getApplicationsForPartner, getContestsForClient, getPublishedContests } from "@/lib/contests";
+import {
+  getApplicationsForPartner,
+  getClosedContests,
+  getContestsForClient,
+  getPublishedContests,
+} from "@/lib/contests";
 import { getOrCreateUser } from "@/lib/syncUser";
 
 export const metadata = {
@@ -13,9 +19,36 @@ export const metadata = {
 // Consulta la BD (convocatorias + rol del usuario logueado): evita congelar el fetch en build.
 export const dynamic = "force-dynamic";
 
-export default async function ContestsPage() {
+type ContestsView = "recientes" | "mias" | "cerradas";
+
+// Submenús del grupo "Convocatorias" en el MegaMenu (Header.tsx): sin ?vista
+// = recientes (comportamiento original), ?vista=mias = panel personal,
+// ?vista=cerradas = terminadas (AWARDED/CANCELLED/BREACHED).
+function resolveView(vista: string | undefined): ContestsView {
+  if (vista === "mias") return "mias";
+  if (vista === "cerradas") return "cerradas";
+  return "recientes";
+}
+
+export default async function ContestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ vista?: string }>;
+}) {
+  const { vista } = await searchParams;
+  const view = resolveView(vista);
   const dbUser = await getOrCreateUser();
 
+  return (
+    <Column fillWidth maxWidth="l" paddingY="48" paddingX="24" gap="40" horizontal="center">
+      {view === "recientes" && <RecentContestsView dbUser={dbUser} />}
+      {view === "mias" && <MyContestsView dbUser={dbUser} />}
+      {view === "cerradas" && <ClosedContestsView />}
+    </Column>
+  );
+}
+
+async function RecentContestsView({ dbUser }: { dbUser: User | null }) {
   const [published, clientContests, myApplications] = await Promise.all([
     getPublishedContests(),
     dbUser?.role === "client" ? getContestsForClient(dbUser.id) : Promise.resolve([]),
@@ -23,7 +56,7 @@ export default async function ContestsPage() {
   ]);
 
   return (
-    <Column fillWidth maxWidth="l" paddingY="48" paddingX="24" gap="40" horizontal="center">
+    <>
       <Row fillWidth horizontal="between" vertical="center" wrap gap="16">
         <Column gap="4">
           <Heading variant="display-strong-xs">Convocatorias</Heading>
@@ -86,6 +119,117 @@ export default async function ContestsPage() {
       </Column>
 
       {dbUser && <ContestRecordSection userId={dbUser.id} role={dbUser.role} />}
-    </Column>
+    </>
+  );
+}
+
+async function MyContestsView({ dbUser }: { dbUser: User | null }) {
+  if (!dbUser) {
+    return (
+      <>
+        <Column gap="4">
+          <Heading variant="display-strong-xs">Mis convocatorias</Heading>
+          <Text variant="body-default-m" onBackground="neutral-weak">
+            Inicia sesión para ver tus convocatorias o tus postulaciones.
+          </Text>
+        </Column>
+        <Button variant="primary" size="m" href="/sign-in">
+          Iniciar sesión
+        </Button>
+      </>
+    );
+  }
+
+  if (dbUser.role === "collaborator") {
+    const myApplications = await getApplicationsForPartner(dbUser.id);
+    return (
+      <>
+        <Column gap="4">
+          <Heading variant="display-strong-xs">Mis postulaciones</Heading>
+          <Text variant="body-default-m" onBackground="neutral-weak">
+            Convocatorias a las que te postulaste, con su estado más reciente.
+          </Text>
+        </Column>
+        {myApplications.length === 0 ? (
+          <Text variant="body-default-m" onBackground="neutral-weak">
+            Todavía no te has postulado a ninguna convocatoria.
+          </Text>
+        ) : (
+          <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
+            {myApplications.map((application) => (
+              <ContestApplicationCard key={application.id} application={application} />
+            ))}
+          </Grid>
+        )}
+        <ContestRecordSection userId={dbUser.id} role={dbUser.role} />
+      </>
+    );
+  }
+
+  // Cliente (o rol sin postulaciones/convocatorias propias): incluye
+  // borradores, a diferencia de la vista "Abiertas" de recientes.
+  const clientContests = await getContestsForClient(dbUser.id);
+  return (
+    <>
+      <Row fillWidth horizontal="between" vertical="center" wrap gap="16">
+        <Column gap="4">
+          <Heading variant="display-strong-xs">Mis convocatorias</Heading>
+          <Text variant="body-default-m" onBackground="neutral-weak">
+            Todas tus convocatorias, incluidos los borradores.
+          </Text>
+        </Column>
+        <Button variant="primary" size="m" prefixIcon="plus" href="/convocatorias/nueva">
+          Nueva convocatoria
+        </Button>
+      </Row>
+      {clientContests.length === 0 ? (
+        <Text variant="body-default-m" onBackground="neutral-weak">
+          Todavía no has creado ninguna convocatoria.
+        </Text>
+      ) : (
+        <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
+          {clientContests.map((contest) => (
+            <ContestCard
+              key={contest.id}
+              contest={contest}
+              client={{
+                id: dbUser.id,
+                username: dbUser.username,
+                name: dbUser.name,
+                imageUrl: dbUser.imageUrl,
+                headline: dbUser.headline,
+              }}
+            />
+          ))}
+        </Grid>
+      )}
+      <ContestRecordSection userId={dbUser.id} role={dbUser.role} />
+    </>
+  );
+}
+
+async function ClosedContestsView() {
+  const closed = await getClosedContests();
+
+  return (
+    <>
+      <Column gap="4">
+        <Heading variant="display-strong-xs">Convocatorias cerradas</Heading>
+        <Text variant="body-default-m" onBackground="neutral-weak">
+          Concursos con fallo emitido, cancelados o incumplidos.
+        </Text>
+      </Column>
+      {closed.length === 0 ? (
+        <Text variant="body-default-m" onBackground="neutral-weak">
+          Todavía no hay convocatorias cerradas.
+        </Text>
+      ) : (
+        <Grid columns="2" s={{ columns: 1 }} gap="24" fillWidth>
+          {closed.map((contest) => (
+            <ContestCard key={contest.id} contest={contest} />
+          ))}
+        </Grid>
+      )}
+    </>
   );
 }
