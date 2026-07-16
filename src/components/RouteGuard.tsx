@@ -28,6 +28,7 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
       "/servicios",
       "/ejercicios",
       "/proyectos",
+      "/convocatorias",
     ] as const;
     for (const route of dynamicRoutes) {
       if (pathname.startsWith(route) && routes[route]) {

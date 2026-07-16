@@ -305,6 +305,30 @@ export async function cancelContest(contestId: string): Promise<Result> {
 
 /* ══ Postulaciones del partner (Fase 1: solo pitch + portafolio existente) ══ */
 
+export interface MyPortfolioPieceOption {
+  id: string;
+  title: string;
+  coverUrl: string | null;
+}
+
+// Piezas propias del partner logueado, para el selector de piezas del
+// Dialog de postulación (ContestApplyDialog) — de solo lectura, no valida
+// rol (un cliente sin piezas simplemente vería la lista vacía).
+export async function getMyPortfolioPiecesForApplication(): Promise<
+  Result<{ pieces: MyPortfolioPieceOption[] }>
+> {
+  const userId = await requireAuth();
+  if (!userId) return { ok: false, error: "No autenticado" };
+
+  const pieces = await prisma.portfolioPiece.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, title: true, coverUrl: true },
+  });
+
+  return { ok: true, pieces };
+}
+
 // Solo un partner se postula, solo con piezas propias, y solo dentro de la
 // fase "applications" (valida canApplyToContest, src/lib/contests.ts).
 // Transacción con conteo fresco para no rebasar maxApplicants con

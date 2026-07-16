@@ -24,6 +24,7 @@ const routes: RoutesConfig = {
   "/ejercicios": true,
   "/proyectos": true,
   "/mensajes": true,
+  "/convocatorias": true,
   // "/about": true,
   // "/work": true,
   // "/blog": true,
