@@ -8,7 +8,6 @@ import {
   Card,
   Column,
   Grid,
-  Icon,
   InfiniteScroll,
   Media,
   RevealFx,
@@ -18,7 +17,8 @@ import {
   Text,
   TiltFx,
 } from "@once-ui-system/core";
-import { coverKindOf, extractYouTubeId, resolveCoverSrc, youtubeThumbnailUrl } from "@/lib/coverMedia";
+import { VideoCover } from "@/components/shared/VideoCover";
+import { coverKindOf, extractYouTubeId, resolveCoverSrc } from "@/lib/coverMedia";
 import { useExploreSearch } from "./SearchContext";
 
 const ALL = "Todos";
@@ -43,19 +43,6 @@ export interface Shout {
   href?: string;
 }
 
-// Overlay de "play" reutilizado sobre la miniatura de YouTube y el <video>
-// nativo (mismo patrón visual que CarouselVideoSlide, ver mdx-carousel.tsx):
-// comunica que la portada es un video sin reproducirlo dentro de la grilla.
-function PlayBadgeOverlay() {
-  return (
-    <Row position="absolute" top="0" left="0" fill horizontal="center" vertical="center" pointerEvents="none">
-      <Row radius="full" background="neutral-alpha-strong" padding="12" horizontal="center" vertical="center">
-        <Icon name="play" size="m" onBackground="neutral-strong" />
-      </Row>
-    </Row>
-  );
-}
-
 function ShoutCard({ shout }: { shout: Shout }) {
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(shout.likes);
@@ -70,44 +57,17 @@ function ShoutCard({ shout }: { shout: Shout }) {
     categories.length > 1 ? `${categories[0]} +${categories.length - 1}` : shout.category;
 
   // Portada de video (link de YouTube o archivo .mp4/data URL, ver
-  // lib/coverMedia): sin bucket de Storage no hay forma de extraer un primer
-  // frame propio, y reproducir el embed de YouTube o un <video autoPlay> en
-  // cada tarjeta de una grilla infinita sería caro (varios reproductores a
-  // la vez) — por eso se usa una miniatura ESTÁTICA con un ícono de play
-  // sobrepuesto en vez del reproductor real. YouTube tiene una miniatura
-  // oficial (img.youtube.com, sin tocar la red desde el server); un archivo
-  // .mp4 usa el propio <video> con `preload="metadata"` (sin autoplay/loop)
-  // como "poster" — el navegador pinta el primer frame decodificado sin
-  // descargar el archivo completo. GIF sí llega a <Media> tal cual: es una
-  // data URL de imagen normal, se anima sola en el <img> nativo que usa
-  // next/image por debajo.
+  // lib/coverMedia): reproduce de verdad, silenciosa y en loop en todas las
+  // tarjetas visibles de la grilla infinita (son muted, el costo de varios
+  // reproductores a la vez es aceptable — ver componente compartido
+  // VideoCover). GIF sí llega a <Media> tal cual: es una data URL de imagen
+  // normal, se anima sola en el <img> nativo que usa next/image por debajo.
   const isVideoCover = coverKindOf(shout.image) === "video";
   const coverSrc = resolveCoverSrc(shout.image);
   const youtubeId = isVideoCover ? extractYouTubeId(coverSrc) : null;
 
   const cover = isVideoCover ? (
-    <Column fillWidth radius="m" overflow="hidden" background="neutral-alpha-medium" style={{ aspectRatio: "16 / 9" }}>
-      {youtubeId ? (
-        // <img> plano (no next/image): img.youtube.com no está registrado en
-        // images.remotePatterns (next.config.mjs), solo para una miniatura.
-        // eslint-disable-next-line @next/next/no-img-element -- miniatura estática externa, no optimizable por next/image sin registrar el host.
-        <img
-          src={youtubeThumbnailUrl(youtubeId)}
-          alt={shout.title}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      ) : (
-        // eslint-disable-next-line jsx-a11y/media-has-caption -- poster estático (sin controls/autoplay), no hay contenido de audio que subtitular.
-        <video
-          src={coverSrc}
-          muted
-          playsInline
-          preload="metadata"
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      )}
-      <PlayBadgeOverlay />
-    </Column>
+    <VideoCover youtubeId={youtubeId} src={coverSrc} alt={shout.title} aspectRatio="16 / 9" />
   ) : (
     <Media
       src={coverSrc}

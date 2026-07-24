@@ -87,6 +87,26 @@ export function youtubeThumbnailUrl(youtubeId: string): string {
   return `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`;
 }
 
+// Embed no interactivo para autoplay en loop de la portada de YouTube (ver
+// componente compartido VideoCover.tsx): controls=0 + modestbranding quitan
+// la UI del player, loop=1 requiere repetir el id en `playlist` (gotcha
+// documentado de la API de YouTube: sin `playlist` el parámetro `loop` no
+// hace nada en un solo video), mute=1 es obligatorio junto con autoplay=1
+// para que el navegador permita la reproducción automática.
+export function youtubeEmbedLoopUrl(youtubeId: string): string {
+  const params = new URLSearchParams({
+    autoplay: "1",
+    mute: "1",
+    loop: "1",
+    playlist: youtubeId,
+    controls: "0",
+    modestbranding: "1",
+    playsinline: "1",
+    rel: "0",
+  });
+  return `https://www.youtube.com/embed/${youtubeId}?${params.toString()}`;
+}
+
 export function coverKindOf(coverUrl: string | null | undefined): CoverKind | null {
   if (!coverUrl) return null;
   if (coverUrl.startsWith(VIDEO_PREFIX) || isVideoDataUrl(coverUrl)) return "video";
