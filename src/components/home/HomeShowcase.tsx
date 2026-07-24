@@ -19,7 +19,8 @@ import {
 } from "@once-ui-system/core";
 import { useMemo, useState } from "react";
 import { SearchBarShell } from "@/components/explore/SearchBarShell";
-import { coverKindOf, extractYouTubeId, resolveCoverSrc, youtubeThumbnailUrl } from "@/lib/coverMedia";
+import { VideoCover } from "@/components/shared/VideoCover";
+import { coverKindOf, extractYouTubeId, resolveCoverSrc } from "@/lib/coverMedia";
 
 const SUGGESTED_SEARCHES = ["Diseño Gráfico", "Animación", "Branding"];
 
@@ -184,12 +185,9 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
     tagCategories.length > 1 ? `${tagCategories[0]} +${tagCategories.length - 1}` : project.tag;
 
   // Portada de video (link de YouTube o archivo .mp4/data URL, ver
-  // lib/coverMedia): sin Storage no hay forma de extraer un primer frame
-  // propio, y esta grilla puede mostrar varias tarjetas a la vez — se usa
-  // una miniatura ESTÁTICA (YouTube: miniatura oficial; .mp4: el propio
-  // <video preload="metadata"> como poster) con un ícono de play sobrepuesto,
-  // en vez de autoplay múltiple. GIF sí llega tal cual a <Media> (data URL de
-  // imagen, se anima solo).
+  // lib/coverMedia): reproduce de verdad, silenciosa y en loop (ver
+  // componente compartido VideoCover). GIF sí llega tal cual a <Media>
+  // (data URL de imagen, se anima solo).
   const isVideoCover = coverKindOf(project.image) === "video";
   const coverSrc = resolveCoverSrc(project.image);
   const youtubeId = isVideoCover ? extractYouTubeId(coverSrc) : null;
@@ -198,30 +196,7 @@ function ShowcaseCard({ project }: { project: ShowcasePiece }) {
     <Card fillWidth direction="column" gap="12" padding="12" radius="l" border="neutral-alpha-weak">
       <Column fillWidth radius="m" overflow="hidden">
         {isVideoCover ? (
-          <Column fillWidth background="neutral-alpha-medium" style={{ aspectRatio: "4 / 3" }}>
-            {youtubeId ? (
-              // eslint-disable-next-line @next/next/no-img-element -- miniatura estática externa (img.youtube.com no está en images.remotePatterns).
-              <img
-                src={youtubeThumbnailUrl(youtubeId)}
-                alt={project.title}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
-            ) : (
-              // eslint-disable-next-line jsx-a11y/media-has-caption -- poster estático (sin controls/autoplay), no hay audio que subtitular.
-              <video
-                src={coverSrc}
-                muted
-                playsInline
-                preload="metadata"
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
-            )}
-            <Row position="absolute" top="0" left="0" fill horizontal="center" vertical="center" pointerEvents="none">
-              <Row radius="full" background="neutral-alpha-strong" padding="12" horizontal="center" vertical="center">
-                <Icon name="play" size="m" onBackground="neutral-strong" />
-              </Row>
-            </Row>
-          </Column>
+          <VideoCover youtubeId={youtubeId} src={coverSrc} alt={project.title} aspectRatio="4 / 3" />
         ) : (
           <Animation triggerType="hover" scale={1.03} fade={1} reverse easing="ease" fillWidth>
             <Media
